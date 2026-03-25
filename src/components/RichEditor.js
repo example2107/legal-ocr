@@ -2,21 +2,7 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import './RichEditor.css';
 
 // ── Toolbar config ─────────────────────────────────────────────────────────────
-const FONTS = [
-  { label: 'Times New Roman', value: 'Times New Roman, Times, serif' },
-  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { label: 'Cambria', value: 'Cambria, Georgia, serif' },
-  { label: 'Inter Tight', value: '"Inter Tight", Inter, system-ui, sans-serif' },
-];
-
 const TOOLBAR = [
-  {
-    group: 'font',
-    items: [
-      { type: 'fontselect' },
-    ],
-  },
-  { type: 'sep' },
   {
     group: 'inline',
     items: [
@@ -221,62 +207,6 @@ export function initPdMarkOriginals(editorEl) {
   });
 }
 
-// ── Font Dropdown — custom to avoid preventDefault conflict ─────────────────────
-function FontDropdown({ editorRef, notifyChange }) {
-  const [open, setOpen] = React.useState(false);
-  const [current, setCurrent] = React.useState(FONTS[0].label);
-  const ref = React.useRef(null);
-
-  // Close on outside click
-  React.useEffect(() => {
-    if (!open) return;
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const applyFont = (font) => {
-    setCurrent(font.label);
-    setOpen(false);
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-      document.execCommand('fontName', false, font.value);
-    } else if (editorRef.current) {
-      editorRef.current.style.fontFamily = font.value;
-    }
-    notifyChange && notifyChange();
-  };
-
-  return (
-    <div ref={ref} className="font-dropdown" title="Шрифт">
-      <button
-        className="font-dropdown-btn"
-        onClick={() => setOpen(v => !v)}
-        type="button"
-      >
-        <span>{current}</span>
-        <span className="font-dropdown-arrow">▾</span>
-      </button>
-      {open && (
-        <div className="font-dropdown-menu">
-          {FONTS.map(f => (
-            <div
-              key={f.value}
-              className={'font-dropdown-item' + (current === f.label ? ' active' : '')}
-              style={{ fontFamily: f.value }}
-              onMouseDown={e => { e.preventDefault(); applyFont(f); }}
-            >
-              {f.label}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── RichEditor component ───────────────────────────────────────────────────────
 export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef }) {
   const internalRef = useRef(null);
@@ -347,9 +277,6 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
           if (entry.type === 'sep') return <div key={`sep-${i}`} className="rich-sep" />;
           return entry.items.map((item, j) => {
             if (item.type === 'select') return null; // selects removed
-            if (item.type === 'fontselect') {
-              return <FontDropdown key={`font-${i}-${j}`} editorRef={editorRef} notifyChange={notifyChange} />;
-            }
             return (
               <button
                 key={`btn-${i}-${j}`}

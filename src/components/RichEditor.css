@@ -33,86 +33,6 @@
   align-self: center;
 }
 
-/* Font select */
-.rich-select {
-  height: 30px;
-  padding: 0 22px 0 8px;
-  font-size: 12.5px;
-  font-family: var(--font-body);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238a8480' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  transition: border-color var(--tr);
-}
-.rich-select-font { min-width: 148px; }
-.rich-select:hover { border-color: var(--border2); }
-.rich-select:focus { border-color: var(--accent); }
-
-/* Font dropdown — custom component to avoid preventDefault conflict */
-.font-dropdown {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.font-dropdown-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 8px 0 10px;
-  font-size: 12.5px;
-  font-family: var(--font-body);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  white-space: nowrap;
-  min-width: 148px;
-  justify-content: space-between;
-  transition: border-color var(--tr);
-}
-
-.font-dropdown-btn:hover { border-color: var(--border2); background: var(--bg2); }
-
-.font-dropdown-arrow {
-  font-size: 10px;
-  color: var(--text3);
-  flex-shrink: 0;
-}
-
-.font-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 180px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  z-index: 200;
-  overflow: hidden;
-}
-
-.font-dropdown-item {
-  padding: 9px 14px;
-  font-size: 14px;
-  color: var(--text);
-  cursor: pointer;
-  transition: background var(--tr);
-}
-
-.font-dropdown-item:hover { background: var(--accent-light); }
-.font-dropdown-item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
-
 /* Buttons */
 .rich-btn {
   width: 30px;
@@ -139,13 +59,7 @@
 .rich-icon svg { width: 15px; height: 15px; }
 
 /* ── Editor content ── */
-/*
-  Ширина текстовой колонки A4 при печати:
-  A4 = 210mm. Поля: левое 25mm, правое 25mm → текст = 160mm.
-  При 96dpi: 160mm * 96 / 25.4 = 605px.
-  Используем 605px — ровно столько же занимает текст в PDF.
-  Шрифт Literata 15px с line-height 1.7 — возвращаем как было.
-*/
+/* Times New Roman 14px in editor = 14pt in PDF/DOCX → identical line breaks */
 .rich-content {
   flex: 1;
   min-height: 500px;
@@ -154,8 +68,8 @@
   max-width: 685px;
   padding: 28px 40px;
   margin: 0 auto;
-  font-family: var(--font-doc);
-  font-size: 15px;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 14px;
   line-height: 1.7;
   color: var(--text);
   outline: none;
@@ -166,9 +80,9 @@
 
 .rich-content:focus { outline: none; }
 
-.rich-content h1 { font-size: 18px; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; font-family: var(--font-doc); }
-.rich-content h2 { font-size: 16px; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; font-family: var(--font-doc); }
-.rich-content h3 { font-size: 15px; font-weight: 600; margin: 0; font-family: var(--font-doc); }
+.rich-content h1 { font-size: 14px; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; font-family: 'Times New Roman', Times, serif; }
+.rich-content h2 { font-size: 14px; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; font-family: 'Times New Roman', Times, serif; }
+.rich-content h3 { font-size: 14px; font-weight: 600; margin: 0; font-family: 'Times New Roman', Times, serif; }
 /* No space between paragraphs — like Google Docs "remove space before/after paragraph" */
 .rich-content div { min-height: 1.7em; margin: 0; padding: 0; }
 .rich-content p { text-indent: 1.5em; margin: 0; padding: 0; }

@@ -296,12 +296,15 @@ export default function App() {
         if (node.nodeType === 3) {
           const text = node.textContent;
           if (!text) return;
+          // Always include Times New Roman 14pt (28 half-points) as base font
+          const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
           const rPr = [
+            fontProps,
             bold ? '<w:b/><w:bCs/>' : '',
             italic ? '<w:i/><w:iCs/>' : '',
             underline ? '<w:u w:val="single"/>' : '',
           ].join('');
-          runs += `<w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
+          runs += `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
         } else if (node.nodeType === 1) {
           const tag = node.tagName?.toUpperCase() || '';
           const b = bold || tag === 'STRONG' || tag === 'B';
@@ -328,7 +331,7 @@ export default function App() {
       const pPr = `<w:pPr><w:jc w:val="${align}"/><w:spacing w:after="0" w:before="0"/></w:pPr>`;
 
       let rStyle = '';
-      if (tag === 'H1') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr>';
+      if (tag === 'H1') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>';
       else if (tag === 'H2') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>';
       else if (tag === 'H3') rStyle = '<w:rPr><w:b/><w:bCs/></w:rPr>';
 
@@ -404,23 +407,21 @@ ${paras}
 
     const printHtml = `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"/><title>${docTitle}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Literata:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet"/>
 <style>
   /* A4: 210mm wide, margins 25mm each side → text = 160mm */
+  /* Times New Roman 14pt matches editor (14px) so line breaks are identical */
   @page { size: A4; margin: 20mm 25mm; }
   body {
-    font-family: 'Literata', Georgia, serif;
-    font-size: 11.25pt; /* 15px at 96dpi = 11.25pt */
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 14pt;
     line-height: 1.7;
     color: #000;
     margin: 0;
-    /* Exactly 160mm wide = same as editor 605px at 96dpi */
     width: 160mm;
   }
-  h1 { font-size: 13.5pt; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; }
-  h2 { font-size: 12pt; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; }
-  h3 { font-size: 11.25pt; font-weight: 600; margin: 0; }
+  h1 { font-size: 14pt; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; }
+  h2 { font-size: 14pt; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; }
+  h3 { font-size: 14pt; font-weight: 600; margin: 0; }
   div { min-height: 1.7em; margin: 0; padding: 0; }
   p { text-indent: 1.5em; margin: 0; padding: 0; }
   hr { border: none; border-top: 1px solid #ccc; margin: 6pt 0; }
