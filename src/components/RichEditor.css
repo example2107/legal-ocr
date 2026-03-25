@@ -6,7 +6,7 @@
   flex: 1;
 }
 
-/* ── Toolbar — sticky below app header + title row ── */
+/* ── Toolbar — sticky below header (60px) + title row (~49px) ── */
 .rich-toolbar {
   display: flex;
   align-items: center;
@@ -16,12 +16,10 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   position: sticky;
-  /* header=60px + title-row=53px = 113px */
-  top: 113px;
+  top: 109px;
   z-index: 50;
   flex-shrink: 0;
-  /* Prevent toolbar from overlapping text */
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .rich-sep {
@@ -32,30 +30,6 @@
   flex-shrink: 0;
   align-self: center;
 }
-
-/* Selects */
-.rich-select {
-  height: 30px;
-  padding: 0 22px 0 8px;
-  font-size: 12.5px;
-  font-family: var(--font-body);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238a8480' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  min-width: 130px;
-  transition: border-color var(--tr);
-}
-.rich-select-sm { min-width: 52px; }
-.rich-select:hover { border-color: var(--border2); }
-.rich-select:focus { border-color: var(--accent); }
 
 /* Buttons */
 .rich-btn {
@@ -83,35 +57,39 @@
 .rich-icon svg { width: 15px; height: 15px; }
 
 /* ── Editor content ── */
-/* Fixed width to match PDF text column (A4, 25mm margins, 96dpi ≈ 650px)      */
-/* Same font as PDF (Times New Roman 12pt = 16px) so line breaks match exactly  */
+/*
+  Ширина текстовой колонки A4 при печати:
+  A4 = 210mm. Поля: левое 25mm, правое 25mm → текст = 160mm.
+  При 96dpi: 160mm * 96 / 25.4 = 605px.
+  Используем 605px — ровно столько же занимает текст в PDF.
+  Шрифт Literata 15px с line-height 1.7 — возвращаем как было.
+*/
 .rich-content {
   flex: 1;
   min-height: 500px;
-  width: 650px;
+  width: 605px;
   flex-shrink: 0;
-  padding: 32px 0;
-  margin: 0 auto;
-  font-family: 'Times New Roman', Times, serif;
-  font-size: 16px;
-  line-height: 1.75;
+  padding: 28px 0;
+  /* No side margin so card width = text width = no dead space */
+  font-family: var(--font-doc);
+  font-size: 15px;
+  line-height: 1.7;
   color: var(--text);
   outline: none;
   caret-color: var(--accent);
   -webkit-spell-check: true;
 }
 
-/* Spellcheck — make browser underlines visible */
 .rich-content:focus { outline: none; }
 
-.rich-content h1 { font-size: 19px; font-weight: 700; text-align: center; margin: 20px 0 10px; line-height: 1.3; font-family: 'Times New Roman', Times, serif; }
-.rich-content h2 { font-size: 17px; font-weight: 600; text-align: center; margin: 16px 0 8px; line-height: 1.3; font-family: 'Times New Roman', Times, serif; }
-.rich-content h3 { font-size: 16px; font-weight: 600; margin: 14px 0 6px; font-family: 'Times New Roman', Times, serif; }
-.rich-content div { min-height: 1.75em; }
+.rich-content h1 { font-size: 18px; font-weight: 700; text-align: center; margin: 18px 0 8px; line-height: 1.3; font-family: var(--font-doc); }
+.rich-content h2 { font-size: 16px; font-weight: 600; text-align: center; margin: 14px 0 6px; line-height: 1.3; font-family: var(--font-doc); }
+.rich-content h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; font-family: var(--font-doc); }
+.rich-content div { min-height: 1.7em; }
 .rich-content p { text-indent: 1.5em; margin: 0; }
-.rich-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.rich-content hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 .rich-content ol, .rich-content ul { padding-left: 2em; margin: 6px 0; }
-.rich-content li { min-height: 1.75em; }
+.rich-content li { min-height: 1.7em; }
 
 /* ── Uncertain marks ── */
 .rich-content mark.uncertain {
@@ -151,23 +129,7 @@
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-  .rich-toolbar {
-    top: 60px;
-    padding: 4px 8px;
-    gap: 1px;
-  }
-  .rich-content {
-    width: 100%;
-    padding: 20px 16px;
-    font-size: 15px;
-    min-height: 350px;
-    box-sizing: border-box;
-  }
+  .rich-toolbar { top: 60px; padding: 4px 8px; gap: 1px; }
+  .rich-content { width: 100%; padding: 20px 16px; font-size: 14px; min-height: 350px; box-sizing: border-box; }
   .rich-btn { width: 28px; height: 28px; }
-  .rich-select { height: 28px; font-size: 12px; min-width: 100px; }
-  .rich-select-sm { min-width: 46px; }
-}
-
-@media (max-width: 480px) {
-  .rich-select:not(.rich-select-sm) { min-width: 80px; }
 }

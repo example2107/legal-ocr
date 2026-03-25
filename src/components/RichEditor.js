@@ -4,26 +4,6 @@ import './RichEditor.css';
 // ── Toolbar config ─────────────────────────────────────────────────────────────
 const TOOLBAR = [
   {
-    group: 'block',
-    items: [
-      { type: 'select', id: 'formatBlock', options: [
-        { label: 'Обычный текст', value: 'div' },
-        { label: 'Заголовок 1', value: 'h1' },
-        { label: 'Заголовок 2', value: 'h2' },
-        { label: 'Заголовок 3', value: 'h3' },
-      ]},
-      { type: 'select', id: 'fontSize', small: true, options: [
-        { label: '10', value: '1' },
-        { label: '12', value: '2' },
-        { label: '14', value: '3' },
-        { label: '16', value: '4' },
-        { label: '18', value: '5' },
-        { label: '24', value: '6' },
-      ]},
-    ],
-  },
-  { type: 'sep' },
-  {
     group: 'inline',
     items: [
       { cmd: 'bold',      icon: 'B', title: 'Жирный (Ctrl+B)',       style: { fontWeight: 700 } },
@@ -296,19 +276,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         {TOOLBAR.map((entry, i) => {
           if (entry.type === 'sep') return <div key={`sep-${i}`} className="rich-sep" />;
           return entry.items.map((item, j) => {
-            if (item.type === 'select') {
-              return (
-                <select
-                  key={`sel-${i}-${j}`}
-                  className={`rich-select ${item.small ? 'rich-select-sm' : ''}`}
-                  title={item.id === 'formatBlock' ? 'Стиль абзаца' : 'Размер шрифта'}
-                  onChange={e => exec(item.id, e.target.value)}
-                  defaultValue={item.id === 'fontSize' ? '3' : 'div'}
-                >
-                  {item.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              );
-            }
+            if (item.type === 'select') return null; // selects removed
             return (
               <button
                 key={`btn-${i}-${j}`}

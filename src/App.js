@@ -287,14 +287,24 @@ export default function App() {
 
     const printHtml = `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"/><title>${docTitle}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet"/>
 <style>
-  @page { margin: 20mm 25mm; size: A4; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; line-height: 1.75; margin: 0; }
-  h1, h2 { text-align: center; font-family: 'Times New Roman', Times, serif; }
-  h1 { font-size: 15pt; margin: 16pt 0 8pt; }
-  h2 { font-size: 13pt; margin: 12pt 0 6pt; }
-  h3 { font-size: 12pt; font-weight: bold; margin: 10pt 0 4pt; }
-  div { min-height: 1em; }
+  /* A4: 210mm wide, margins 25mm each side → text = 160mm */
+  @page { size: A4; margin: 20mm 25mm; }
+  body {
+    font-family: 'Literata', Georgia, serif;
+    font-size: 11.25pt; /* 15px at 96dpi = 11.25pt */
+    line-height: 1.7;
+    color: #000;
+    margin: 0;
+    /* Exactly 160mm wide = same as editor 605px at 96dpi */
+    width: 160mm;
+  }
+  h1 { font-size: 13.5pt; font-weight: 700; text-align: center; margin: 14pt 0 6pt; line-height: 1.3; }
+  h2 { font-size: 12pt; font-weight: 600; text-align: center; margin: 10pt 0 5pt; line-height: 1.3; }
+  h3 { font-size: 11.25pt; font-weight: 600; margin: 9pt 0 3pt; }
+  div { min-height: 1.7em; }
   p { text-indent: 1.5em; margin: 0; }
   hr { border: none; border-top: 1px solid #ccc; margin: 10pt 0; }
   ol, ul { padding-left: 2em; }
