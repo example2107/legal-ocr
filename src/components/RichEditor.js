@@ -1,7 +1,7 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import './RichEditor.css';
 
-// ── Toolbar config ────────────────────────────────────────────────────────────
+// ── Toolbar config ─────────────────────────────────────────────────────────────
 const TOOLBAR = [
   {
     group: 'block',
@@ -26,9 +26,9 @@ const TOOLBAR = [
   {
     group: 'inline',
     items: [
-      { cmd: 'bold',      icon: 'B',  title: 'Жирный (Ctrl+B)',        style: { fontWeight: 700 } },
-      { cmd: 'italic',    icon: 'I',  title: 'Курсив (Ctrl+I)',         style: { fontStyle: 'italic' } },
-      { cmd: 'underline', icon: 'U',  title: 'Подчёркнутый (Ctrl+U)',   style: { textDecoration: 'underline' } },
+      { cmd: 'bold',      icon: 'B', title: 'Жирный (Ctrl+B)',       style: { fontWeight: 700 } },
+      { cmd: 'italic',    icon: 'К', title: 'Курсив (Ctrl+I)',        style: { fontStyle: 'italic' } },
+      { cmd: 'underline', icon: 'П', title: 'Подчёркнутый (Ctrl+U)', style: { textDecoration: 'underline' } },
     ],
   },
   { type: 'sep' },
@@ -45,8 +45,8 @@ const TOOLBAR = [
   {
     group: 'lists',
     items: [
-      { cmd: 'insertOrderedList',   svg: 'list-ol',  title: 'Нумерованный список' },
-      { cmd: 'insertUnorderedList', svg: 'list-ul',  title: 'Маркированный список' },
+      { cmd: 'insertOrderedList',   svg: 'list-ol', title: 'Нумерованный список' },
+      { cmd: 'insertUnorderedList', svg: 'list-ul', title: 'Маркированный список' },
     ],
   },
   { type: 'sep' },
@@ -66,7 +66,7 @@ const TOOLBAR = [
   },
 ];
 
-// SVG icons
+// ── SVG icons ──────────────────────────────────────────────────────────────────
 const ICONS = {
   'align-left': (
     <svg viewBox="0 0 16 16" fill="currentColor">
@@ -100,16 +100,15 @@ const ICONS = {
       <path d="M2 13.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
     </svg>
   ),
+  // New indent icons: simple arrows with lines
   'outdent': (
     <svg viewBox="0 0 16 16" fill="currentColor">
-      <path fillRule="evenodd" d="M3 8a.5.5 0 0 1 .5-.5h6.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H3.5A.5.5 0 0 1 3 8z"/>
-      <path fillRule="evenodd" d="M12.5 4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM2 4a.5.5 0 0 1 .5.5v3.248l1.303-1.303a.5.5 0 0 1 .707.708L2.354 9.096a.5.5 0 0 1-.708 0L-.001 7.15a.5.5 0 1 1 .707-.707l1.294 1.293V4.5A.5.5 0 0 1 2 4z"/>
+      <path d="M2 2.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0 11a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm3-5.5a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 0 1h-8a.5.5 0 0 1-.5-.5zM1.646 6.646l2-2a.5.5 0 0 1 .708.708L2.707 7l1.647 1.646a.5.5 0 0 1-.708.708l-2-2a.5.5 0 0 1 0-.708z"/>
     </svg>
   ),
   'indent': (
     <svg viewBox="0 0 16 16" fill="currentColor">
-      <path fillRule="evenodd" d="M3 8a.5.5 0 0 1 .5-.5h6.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H3.5A.5.5 0 0 1 3 8z"/>
-      <path fillRule="evenodd" d="M12.5 4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM2 4a.5.5 0 0 1 .5.5v3.248l1.303-1.303a.5.5 0 0 1 .707.708L2.354 9.096a.5.5 0 0 1-.708 0L.001 7.15a.5.5 0 1 1 .707-.707L2 7.736V4.5A.5.5 0 0 1 2 4z"/>
+      <path d="M2 2.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0 11a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm5-5.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5zM1.646 9.354l2 2a.5.5 0 0 0 .708-.708L2.707 9l1.647-1.646a.5.5 0 0 0-.708-.708l-2 2a.5.5 0 0 0 0 .708z"/>
     </svg>
   ),
   'clear-format': (
@@ -120,115 +119,40 @@ const ICONS = {
   ),
 };
 
-// ── Convert markdown text → HTML ──────────────────────────────────────────────
-export function markdownToHtml(text) {
-  if (!text) return '';
-  const lines = text.split('\n');
-  let html = '';
-  for (const line of lines) {
-    if (line.startsWith('## ')) {
-      html += `<h2>${esc(line.slice(3))}</h2>`;
-    } else if (line.startsWith('### ')) {
-      html += `<h3>${esc(line.slice(4))}</h3>`;
-    } else if (line === '---') {
-      html += '<hr/>';
-    } else if (!line.trim()) {
-      html += '<div><br/></div>';
-    } else {
-      const content = esc(line).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      html += `<div>${content}</div>`;
-    }
-  }
-  return html;
-}
-
-// Get plain text from editor HTML
-export function htmlToPlainText(html) {
-  if (!html) return '';
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return tmp.innerText || tmp.textContent || '';
-}
-
+// ── Helpers ────────────────────────────────────────────────────────────────────
 function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-// ── Build HTML with PD marks injected ─────────────────────────────────────────
-export function buildAnnotatedHtml(rawText, personalData, anonymized) {
-  if (!rawText) return '';
-
-  const { persons = [], otherPD = [] } = personalData;
-
-  // Build highlight list
-  const marks = [];
-  for (const p of persons) {
-    for (const mention of (p.mentions || [p.fullName])) {
-      if (mention && mention.length > 1) {
-        marks.push({ txt: mention, type: 'person', cat: p.category, id: p.id, letter: p.letter });
-      }
-    }
-  }
-  for (const it of otherPD) {
-    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement });
-  }
-  marks.sort((a, b) => b.txt.length - a.txt.length);
-
-  // Convert line by line
-  const lines = rawText.split('\n');
-  let html = '';
-  for (const line of lines) {
-    if (line.startsWith('## ')) {
-      html += `<h2>${annotLine(line.slice(3), marks, anonymized)}</h2>`;
-    } else if (line.startsWith('### ')) {
-      html += `<h3>${annotLine(line.slice(4), marks, anonymized)}</h3>`;
-    } else if (line === '---') {
-      html += '<hr/>';
-    } else if (!line.trim()) {
-      html += '<div><br/></div>';
-    } else {
-      html += `<div>${annotLine(line, marks, anonymized)}</div>`;
-    }
-  }
-  return html;
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function applyBold(html) {
+  return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
 
 function annotLine(text, marks, anonymized) {
   const patterns = [
     '⚠️\\[(НЕТОЧНО: [^\\]]*|НЕЧИТАЕМО)\\]',
     ...marks.map(m => escRe(m.txt)),
   ];
-
   let re;
-  try { re = new RegExp(patterns.join('|'), 'g'); }
-  catch { return applyBold(esc(text)); }
+  try { re = new RegExp(patterns.join('|'), 'g'); } catch { return applyBold(esc(text)); }
 
-  let out = '';
-  let last = 0;
-  let match;
-
+  let out = '', last = 0, match;
   while ((match = re.exec(text)) !== null) {
     if (match.index > last) out += applyBold(esc(text.slice(last, match.index)));
     const mt = match[0];
-
     if (mt.startsWith('⚠️[')) {
       const inner = mt.slice(3, -1);
       const isUnread = inner === 'НЕЧИТАЕМО';
-      const tip = isUnread ? 'Текст не удалось распознать' : 'Возможно неточное распознавание — проверьте вручную';
-      out += `<mark class="uncertain${isUnread ? ' unreadable' : ''}" title="${tip}">${isUnread ? '[НЕЧИТАЕМО]' : esc(inner.replace('НЕТОЧНО: ', ''))}</mark>`;
+      out += `<mark class="uncertain${isUnread ? ' unreadable' : ''}" title="${isUnread ? 'Текст не удалось распознать' : 'Возможно неточное распознавание'}">${isUnread ? '[НЕЧИТАЕМО]' : esc(inner.replace('НЕТОЧНО: ', ''))}</mark>`;
     } else {
       const hl = marks.find(m => m.txt === mt);
       if (hl) {
         const isAnon = !!anonymized[hl.id];
         const display = isAnon ? (hl.type === 'person' ? hl.letter : hl.replacement) : esc(mt);
         const cat = hl.type === 'person' ? (hl.cat === 'private' ? 'priv' : 'prof') : 'oth';
-        const tip = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
-        out += `<mark class="pd ${cat}${isAnon ? ' anon' : ''}" data-pd-id="${hl.id}" title="${tip}">${display}</mark>`;
+        out += `<mark class="pd ${cat}${isAnon ? ' anon' : ''}" data-pd-id="${hl.id}" title="${isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить'}">${display}</mark>`;
       } else {
         out += applyBold(esc(mt));
       }
@@ -239,40 +163,88 @@ function annotLine(text, marks, anonymized) {
   return out;
 }
 
-function applyBold(html) {
-  return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+// ── Build full annotated HTML from rawText (used only on first load) ───────────
+export function buildAnnotatedHtml(rawText, personalData, anonymized) {
+  if (!rawText) return '';
+  const { persons = [], otherPD = [] } = personalData;
+  const marks = [];
+  for (const p of persons) {
+    for (const mention of (p.mentions || [p.fullName])) {
+      if (mention && mention.length > 1)
+        marks.push({ txt: mention, type: 'person', cat: p.category, id: p.id, letter: p.letter });
+    }
+  }
+  for (const it of otherPD) {
+    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement });
+  }
+  marks.sort((a, b) => b.txt.length - a.txt.length);
+
+  return rawText.split('\n').map(line => {
+    if (line.startsWith('## ')) return `<h2>${annotLine(line.slice(3), marks, anonymized)}</h2>`;
+    if (line.startsWith('### ')) return `<h3>${annotLine(line.slice(4), marks, anonymized)}</h3>`;
+    if (line === '---') return '<hr/>';
+    if (!line.trim()) return '<div><br/></div>';
+    return `<div>${annotLine(line, marks, anonymized)}</div>`;
+  }).join('');
+}
+
+export function htmlToPlainText(html) {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.innerText || tmp.textContent || '';
+}
+
+// ── Patch existing PD marks in DOM without rebuilding entire HTML ──────────────
+// This is the key fix: instead of replacing innerHTML, we surgically update
+// only the <mark data-pd-id="..."> elements that changed.
+export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
+  if (!editorEl) return;
+  const marks = editorEl.querySelectorAll(`mark[data-pd-id="${id}"]`);
+  marks.forEach(mark => {
+    const wasAnon = mark.classList.contains('anon');
+    if (isAnon && !wasAnon) {
+      // Anonymize: replace text content with letter/replacement, add anon class
+      mark.textContent = letter || replacement || '?';
+      mark.classList.add('anon');
+      mark.title = 'Нажмите, чтобы показать';
+    } else if (!isAnon && wasAnon) {
+      // De-anonymize: restore original text, remove anon class
+      mark.textContent = mark.dataset.original || mark.textContent;
+      mark.classList.remove('anon');
+      mark.title = 'Нажмите, чтобы обезличить';
+    }
+  });
+}
+
+// Store original text on marks when editor is initialized
+export function initPdMarkOriginals(editorEl) {
+  if (!editorEl) return;
+  editorEl.querySelectorAll('mark[data-pd-id]').forEach(mark => {
+    if (!mark.dataset.original) {
+      mark.dataset.original = mark.textContent;
+    }
+  });
 }
 
 // ── RichEditor component ───────────────────────────────────────────────────────
-export function RichEditor({ html, onHtmlChange, onPdClick }) {
-  const editorRef = useRef(null);
+export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef }) {
+  const internalRef = useRef(null);
+  const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
   const isComposing = useRef(false);
 
-  // Sync HTML into editor when it changes from outside (new doc loaded, anonymize click)
+  // Only set innerHTML when html prop changes from OUTSIDE (new doc, not user typing)
   useEffect(() => {
     if (!editorRef.current) return;
+    // Only update DOM if content truly differs (avoids cursor jump on every keystroke)
     if (html !== lastHtml.current) {
-      // Save selection position
-      const sel = window.getSelection();
-      const hadFocus = editorRef.current.contains(document.activeElement) || document.activeElement === editorRef.current;
-
       editorRef.current.innerHTML = html || '';
       lastHtml.current = html || '';
-
-      // Restore focus if editor was focused
-      if (hadFocus) {
-        editorRef.current.focus();
-        try {
-          const range = document.createRange();
-          range.selectNodeContents(editorRef.current);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch {}
-      }
+      // Store originals for de-anonymization
+      initPdMarkOriginals(editorRef.current);
     }
-  }, [html]);
+  }, [html, editorRef]);
 
   const notifyChange = useCallback(() => {
     if (!editorRef.current) return;
@@ -281,18 +253,19 @@ export function RichEditor({ html, onHtmlChange, onPdClick }) {
       lastHtml.current = current;
       onHtmlChange?.(current);
     }
-  }, [onHtmlChange]);
+  }, [onHtmlChange, editorRef]);
 
   const exec = useCallback((cmd, value = null) => {
     editorRef.current?.focus();
     document.execCommand(cmd, false, value);
     notifyChange();
-  }, [notifyChange]);
+  }, [notifyChange, editorRef]);
 
   const handleClick = useCallback((e) => {
     const mark = e.target.closest('mark[data-pd-id]');
     if (mark) {
       e.preventDefault();
+      e.stopPropagation();
       onPdClick?.(mark.dataset.pdId);
     }
   }, [onPdClick]);
@@ -306,7 +279,6 @@ export function RichEditor({ html, onHtmlChange, onPdClick }) {
 
   return (
     <div className="rich-editor-wrap">
-      {/* Toolbar */}
       <div className="rich-toolbar" onMouseDown={e => e.preventDefault()}>
         {TOOLBAR.map((entry, i) => {
           if (entry.type === 'sep') return <div key={`sep-${i}`} className="rich-sep" />;
@@ -320,9 +292,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick }) {
                   onChange={e => exec(item.id, e.target.value)}
                   defaultValue={item.id === 'fontSize' ? '3' : 'div'}
                 >
-                  {item.options.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
+                  {item.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               );
             }
@@ -343,14 +313,12 @@ export function RichEditor({ html, onHtmlChange, onPdClick }) {
         })}
       </div>
 
-      {/* Editor surface */}
       <div
         ref={editorRef}
         className="rich-content"
         contentEditable
         suppressContentEditableWarning
-        spellCheck={true}
-        lang="ru"
+        spellCheck="true"
         onInput={() => { if (!isComposing.current) notifyChange(); }}
         onCompositionStart={() => { isComposing.current = true; }}
         onCompositionEnd={() => { isComposing.current = false; notifyChange(); }}

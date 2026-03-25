@@ -1,11 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePastedText } from './utils/claudeApi';
-import { RichEditor, buildAnnotatedHtml, htmlToPlainText } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, htmlToPlainText, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
-// ── Letter assignment ──────────────────────────────────────────────────────────
 const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩ'.split('');
 const makeProfletter = (n) => `[ФИО ${n}]`;
 
@@ -26,60 +25,46 @@ const VIEW_HOME = 'home';
 const VIEW_PROCESSING = 'processing';
 const VIEW_RESULT = 'result';
 
-// ── App ────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState(VIEW_HOME);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
 
-  // Upload / paste
   const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pastedText, setPastedText] = useState('');
 
-  // Processing
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
 
-  // Current document
   const [docId, setDocId] = useState(null);
   const [docTitle, setDocTitle] = useState('');
   const [rawText, setRawText] = useState('');
-  const [editorHtml, setEditorHtml] = useState(''); // what the RichEditor holds
+  // editorHtml is only used for initial load and save/export — NOT rebuilt on every anonymize
+  const [editorHtml, setEditorHtml] = useState('');
   const [personalData, setPersonalData] = useState({ persons: [], otherPD: [] });
+  // anonymized: { [id]: bool }
   const [anonymized, setAnonymized] = useState({});
   const [lastSavedState, setLastSavedState] = useState(null);
 
-  // UI
   const [history, setHistory] = useState([]);
   const [copied, setCopied] = useState(false);
   const [showUnsaved, setShowUnsaved] = useState(false);
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
 
+  // Direct ref to the editor DOM element — used for DOM patching
+  const editorDomRef = useRef(null);
+
   useEffect(() => { setHistory(loadHistory()); }, []);
   const refreshHistory = () => setHistory(loadHistory());
 
-  // ── Rebuild editor HTML whenever anonymized changes ──────────────────────────
-  // We keep rawText as source of truth for the recognizer output,
-  // but re-render annotations when user clicks a PD mark.
-  // If the user has edited the text manually, we rebuild from editorHtml plain text.
-  const rebuildEditorHtml = useCallback((pd, anon, base) => {
-    const annotated = buildAnnotatedHtml(base, pd, anon);
-    setEditorHtml(annotated);
-  }, []);
-
   // ── Dirty check ──────────────────────────────────────────────────────────────
-  const snapshotRef = useRef('');
   const isDirty = () => {
-    if (!lastSavedState) return editorHtml.length > 0;
-    return snapshotRef.current !== lastSavedState;
+    if (!lastSavedState) return !!editorDomRef.current?.innerHTML;
+    return JSON.stringify(anonymized) !== lastSavedState;
   };
-
-  useEffect(() => {
-    snapshotRef.current = JSON.stringify({ editorHtml, anonymized });
-  }, [editorHtml, anonymized]);
 
   // ── Navigation ────────────────────────────────────────────────────────────────
   const goHome = () => {
@@ -102,10 +87,20 @@ export default function App() {
     refreshHistory();
   };
 
-  const handleUnsavedSave = () => { handleSave(); setShowUnsaved(false); if (pendingNavRef.current === 'home') doGoHome(); pendingNavRef.current = null; };
-  const handleUnsavedDiscard = () => { setShowUnsaved(false); if (pendingNavRef.current === 'home') doGoHome(); pendingNavRef.current = null; };
+  const handleUnsavedSave = () => {
+    handleSave();
+    setShowUnsaved(false);
+    if (pendingNavRef.current === 'home') doGoHome();
+    pendingNavRef.current = null;
+  };
 
-  // ── File handling ─────────────────────────────────────────────────────────────
+  const handleUnsavedDiscard = () => {
+    setShowUnsaved(false);
+    if (pendingNavRef.current === 'home') doGoHome();
+    pendingNavRef.current = null;
+  };
+
+  // ── Files ─────────────────────────────────────────────────────────────────────
   const handleFiles = useCallback((newFiles) => {
     const valid = Array.from(newFiles).filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
     if (valid.length !== newFiles.length) setError('Поддерживаются только изображения (JPG, PNG, WEBP) и PDF');
@@ -126,10 +121,9 @@ export default function App() {
 
     try {
       let result;
-
       if (pasteMode) {
         setProgress({ percent: 10, message: 'Анализ текста...' });
-        result = await analyzePastedText(pastedText, apiKey.trim(), (p) => {
+        result = await analyzePastedText(pastedText, apiKey.trim(), p => {
           setProgress({ percent: p.stage === 'done' ? 100 : 60, message: p.message });
         });
       } else {
@@ -146,7 +140,7 @@ export default function App() {
             allImages.push(await imageFileToBase64(file));
           }
         }
-        result = await recognizeDocument(allImages, apiKey.trim(), (p) => {
+        result = await recognizeDocument(allImages, apiKey.trim(), p => {
           if (p.stage === 'ocr') setProgress({ percent: 25 + Math.round((p.current / p.total) * 60), message: p.message });
           else if (p.stage === 'analysis') setProgress({ percent: 90, message: p.message });
           else setProgress({ percent: 100, message: 'Готово!' });
@@ -154,20 +148,21 @@ export default function App() {
       }
 
       const pd = assignLetters(result.personalData);
-      const id = generateId();
-      const title = pasteMode ? `Текст от ${formatDate(new Date())}` : (files[0]?.name || `Документ от ${formatDate(new Date())}`);
-      const html = buildAnnotatedHtml(result.text, pd, {});
+      const initialAnon = {};
+      const html = buildAnnotatedHtml(result.text, pd, initialAnon);
+      const title = pasteMode
+        ? `Текст от ${formatDate(new Date())}`
+        : (files[0]?.name || `Документ от ${formatDate(new Date())}`);
 
-      setDocId(id);
+      setDocId(generateId());
       setDocTitle(title);
       setRawText(result.text);
       setEditorHtml(html);
       setPersonalData(pd);
-      setAnonymized({});
+      setAnonymized(initialAnon);
       setLastSavedState(null);
 
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
-
     } catch (err) {
       setError(err.message || 'Произошла ошибка');
       setView(VIEW_HOME);
@@ -177,68 +172,106 @@ export default function App() {
 
   // ── Load from history ─────────────────────────────────────────────────────────
   const loadDoc = (entry) => {
+    const pd = entry.personalData || { persons: [], otherPD: [] };
+    const anon = entry.anonymized || {};
+    const html = buildAnnotatedHtml(entry.text || '', pd, anon);
+
     setDocId(entry.id);
     setDocTitle(entry.title);
     setRawText(entry.text || '');
-    setPersonalData(entry.personalData || { persons: [], otherPD: [] });
-    setAnonymized(entry.anonymized || {});
-    // Rebuild annotated HTML
-    const html = buildAnnotatedHtml(
-      entry.text || '',
-      entry.personalData || { persons: [], otherPD: [] },
-      entry.anonymized || {}
-    );
     setEditorHtml(entry.editedHtml || html);
-    const snap = JSON.stringify({ editorHtml: entry.editedHtml || html, anonymized: entry.anonymized || {} });
-    setLastSavedState(snap);
-    snapshotRef.current = snap;
+    setPersonalData(pd);
+    setAnonymized(anon);
+    setLastSavedState(JSON.stringify(anon));
     setView(VIEW_RESULT);
   };
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   const handleSave = () => {
-    saveDocument({ id: docId, title: docTitle, text: rawText, editedHtml: editorHtml, personalData, anonymized, source: pasteMode ? 'paste' : 'ocr' });
-    const snap = JSON.stringify({ editorHtml, anonymized });
-    setLastSavedState(snap);
-    snapshotRef.current = snap;
+    const currentHtml = editorDomRef.current?.innerHTML || editorHtml;
+    saveDocument({
+      id: docId,
+      title: docTitle,
+      text: rawText,
+      editedHtml: currentHtml,
+      personalData,
+      anonymized,
+      source: pasteMode ? 'paste' : 'ocr',
+    });
+    setLastSavedState(JSON.stringify(anonymized));
     refreshHistory();
   };
 
-  // ── Anonymize (click on PD mark inside editor) ────────────────────────────────
+  // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
   const handlePdClick = useCallback((id) => {
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
-      // Rebuild HTML with new anonymization — use current plain text as base
-      // but preserve rawText for re-annotation
-      const html = buildAnnotatedHtml(rawText, personalData, next);
-      setEditorHtml(html);
+      const isAnon = next[id];
+
+      // Find what letter/replacement to use
+      const person = personalData.persons?.find(p => p.id === id);
+      const otherItem = personalData.otherPD?.find(it => it.id === id);
+      const letter = person?.letter;
+      const replacement = otherItem?.replacement;
+
+      // Patch DOM without rebuilding — preserves all user edits
+      patchPdMarks(editorDomRef.current, id, isAnon, letter, replacement);
+
+      // Sync state for save/export
+      if (editorDomRef.current) {
+        setEditorHtml(editorDomRef.current.innerHTML);
+      }
+
       return next;
     });
-  }, [rawText, personalData]);
+  }, [personalData]);
 
-  const anonymizeAllByCategory = (category) => {
+  const anonymizeAllByCategory = useCallback((category) => {
     setAnonymized(prev => {
-      const newAnon = { ...prev };
       const { persons = [], otherPD = [] } = personalData;
+      const newAnon = { ...prev };
+
+      let items;
       if (category === 'private' || category === 'professional') {
-        const items = persons.filter(p => p.category === category);
-        const allAnon = items.every(p => newAnon[p.id]);
-        items.forEach(p => { newAnon[p.id] = !allAnon; });
+        items = persons.filter(p => p.category === category);
       } else {
-        const items = otherPD.filter(p => p.type === category);
-        const allAnon = items.every(p => newAnon[p.id]);
-        items.forEach(p => { newAnon[p.id] = !allAnon; });
+        items = otherPD.filter(p => p.type === category);
       }
-      const html = buildAnnotatedHtml(rawText, personalData, newAnon);
-      setEditorHtml(html);
+
+      const allAnon = items.every(p => newAnon[p.id]);
+      const targetState = !allAnon;
+
+      items.forEach(item => {
+        newAnon[item.id] = targetState;
+        const person = persons.find(p => p.id === item.id);
+        const otherItem = otherPD.find(it => it.id === item.id);
+        patchPdMarks(
+          editorDomRef.current,
+          item.id,
+          targetState,
+          person?.letter,
+          otherItem?.replacement
+        );
+      });
+
+      if (editorDomRef.current) {
+        setEditorHtml(editorDomRef.current.innerHTML);
+      }
+
       return newAnon;
     });
-  };
+  }, [personalData]);
+
+  // After editor renders with new html, store originals for de-anonymize
+  const handleEditorHtmlChange = useCallback((html) => {
+    setEditorHtml(html);
+  }, []);
 
   // ── Export ────────────────────────────────────────────────────────────────────
-  const getExportHtml = () => editorHtml;
-
-  const getExportText = () => htmlToPlainText(editorHtml);
+  const getExportText = () => {
+    const html = editorDomRef.current?.innerHTML || editorHtml;
+    return htmlToPlainText(html);
+  };
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(getExportText());
@@ -247,31 +280,26 @@ export default function App() {
   };
 
   const handleDownloadPdf = () => {
-    // Use the styled HTML from the editor for PDF
-    const content = editorHtml
-      .replace(/<mark class="pd[^"]*" data-pd-id="[^"]*"[^>]*>/g, '<span class="pd-export">')
+    const content = (editorDomRef.current?.innerHTML || editorHtml)
+      .replace(/<mark class="pd[^"]*"[^>]*>/g, '<span class="pd-export">')
       .replace(/<mark class="uncertain[^"]*"[^>]*>/g, '<span class="uncertain-export">')
       .replace(/<\/mark>/g, '</span>');
 
     const printHtml = `<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8"/>
-<title>${docTitle}</title>
+<html lang="ru"><head><meta charset="utf-8"/><title>${docTitle}</title>
 <style>
   @page { margin: 20mm 25mm; }
   body { font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; line-height: 1.8; }
-  h1 { font-size: 16pt; text-align: center; margin: 18pt 0 8pt; }
-  h2 { font-size: 14pt; text-align: center; margin: 14pt 0 6pt; }
+  h1,h2 { text-align: center; }
+  h1 { font-size: 16pt; margin: 18pt 0 8pt; }
+  h2 { font-size: 14pt; margin: 14pt 0 6pt; }
   h3 { font-size: 12pt; margin: 10pt 0 4pt; }
   div { min-height: 1em; }
   hr { border: none; border-top: 1px solid #ccc; margin: 12pt 0; }
   .pd-export { font-weight: bold; }
-  .uncertain-export { border-bottom: 1px dashed #999; }
-</style>
-</head>
-<body>${content}</body>
-</html>`;
+  .uncertain-export { text-decoration: underline dotted; }
+</style></head>
+<body>${content}</body></html>`;
 
     const w = window.open('', '_blank', 'width=800,height=900');
     if (!w) { alert('Разрешите всплывающие окна для скачивания PDF'); return; }
@@ -281,21 +309,18 @@ export default function App() {
     setTimeout(() => w.print(), 500);
   };
 
-  // ── Derived data ──────────────────────────────────────────────────────────────
-  const isProcessing = view === VIEW_PROCESSING;
+  // ── Derived ───────────────────────────────────────────────────────────────────
   const privatePersons = personalData.persons?.filter(p => p.category === 'private') || [];
   const profPersons = personalData.persons?.filter(p => p.category === 'professional') || [];
   const otherPD = personalData.otherPD || [];
   const pdTypeGroups = otherPD.reduce((acc, it) => { (acc[it.type] = acc[it.type] || []).push(it); return acc; }, {});
   const pdTypeLabels = { address: 'Адреса', phone: 'Телефоны', passport: 'Паспортные данные', inn: 'ИНН', snils: 'СНИЛС', card: 'Карты/счета', email: 'Email', dob: 'Даты рождения', other: 'Прочее' };
-
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
 
   // ══════════════════════════════════════════════════════════════════════════════
   return (
     <div className="app">
 
-      {/* ── HEADER ── */}
       <header className="header">
         <div className="header-inner">
           <div className="logo" onClick={view !== VIEW_HOME ? goHome : undefined} style={view !== VIEW_HOME ? { cursor: 'pointer' } : {}}>
@@ -306,15 +331,12 @@ export default function App() {
             </div>
           </div>
           <div className="header-right">
-            {view === VIEW_RESULT && (
-              <button className="btn-tool" onClick={goHome}>← Главная</button>
-            )}
+            {view === VIEW_RESULT && <button className="btn-tool" onClick={goHome}>← Главная</button>}
             <div className="header-badge">Данные в браузере</div>
           </div>
         </div>
       </header>
 
-      {/* ── UNSAVED MODAL ── */}
       {showUnsaved && (
         <div className="modal-overlay">
           <div className="modal">
@@ -334,7 +356,6 @@ export default function App() {
         {/* ════ HOME ════ */}
         {view === VIEW_HOME && (
           <>
-            {/* API Key */}
             <section className="card api-card">
               <div className="card-label">API ключ Claude</div>
               <div className="api-input-wrap">
@@ -355,7 +376,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* Mode tabs */}
             <section className="card upload-card">
               <div className="mode-tabs">
                 <button className={`mode-tab ${!pasteMode ? 'active' : ''}`} onClick={() => { setPasteMode(false); setError(null); }}>📄 Загрузить файл</button>
@@ -373,7 +393,7 @@ export default function App() {
                   >
                     <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
                     <div className="dropzone-icon">📄</div>
-                    <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br/><span>или нажмите для выбора</span></div>
+                    <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
                     <div className="dropzone-hint">JPG, PNG, WEBP, PDF — любой размер</div>
                   </div>
                   {files.length > 0 && (
@@ -392,7 +412,7 @@ export default function App() {
               ) : (
                 <div className="paste-area">
                   <div className="card-label" style={{ marginBottom: 8 }}>Вставьте готовый текст документа</div>
-                  <textarea className="paste-textarea" placeholder="Вставьте сюда текст для анализа и обезличивания..." value={pastedText} onChange={e => setPastedText(e.target.value)} rows={10} />
+                  <textarea className="paste-textarea" placeholder="Вставьте текст для анализа и обезличивания..." value={pastedText} onChange={e => setPastedText(e.target.value)} rows={10} />
                   <div className="paste-hint">Персональные данные будут найдены и выделены автоматически</div>
                 </div>
               )}
@@ -408,7 +428,6 @@ export default function App() {
               {pasteMode ? 'Анализировать текст' : 'Распознать документ'}
             </button>
 
-            {/* History */}
             {history.length > 0 && (
               <section className="history-section">
                 <div className="history-header">
@@ -457,11 +476,10 @@ export default function App() {
         {view === VIEW_RESULT && (
           <div className="result-area">
 
-            {/* PD Panel */}
             {hasPD && (
               <aside className="pd-panel">
                 <div className="pd-panel-title">Персональные данные</div>
-                <div className="pd-hint">Нажмите на выделенный текст в документе или на строку ниже для обезличивания</div>
+                <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
 
                 {privatePersons.length > 0 && (
                   <div className="pd-group">
@@ -520,16 +538,14 @@ export default function App() {
                 ))}
 
                 <div className="pd-legend">
-                  <div className="pd-legend-item"><mark className="pd-mark pd-person pd-cat-private" style={{cursor:'default'}}>А</mark> — частное лицо</div>
-                  <div className="pd-legend-item"><mark className="pd-mark pd-person pd-cat-professional" style={{cursor:'default', fontSize:'11px'}}>[ФИО 1]</mark> — проф. участник</div>
+                  <div className="pd-legend-item"><mark className="pd-mark pd-cat-private" style={{ cursor: 'default' }}>А</mark> — частное лицо</div>
+                  <div className="pd-legend-item"><mark className="pd-mark pd-cat-professional" style={{ cursor: 'default', fontSize: '11px' }}>[ФИО 1]</mark> — проф. участник</div>
                   <div className="pd-legend-item"><span style={{ borderBottom: '2px dashed #f0c040', paddingBottom: '1px', fontSize: '12px' }}>текст</span> — неточное распознавание</div>
                 </div>
               </aside>
             )}
 
-            {/* Document card */}
             <div className="doc-card">
-              {/* Title row */}
               <div className="doc-title-row">
                 <input
                   className="doc-title-input"
@@ -545,11 +561,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Editor — always shown, no toggle */}
               <RichEditor
                 html={editorHtml}
-                onHtmlChange={setEditorHtml}
+                onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
+                editorRef={editorDomRef}
               />
             </div>
 
