@@ -422,8 +422,8 @@ ${paras}
   h1 { font-size: 14pt; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; }
   h2 { font-size: 14pt; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; }
   h3 { font-size: 14pt; font-weight: 600; margin: 0; }
-  div { min-height: 1.7em; margin: 0; padding: 0; }
-  p { text-indent: 1.5em; margin: 0; padding: 0; }
+  div { min-height: 1.7em; margin: 0; padding: 0; text-align: justify; }
+  p { text-indent: 1.5em; margin: 0; padding: 0; text-align: justify; }
   hr { border: none; border-top: 1px solid #ccc; margin: 6pt 0; }
   ol, ul { padding-left: 2em; }
   .pd-export { font-weight: bold; }
