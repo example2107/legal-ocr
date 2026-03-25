@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePastedText } from './utils/claudeApi';
-import { RichEditor, buildAnnotatedHtml, htmlToPlainText, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
@@ -270,11 +270,6 @@ export default function App() {
   }, []);
 
   // ── Export ────────────────────────────────────────────────────────────────────
-  const getExportText = () => {
-    const html = editorDomRef.current?.innerHTML || editorHtml;
-    return htmlToPlainText(html);
-  };
-
 
   // Generate .docx by building the XML directly (no external library needed)
   const handleDownloadDocx = async () => {
