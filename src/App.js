@@ -288,14 +288,16 @@ export default function App() {
     const printHtml = `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"/><title>${docTitle}</title>
 <style>
-  @page { margin: 20mm 25mm; }
-  body { font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; line-height: 1.8; }
-  h1,h2 { text-align: center; }
-  h1 { font-size: 16pt; margin: 18pt 0 8pt; }
-  h2 { font-size: 14pt; margin: 14pt 0 6pt; }
-  h3 { font-size: 12pt; margin: 10pt 0 4pt; }
+  @page { margin: 20mm 25mm; size: A4; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; line-height: 1.75; margin: 0; }
+  h1, h2 { text-align: center; font-family: 'Times New Roman', Times, serif; }
+  h1 { font-size: 15pt; margin: 16pt 0 8pt; }
+  h2 { font-size: 13pt; margin: 12pt 0 6pt; }
+  h3 { font-size: 12pt; font-weight: bold; margin: 10pt 0 4pt; }
   div { min-height: 1em; }
-  hr { border: none; border-top: 1px solid #ccc; margin: 12pt 0; }
+  p { text-indent: 1.5em; margin: 0; }
+  hr { border: none; border-top: 1px solid #ccc; margin: 10pt 0; }
+  ol, ul { padding-left: 2em; }
   .pd-export { font-weight: bold; }
   .uncertain-export { text-decoration: underline dotted; }
 </style></head>

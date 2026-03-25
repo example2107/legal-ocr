@@ -256,7 +256,20 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
   }, [onHtmlChange, editorRef]);
 
   const exec = useCallback((cmd, value = null) => {
-    editorRef.current?.focus();
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+
+    // If nothing is selected and command needs a selection (formatBlock, fontSize),
+    // select all content in the current block so the command applies
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount === 0) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
     document.execCommand(cmd, false, value);
     notifyChange();
   }, [notifyChange, editorRef]);

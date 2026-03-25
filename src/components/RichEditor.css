@@ -83,20 +83,20 @@
 .rich-icon svg { width: 15px; height: 15px; }
 
 /* ── Editor content ── */
+/* Fixed width to match PDF text column (A4, 25mm margins, 96dpi ≈ 650px)      */
+/* Same font as PDF (Times New Roman 12pt = 16px) so line breaks match exactly  */
 .rich-content {
   flex: 1;
   min-height: 500px;
-  /* A4 at 96dpi ≈ 794px wide, with 25mm margins → text ≈ 650px */
-  /* We use 700px max to match typical PDF output width */
-  width: 100%;
-  max-width: 760px;
-  padding: 32px 40px;
-  font-family: var(--font-doc);
-  font-size: 14px;
-  line-height: 1.85;
+  width: 650px;
+  flex-shrink: 0;
+  padding: 32px 0;
+  margin: 0 auto;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 16px;
+  line-height: 1.75;
   color: var(--text);
   outline: none;
-  overflow-y: auto;
   caret-color: var(--accent);
   -webkit-spell-check: true;
 }
@@ -104,14 +104,14 @@
 /* Spellcheck — make browser underlines visible */
 .rich-content:focus { outline: none; }
 
-.rich-content h1 { font-size: 20px; font-weight: 700; text-align: center; margin: 20px 0 10px; line-height: 1.3; font-family: var(--font-doc); }
-.rich-content h2 { font-size: 17px; font-weight: 600; text-align: center; margin: 16px 0 8px; line-height: 1.3; font-family: var(--font-doc); }
-.rich-content h3 { font-size: 15px; font-weight: 600; margin: 14px 0 6px; font-family: var(--font-doc); }
-.rich-content div { min-height: 1.85em; }
+.rich-content h1 { font-size: 19px; font-weight: 700; text-align: center; margin: 20px 0 10px; line-height: 1.3; font-family: 'Times New Roman', Times, serif; }
+.rich-content h2 { font-size: 17px; font-weight: 600; text-align: center; margin: 16px 0 8px; line-height: 1.3; font-family: 'Times New Roman', Times, serif; }
+.rich-content h3 { font-size: 16px; font-weight: 600; margin: 14px 0 6px; font-family: 'Times New Roman', Times, serif; }
+.rich-content div { min-height: 1.75em; }
 .rich-content p { text-indent: 1.5em; margin: 0; }
 .rich-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .rich-content ol, .rich-content ul { padding-left: 2em; margin: 6px 0; }
-.rich-content li { min-height: 1.85em; }
+.rich-content li { min-height: 1.75em; }
 
 /* ── Uncertain marks ── */
 .rich-content mark.uncertain {
@@ -152,11 +152,17 @@
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .rich-toolbar {
-    top: 60px; /* on mobile title row wraps, adjust */
+    top: 60px;
     padding: 4px 8px;
     gap: 1px;
   }
-  .rich-content { padding: 20px 16px; font-size: 14px; min-height: 350px; }
+  .rich-content {
+    width: 100%;
+    padding: 20px 16px;
+    font-size: 15px;
+    min-height: 350px;
+    box-sizing: border-box;
+  }
   .rich-btn { width: 28px; height: 28px; }
   .rich-select { height: 28px; font-size: 12px; min-width: 100px; }
   .rich-select-sm { min-width: 46px; }
