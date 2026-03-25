@@ -675,7 +675,7 @@ ${paras}
                 <div className="pd-legend">
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-private" style={{ cursor: 'default' }}>А</mark> — частное лицо</div>
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-professional" style={{ cursor: 'default', fontSize: '11px' }}>[ФИО 1]</mark> — проф. участник</div>
-                  <div className="pd-legend-item"><span style={{ borderBottom: '2px dashed #f0c040', paddingBottom: '1px', fontSize: '12px' }}>текст</span> — неточное распознавание</div>
+                  <div className="pd-legend-item"><span style={{ borderBottom: '3px double #f57c00', paddingBottom: '1px', fontSize: '12px', color: '#4a3000' }}>текст</span> — неточное распознавание</div>
                 </div>
               </aside>
             )}

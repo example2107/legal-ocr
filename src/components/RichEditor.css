@@ -95,15 +95,15 @@
 /* ── Uncertain marks ── */
 .rich-content mark.uncertain {
   background: none;
-  color: inherit;
-  border-bottom: 2px dashed var(--yellow-border);
+  color: #4a3000;
+  border-bottom: 3px double #f57c00;
   padding: 0 1px;
   cursor: help;
   border-radius: 0;
 }
 .rich-content mark.uncertain.unreadable {
-  border-bottom-color: #e08080;
-  color: var(--red);
+  color: #c0392b;
+  border-bottom: 3px double #c0392b;
   font-style: italic;
 }
 
