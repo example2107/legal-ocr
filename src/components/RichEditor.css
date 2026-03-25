@@ -1,48 +1,85 @@
+/* ── Wrapper ── */
 .rich-editor-wrap {
   display: flex;
   flex-direction: column;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--surface);
-  transition: border-color var(--tr, .18s ease);
+  min-height: 0;
+  flex: 1;
 }
 
-.rich-editor-wrap:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
-}
-
-/* Toolbar */
+/* ── Toolbar ── */
 .rich-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 2px;
-  padding: 6px 10px;
-  background: var(--bg2);
+  padding: 6px 12px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
-}
-
-.rich-btn {
-  width: 30px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  color: var(--text2);
-  border-radius: 4px;
-  cursor: pointer;
-  background: none;
-  border: 1px solid transparent;
-  font-family: var(--font-body);
-  transition: all .15s ease;
+  position: sticky;
+  top: 0;
+  z-index: 10;
   flex-shrink: 0;
 }
 
-.rich-btn:hover {
+.rich-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* Selects */
+.rich-select {
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  font-family: var(--font-body);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238a8480' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 22px;
+  min-width: 130px;
+  transition: border-color var(--tr);
+}
+
+.rich-select-sm {
+  min-width: 52px;
+}
+
+.rich-select:hover { border-color: var(--border2); }
+.rich-select:focus { border-color: var(--accent); outline: none; }
+
+/* Buttons */
+.rich-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text2);
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all .12s ease;
+  flex-shrink: 0;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+.rich-btn:hover {
+  background: var(--bg3);
   border-color: var(--border);
   color: var(--text);
 }
@@ -53,87 +90,135 @@
   color: var(--accent);
 }
 
-.rich-sep {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  margin: 0 4px;
-  flex-shrink: 0;
+.rich-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
 }
 
-.rich-select {
-  height: 28px;
-  padding: 0 6px;
-  font-size: 12px;
-  font-family: var(--font-body);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  outline: none;
+.rich-icon svg {
+  width: 15px;
+  height: 15px;
 }
 
-.rich-select-sm { width: 56px; }
-
-/* Content area */
+/* ── Editor content area ── */
 .rich-content {
   flex: 1;
-  min-height: 400px;
-  padding: 24px 32px;
+  min-height: 500px;
+  padding: 32px 40px;
   font-family: var(--font-doc);
   font-size: 15px;
-  line-height: 1.8;
+  line-height: 1.85;
   color: var(--text);
   outline: none;
   overflow-y: auto;
+  caret-color: var(--accent);
 }
 
-.rich-content.read-only {
-  cursor: default;
-  background: var(--bg);
-}
-
-.rich-content h1 { font-size: 20px; font-weight: 700; text-align: center; margin: 16px 0 8px; }
-.rich-content h2 { font-size: 17px; font-weight: 600; text-align: center; margin: 14px 0 6px; }
-.rich-content h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; }
-.rich-content div { min-height: 1.8em; }
+/* Headings inside editor */
+.rich-content h1 { font-size: 20px; font-weight: 700; text-align: center; margin: 20px 0 10px; line-height: 1.3; font-family: var(--font-doc); }
+.rich-content h2 { font-size: 17px; font-weight: 600; text-align: center; margin: 16px 0 8px; line-height: 1.3; font-family: var(--font-doc); }
+.rich-content h3 { font-size: 15px; font-weight: 600; margin: 14px 0 6px; font-family: var(--font-doc); }
+.rich-content div { min-height: 1.85em; }
 .rich-content p { text-indent: 1.5em; margin: 0; }
 .rich-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.rich-content ol, .rich-content ul { padding-left: 2em; margin: 6px 0; }
+.rich-content li { min-height: 1.85em; }
 
-.rich-content ol, .rich-content ul {
-  padding-left: 2em;
-  margin: 8px 0;
+/* ── Uncertain / unrecognized marks ── */
+.rich-content mark.uncertain {
+  background: none;
+  color: inherit;
+  border-bottom: 2px dashed var(--yellow-border);
+  padding: 0 1px;
+  cursor: help;
+  border-radius: 0;
 }
 
-/* Personal data marks inside editor */
-.rich-content mark.pd-mark {
-  padding: 1px 4px;
+.rich-content mark.uncertain.unreadable {
+  border-bottom-color: #e08080;
+  color: var(--red);
+  font-style: italic;
+}
+
+/* ── Personal data marks ── */
+.rich-content mark.pd {
+  padding: 1px 5px;
   border-radius: 3px;
   cursor: pointer;
   font-weight: 500;
   border: 1px solid transparent;
+  transition: filter .12s ease, transform .12s ease;
+  display: inline;
 }
 
-.rich-content mark.uncertain {
-  border-bottom: 2px dashed var(--yellow-border);
-  cursor: help;
+.rich-content mark.pd:hover {
+  filter: brightness(.92);
+  transform: translateY(-1px);
 }
 
-@media (max-width: 600px) {
+.rich-content mark.pd.priv {
+  background: var(--pd-private-light);
+  color: var(--pd-private);
+  border-color: #dbc8f0;
+}
+
+.rich-content mark.pd.prof {
+  background: var(--pd-prof-light);
+  color: var(--pd-prof);
+  border-color: #b8ded8;
+}
+
+.rich-content mark.pd.oth {
+  background: #fff8e6;
+  color: #8a6020;
+  border-color: #f0d890;
+}
+
+.rich-content mark.pd.anon {
+  font-weight: 700;
+  font-size: .95em;
+  letter-spacing: .01em;
+}
+
+.rich-content mark.pd.priv.anon { background: var(--pd-private); color: #fff; border-color: var(--pd-private); }
+.rich-content mark.pd.prof.anon { background: var(--pd-prof); color: #fff; border-color: var(--pd-prof); }
+.rich-content mark.pd.oth.anon  { background: var(--yellow); color: #fff; border-color: var(--yellow); }
+
+/* Spell-check red underline (browser built-in, but we reinforce) */
+.rich-content [spellcheck="true"]:focus {
+  outline: none;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
   .rich-content {
-    padding: 16px;
+    padding: 20px 16px;
     font-size: 14px;
-    min-height: 300px;
+    min-height: 350px;
   }
 
   .rich-toolbar {
-    padding: 4px 6px;
+    padding: 4px 8px;
+    gap: 1px;
   }
 
   .rich-btn {
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .rich-select {
+    height: 28px;
     font-size: 12px;
+    min-width: 110px;
+  }
+}
+
+@media (max-width: 480px) {
+  .rich-select:not(.rich-select-sm) {
+    min-width: 90px;
   }
 }
