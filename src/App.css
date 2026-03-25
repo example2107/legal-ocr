@@ -210,6 +210,8 @@ a { color: var(--accent); }
 .doc-card {
   flex: 1;
   min-width: 0;
+  /* Cap card width so it doesn't stretch across full screen */
+  max-width: 800px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -217,7 +219,6 @@ a { color: var(--accent); }
   overflow: visible;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
 }
 
 .doc-title-row {
