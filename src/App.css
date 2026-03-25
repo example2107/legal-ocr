@@ -208,11 +208,8 @@ a { color: var(--accent); }
    DOCUMENT CARD
    ============================ */
 .doc-card {
-  /* Width = editor content (605px) + card padding (0) — no dead space */
-  width: fit-content;
-  min-width: min(605px, 100%);
   flex: 1;
-  max-width: 100%;
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -220,6 +217,7 @@ a { color: var(--accent); }
   overflow: visible;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
 }
 
 .doc-title-row {
@@ -233,6 +231,8 @@ a { color: var(--accent); }
   position: sticky;
   top: 60px;
   z-index: 51;
+  width: 100%;
+  box-sizing: border-box;
   box-shadow: 0 1px 0 var(--border);
 }
 .doc-title-input { flex: 1; min-width: 160px; font-size: 15px; font-weight: 600; font-family: var(--font-doc); border: 1px solid transparent; background: transparent; color: var(--text); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); }
