@@ -2,7 +2,21 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import './RichEditor.css';
 
 // ── Toolbar config ─────────────────────────────────────────────────────────────
+const FONTS = [
+  { label: 'Times New Roman', value: 'Times New Roman, Times, serif' },
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Cambria', value: 'Cambria, Georgia, serif' },
+  { label: 'Inter Tight', value: '"Inter Tight", Inter, system-ui, sans-serif' },
+];
+
 const TOOLBAR = [
+  {
+    group: 'font',
+    items: [
+      { type: 'fontselect' },
+    ],
+  },
+  { type: 'sep' },
   {
     group: 'inline',
     items: [
@@ -277,6 +291,21 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
           if (entry.type === 'sep') return <div key={`sep-${i}`} className="rich-sep" />;
           return entry.items.map((item, j) => {
             if (item.type === 'select') return null; // selects removed
+            if (item.type === 'fontselect') {
+              return (
+                <select
+                  key={`font-${i}-${j}`}
+                  className="rich-select rich-select-font"
+                  title="Шрифт"
+                  onChange={e => exec('fontName', e.target.value)}
+                  defaultValue="Times New Roman, Times, serif"
+                >
+                  {FONTS.map(f => (
+                    <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+                  ))}
+                </select>
+              );
+            }
             return (
               <button
                 key={`btn-${i}-${j}`}

@@ -5,7 +5,7 @@ import { RichEditor, buildAnnotatedHtml, htmlToPlainText, patchPdMarks, initPdMa
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
-const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩ'.split('');
+const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩ'.split('').map(l => l + '.');
 const makeProfletter = (n) => `[ФИО ${n}]`;
 
 function assignLetters(personalData) {
@@ -49,8 +49,8 @@ export default function App() {
   const [lastSavedState, setLastSavedState] = useState(null);
 
   const [history, setHistory] = useState([]);
-  const [copied, setCopied] = useState(false);
   const [showUnsaved, setShowUnsaved] = useState(false);
+  const [savedMsg, setSavedMsg] = useState(false);
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
 
@@ -200,6 +200,8 @@ export default function App() {
     });
     setLastSavedState(JSON.stringify(anonymized));
     refreshHistory();
+    setSavedMsg(true);
+    setTimeout(() => setSavedMsg(false), 2500);
   };
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
@@ -273,10 +275,112 @@ export default function App() {
     return htmlToPlainText(html);
   };
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(getExportText());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+
+  // Generate and download .docx using docx library loaded from CDN
+  const handleDownloadDocx = async () => {
+    // Load docx library dynamically from CDN if not already loaded
+    if (!window.docx) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js';
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    }
+    const { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Packer } = window.docx;
+
+    const html = editorDomRef.current?.innerHTML || editorHtml;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+
+    const paragraphs = [];
+    const nodes = tmp.childNodes;
+
+    const getAlignment = (el) => {
+      const style = el.style?.textAlign || '';
+      if (style === 'center' || el.tagName === 'H1' || el.tagName === 'H2') return AlignmentType.CENTER;
+      if (style === 'right') return AlignmentType.RIGHT;
+      if (style === 'justify') return AlignmentType.JUSTIFIED;
+      return AlignmentType.JUSTIFIED;
+    };
+
+    const nodeToRuns = (el) => {
+      const runs = [];
+      const walk = (node) => {
+        if (node.nodeType === 3) {
+          if (node.textContent) runs.push(new TextRun({ text: node.textContent }));
+        } else if (node.nodeType === 1) {
+          const tag = node.tagName?.toUpperCase();
+          const isBold = tag === 'STRONG' || tag === 'B';
+          const isItalic = tag === 'EM' || tag === 'I';
+          const isUnder = tag === 'U';
+          const isMark = tag === 'MARK';
+          for (const child of node.childNodes) {
+            if (child.nodeType === 3 && child.textContent) {
+              runs.push(new TextRun({
+                text: child.textContent,
+                bold: isBold,
+                italics: isItalic,
+                underline: isUnder ? {} : undefined,
+              }));
+            } else {
+              walk(child);
+            }
+          }
+        }
+      };
+      walk(el);
+      return runs.length ? runs : [new TextRun({ text: '' })];
+    };
+
+    for (const node of nodes) {
+      if (node.nodeType !== 1) continue;
+      const tag = node.tagName?.toUpperCase();
+      if (tag === 'HR') {
+        paragraphs.push(new Paragraph({ text: '─'.repeat(40), alignment: AlignmentType.CENTER }));
+        continue;
+      }
+      if (tag === 'H1') {
+        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, children: nodeToRuns(node) }));
+        continue;
+      }
+      if (tag === 'H2') {
+        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER, children: nodeToRuns(node) }));
+        continue;
+      }
+      if (tag === 'H3') {
+        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_3, children: nodeToRuns(node) }));
+        continue;
+      }
+      const text = node.innerText || '';
+      if (!text.trim() && !node.innerHTML.includes('<br')) {
+        paragraphs.push(new Paragraph({ text: '' }));
+        continue;
+      }
+      paragraphs.push(new Paragraph({
+        alignment: getAlignment(node),
+        children: nodeToRuns(node),
+        spacing: { after: 0, before: 0 },
+      }));
+    }
+
+    const doc = new Document({
+      sections: [{
+        properties: {
+          page: { margin: { top: 1134, bottom: 1134, left: 1418, right: 1418 } }, // 20mm top/bottom, 25mm left/right
+        },
+        children: paragraphs,
+      }],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (docTitle || 'документ').replace(/\.pdf$/, '') + '.docx';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleDownloadPdf = () => {
@@ -301,12 +405,12 @@ export default function App() {
     /* Exactly 160mm wide = same as editor 605px at 96dpi */
     width: 160mm;
   }
-  h1 { font-size: 13.5pt; font-weight: 700; text-align: center; margin: 14pt 0 6pt; line-height: 1.3; }
-  h2 { font-size: 12pt; font-weight: 600; text-align: center; margin: 10pt 0 5pt; line-height: 1.3; }
-  h3 { font-size: 11.25pt; font-weight: 600; margin: 9pt 0 3pt; }
-  div { min-height: 1.7em; }
-  p { text-indent: 1.5em; margin: 0; }
-  hr { border: none; border-top: 1px solid #ccc; margin: 10pt 0; }
+  h1 { font-size: 13.5pt; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; }
+  h2 { font-size: 12pt; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; }
+  h3 { font-size: 11.25pt; font-weight: 600; margin: 0; }
+  div { min-height: 1.7em; margin: 0; padding: 0; }
+  p { text-indent: 1.5em; margin: 0; padding: 0; }
+  hr { border: none; border-top: 1px solid #ccc; margin: 6pt 0; }
   ol, ul { padding-left: 2em; }
   .pd-export { font-weight: bold; }
   .uncertain-export { text-decoration: underline dotted; }
@@ -348,6 +452,11 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* ── SAVE TOAST ── */}
+      {savedMsg && (
+        <div className="save-toast">✓ Документ сохранён</div>
+      )}
 
       {showUnsaved && (
         <div className="modal-overlay">
@@ -568,7 +677,7 @@ export default function App() {
                 />
                 <div className="doc-title-actions">
                   <button className="btn-tool btn-save" onClick={handleSave}>💾 Сохранить</button>
-                  <button className="btn-tool" onClick={handleCopy}>{copied ? '✓ Скопировано' : '📋 Копировать'}</button>
+                  <button className="btn-tool" onClick={handleDownloadDocx}>⬇ DOCX</button>
                   <button className="btn-tool" onClick={handleDownloadPdf}>⬇ PDF</button>
                 </div>
               </div>

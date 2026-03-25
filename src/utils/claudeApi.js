@@ -138,6 +138,27 @@ export async function analyzePastedText(text, apiKey, onProgress) {
   return await analyzePD(text, apiKey, onProgress);
 }
 
+const PROMPT_SPELL = `Проверь орфографию и грамматику в тексте юридического документа на русском языке.
+
+Найди слова которые:
+1. Написаны с ошибкой (неправильная орфография)
+2. Не существуют в русском языке (артефакты OCR: случайные символы, бессмысленные сочетания букв)
+3. Явно искажены при распознавании (например "зарегиcтрировано" вместо "зарегистрировано")
+
+НЕ отмечай: имена собственные, аббревиатуры, специальные юридические термины, числа, даты.
+
+Верни ТОЛЬКО JSON без markdown:
+{
+  "misspelled": [
+    {"wrong": "точное неправильное слово из текста", "correct": "правильный вариант или null если не знаешь"}
+  ]
+}
+
+Если ошибок нет — верни: {"misspelled": []}
+
+Текст:
+`;
+
 async function analyzePD(fullText, apiKey, onProgress) {
   onProgress({ stage: 'analysis', current: 0, total: 1, message: 'Анализ персональных данных...' });
 
@@ -155,6 +176,32 @@ async function analyzePD(fullText, apiKey, onProgress) {
     console.warn('PD parse error', e);
   }
 
+  // Spell check pass
+  onProgress({ stage: 'analysis', current: 0, total: 1, message: 'Проверка орфографии...' });
+  let annotatedText = fullText;
+  try {
+    const textForSpell = fullText.length > 6000 ? fullText.slice(0, 6000) + '\n...' : fullText;
+    const spellRaw = await callApi(
+      [{ role: 'user', content: PROMPT_SPELL + textForSpell }],
+      apiKey,
+      null
+    );
+    const m2 = spellRaw.match(/\{[\s\S]*\}/);
+    if (m2) {
+      const { misspelled = [] } = JSON.parse(m2[0]);
+      // Wrap each misspelled word in uncertain marker (only if not already wrapped)
+      for (const item of misspelled) {
+        if (!item.wrong || item.wrong.length < 2) continue;
+        const escaped = item.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`(?<!⚠️\\[НЕТОЧНО: )\\b${escaped}\\b`, 'g');
+        const hint = item.correct ? `НЕТОЧНО: ${item.correct}` : 'НЕТОЧНО: проверьте слово';
+        annotatedText = annotatedText.replace(re, `⚠️[${hint}]`);
+      }
+    }
+  } catch (e) {
+    console.warn('Spell check error', e);
+  }
+
   onProgress({ stage: 'done', current: 1, total: 1, message: 'Готово!' });
-  return { text: fullText, personalData };
+  return { text: annotatedText, personalData };
 }
