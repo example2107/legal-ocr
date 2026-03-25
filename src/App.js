@@ -276,114 +276,132 @@ export default function App() {
   };
 
 
-  // Generate and download .docx using docx library loaded from CDN
+  // Generate .docx by building the XML directly (no external library needed)
   const handleDownloadDocx = async () => {
-    // Load docx library dynamically from CDN if not already loaded
-    if (!window.docx) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js';
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    }
-    const { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Packer } = window.docx;
-
     const html = editorDomRef.current?.innerHTML || editorHtml;
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
 
-    const paragraphs = [];
-    const nodes = tmp.childNodes;
+    // Convert HTML nodes to OOXML paragraphs
+    const esc = (s) => String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-    const getAlignment = (el) => {
-      const style = el.style?.textAlign || '';
-      if (style === 'center' || el.tagName === 'H1' || el.tagName === 'H2') return AlignmentType.CENTER;
-      if (style === 'right') return AlignmentType.RIGHT;
-      if (style === 'justify') return AlignmentType.JUSTIFIED;
-      return AlignmentType.JUSTIFIED;
+    const getAlign = (el) => {
+      const t = el.style?.textAlign || '';
+      const tag = el.tagName?.toUpperCase() || '';
+      if (t === 'center' || tag === 'H1' || tag === 'H2') return 'center';
+      if (t === 'right') return 'right';
+      return 'both'; // justified by default
     };
 
     const nodeToRuns = (el) => {
-      const runs = [];
-      const walk = (node) => {
+      let runs = '';
+      const walk = (node, bold = false, italic = false, underline = false) => {
         if (node.nodeType === 3) {
-          if (node.textContent) runs.push(new TextRun({ text: node.textContent }));
+          const text = node.textContent;
+          if (!text) return;
+          const rPr = [
+            bold ? '<w:b/><w:bCs/>' : '',
+            italic ? '<w:i/><w:iCs/>' : '',
+            underline ? '<w:u w:val="single"/>' : '',
+          ].join('');
+          runs += `<w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
         } else if (node.nodeType === 1) {
-          const tag = node.tagName?.toUpperCase();
-          const isBold = tag === 'STRONG' || tag === 'B';
-          const isItalic = tag === 'EM' || tag === 'I';
-          const isUnder = tag === 'U';
-          const isMark = tag === 'MARK';
-          for (const child of node.childNodes) {
-            if (child.nodeType === 3 && child.textContent) {
-              runs.push(new TextRun({
-                text: child.textContent,
-                bold: isBold,
-                italics: isItalic,
-                underline: isUnder ? {} : undefined,
-              }));
-            } else {
-              walk(child);
-            }
-          }
+          const tag = node.tagName?.toUpperCase() || '';
+          const b = bold || tag === 'STRONG' || tag === 'B';
+          const i = italic || tag === 'EM' || tag === 'I';
+          const u = underline || tag === 'U';
+          if (tag === 'BR') { runs += '<w:r><w:br/></w:r>'; return; }
+          // Strip PD marks but keep text
+          for (const child of node.childNodes) walk(child, b, i, u);
         }
       };
       walk(el);
-      return runs.length ? runs : [new TextRun({ text: '' })];
+      return runs || '<w:r><w:t></w:t></w:r>';
     };
 
-    for (const node of nodes) {
+    let paras = '';
+    for (const node of tmp.childNodes) {
       if (node.nodeType !== 1) continue;
-      const tag = node.tagName?.toUpperCase();
+      const tag = node.tagName?.toUpperCase() || '';
       if (tag === 'HR') {
-        paragraphs.push(new Paragraph({ text: '─'.repeat(40), alignment: AlignmentType.CENTER }));
+        paras += '<w:p><w:r><w:t>─────────────────────────────────────</w:t></w:r></w:p>';
         continue;
       }
-      if (tag === 'H1') {
-        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, children: nodeToRuns(node) }));
-        continue;
-      }
-      if (tag === 'H2') {
-        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER, children: nodeToRuns(node) }));
-        continue;
-      }
-      if (tag === 'H3') {
-        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_3, children: nodeToRuns(node) }));
-        continue;
-      }
-      const text = node.innerText || '';
-      if (!text.trim() && !node.innerHTML.includes('<br')) {
-        paragraphs.push(new Paragraph({ text: '' }));
-        continue;
-      }
-      paragraphs.push(new Paragraph({
-        alignment: getAlignment(node),
-        children: nodeToRuns(node),
-        spacing: { after: 0, before: 0 },
-      }));
+      const align = getAlign(node);
+      const pPr = `<w:pPr><w:jc w:val="${align}"/><w:spacing w:after="0" w:before="0"/></w:pPr>`;
+
+      let rStyle = '';
+      if (tag === 'H1') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr>';
+      else if (tag === 'H2') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>';
+      else if (tag === 'H3') rStyle = '<w:rPr><w:b/><w:bCs/></w:rPr>';
+
+      const runs = nodeToRuns(node);
+      // Inject rStyle into each run if heading
+      const styledRuns = rStyle
+        ? runs.replace(/<w:r>/g, `<w:r>${rStyle}`)
+        : runs;
+
+      paras += `<w:p>${pPr}${styledRuns}</w:p>`;
     }
 
-    const doc = new Document({
-      sections: [{
-        properties: {
-          page: { margin: { top: 1134, bottom: 1134, left: 1418, right: 1418 } }, // 20mm top/bottom, 25mm left/right
-        },
-        children: paragraphs,
-      }],
-    });
+    // Build minimal .docx XML structure
+    const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<w:body>
+${paras}
+<w:sectPr>
+  <w:pgSz w:w="11906" w:h="16838"/>
+  <w:pgMar w:top="1134" w:right="1418" w:bottom="1134" w:left="1418"/>
+</w:sectPr>
+</w:body>
+</w:document>`;
 
-    const blob = await Packer.toBlob(doc);
+    const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+    const wordRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+</Relationships>`;
+
+    const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+    // Use JSZip from CDN to assemble the ZIP
+    if (!window.JSZip) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    const zip = new window.JSZip();
+    zip.file('[Content_Types].xml', contentTypesXml);
+    zip.file('_rels/.rels', relsXml);
+    zip.file('word/document.xml', docXml);
+    zip.file('word/_rels/document.xml.rels', wordRelsXml);
+
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (docTitle || 'документ').replace(/\.pdf$/, '') + '.docx';
+    a.download = (docTitle || 'документ').replace(/\.pdf$/i, '') + '.docx';
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadPdf = () => {
+    const handleDownloadPdf = () => {
     const content = (editorDomRef.current?.innerHTML || editorHtml)
       .replace(/<mark class="pd[^"]*"[^>]*>/g, '<span class="pd-export">')
       .replace(/<mark class="uncertain[^"]*"[^>]*>/g, '<span class="uncertain-export">')

@@ -138,25 +138,33 @@ export async function analyzePastedText(text, apiKey, onProgress) {
   return await analyzePD(text, apiKey, onProgress);
 }
 
-const PROMPT_SPELL = `Проверь орфографию и грамматику в тексте юридического документа на русском языке.
+const PROMPT_SPELL = `Ты анализируешь текст юридического документа, который был получен через OCR (автоматическое распознавание текста с изображения).
 
-Найди слова которые:
-1. Написаны с ошибкой (неправильная орфография)
-2. Не существуют в русском языке (артефакты OCR: случайные символы, бессмысленные сочетания букв)
-3. Явно искажены при распознавании (например "зарегиcтрировано" вместо "зарегистрировано")
+При OCR часто возникают ошибки: система может заменить неразборчивое слово на похожее существующее слово, но с другим смыслом. Например: "сувоей" → "судьёй", "зорегистрировано" → "зарегистрировано", "поотерпевшей" → "потерпевшей".
 
-НЕ отмечай: имена собственные, аббревиатуры, специальные юридические термины, числа, даты.
+Твоя задача: найти места в тексте, где слово выглядит синтаксически или семантически неуместным в контексте предложения — как будто OCR ошибся и подставил не то слово.
 
-Верни ТОЛЬКО JSON без markdown:
+ВАЖНО:
+- НЕ исправляй слова — только находи подозрительные места
+- НЕ отмечай имена собственные, аббревиатуры, юридические термины
+- НЕ отмечай числа, даты, номера статей
+- Отмечай только слова, которые явно не вписываются в контекст или выглядят как OCR-артефакт
+- Если текст выглядит нормально — верни пустой список
+
+Верни ТОЛЬКО JSON без markdown и пояснений:
 {
-  "misspelled": [
-    {"wrong": "точное неправильное слово из текста", "correct": "правильный вариант или null если не знаешь"}
+  "suspicious": [
+    {
+      "word": "точное слово из текста как оно написано",
+      "context": "3-5 слов вокруг для идентификации места",
+      "reason": "почему подозрительно (1 предложение)"
+    }
   ]
 }
 
-Если ошибок нет — верни: {"misspelled": []}
+Если подозрительных мест нет — верни: {"suspicious": []}
 
-Текст:
+Текст документа:
 `;
 
 async function analyzePD(fullText, apiKey, onProgress) {
@@ -176,11 +184,12 @@ async function analyzePD(fullText, apiKey, onProgress) {
     console.warn('PD parse error', e);
   }
 
-  // Spell check pass
-  onProgress({ stage: 'analysis', current: 0, total: 1, message: 'Проверка орфографии...' });
+  // Spell / OCR-error detection pass
+  onProgress({ stage: 'analysis', current: 0, total: 1, message: 'Проверка качества распознавания...' });
   let annotatedText = fullText;
   try {
-    const textForSpell = fullText.length > 6000 ? fullText.slice(0, 6000) + '\n...' : fullText;
+    const textForSpell = fullText.length > 6000 ? fullText.slice(0, 6000) + '
+...' : fullText;
     const spellRaw = await callApi(
       [{ role: 'user', content: PROMPT_SPELL + textForSpell }],
       apiKey,
@@ -188,18 +197,22 @@ async function analyzePD(fullText, apiKey, onProgress) {
     );
     const m2 = spellRaw.match(/\{[\s\S]*\}/);
     if (m2) {
-      const { misspelled = [] } = JSON.parse(m2[0]);
-      // Wrap each misspelled word in uncertain marker (only if not already wrapped)
-      for (const item of misspelled) {
-        if (!item.wrong || item.wrong.length < 2) continue;
-        const escaped = item.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(`(?<!⚠️\\[НЕТОЧНО: )\\b${escaped}\\b`, 'g');
-        const hint = item.correct ? `НЕТОЧНО: ${item.correct}` : 'НЕТОЧНО: проверьте слово';
-        annotatedText = annotatedText.replace(re, `⚠️[${hint}]`);
+      const { suspicious = [] } = JSON.parse(m2[0]);
+      for (const item of suspicious) {
+        if (!item.word || item.word.length < 2) continue;
+        // Escape special regex chars
+        const escaped = item.word.replace(/[.*+?^${}()|[\]\]/g, '\$&');
+        // Match whole word, not already inside a ⚠️ marker
+        const re = new RegExp(`(?<!⚠️\[НЕТОЧНО: [^\]]{0,200})\b${escaped}\b`, 'g');
+        // Mark as uncertain — keep the word as-is, just flag it
+        annotatedText = annotatedText.replace(re, (match) => {
+          // Don't double-wrap
+          return `⚠️[НЕТОЧНО: ${match}]`;
+        });
       }
     }
   } catch (e) {
-    console.warn('Spell check error', e);
+    console.warn('Spell/OCR check error', e);
   }
 
   onProgress({ stage: 'done', current: 1, total: 1, message: 'Готово!' });

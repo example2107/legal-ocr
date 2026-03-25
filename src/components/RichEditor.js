@@ -297,7 +297,19 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
                   key={`font-${i}-${j}`}
                   className="rich-select rich-select-font"
                   title="Шрифт"
-                  onChange={e => exec('fontName', e.target.value)}
+                  onChange={e => {
+                    // Apply font to selection if exists, otherwise to whole editor
+                    const sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+                      exec('fontName', e.target.value);
+                    } else {
+                      // Apply to entire editor
+                      if (editorRef.current) {
+                        editorRef.current.style.fontFamily = e.target.value;
+                        notifyChange();
+                      }
+                    }
+                  }}
                   defaultValue="Times New Roman, Times, serif"
                 >
                   {FONTS.map(f => (
