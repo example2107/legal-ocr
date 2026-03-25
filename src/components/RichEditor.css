@@ -1,0 +1,139 @@
+.rich-editor-wrap {
+  display: flex;
+  flex-direction: column;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+  transition: border-color var(--tr, .18s ease);
+}
+
+.rich-editor-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* Toolbar */
+.rich-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+.rich-btn {
+  width: 30px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--text2);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  transition: all .15s ease;
+  flex-shrink: 0;
+}
+
+.rich-btn:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.rich-btn:active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rich-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.rich-select {
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+}
+
+.rich-select-sm { width: 56px; }
+
+/* Content area */
+.rich-content {
+  flex: 1;
+  min-height: 400px;
+  padding: 24px 32px;
+  font-family: var(--font-doc);
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text);
+  outline: none;
+  overflow-y: auto;
+}
+
+.rich-content.read-only {
+  cursor: default;
+  background: var(--bg);
+}
+
+.rich-content h1 { font-size: 20px; font-weight: 700; text-align: center; margin: 16px 0 8px; }
+.rich-content h2 { font-size: 17px; font-weight: 600; text-align: center; margin: 14px 0 6px; }
+.rich-content h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; }
+.rich-content div { min-height: 1.8em; }
+.rich-content p { text-indent: 1.5em; margin: 0; }
+.rich-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+.rich-content ol, .rich-content ul {
+  padding-left: 2em;
+  margin: 8px 0;
+}
+
+/* Personal data marks inside editor */
+.rich-content mark.pd-mark {
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.rich-content mark.uncertain {
+  border-bottom: 2px dashed var(--yellow-border);
+  cursor: help;
+}
+
+@media (max-width: 600px) {
+  .rich-content {
+    padding: 16px;
+    font-size: 14px;
+    min-height: 300px;
+  }
+
+  .rich-toolbar {
+    padding: 4px 6px;
+  }
+
+  .rich-btn {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+  }
+}
