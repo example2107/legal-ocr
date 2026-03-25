@@ -207,9 +207,9 @@ a { color: var(--accent); }
 /* ============================
    DOCUMENT CARD
    ============================ */
-.doc-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; min-width: 0; display: flex; flex-direction: column; }
+.doc-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); /* overflow must NOT be hidden — breaks sticky toolbar */ overflow: visible; min-width: 0; display: flex; flex-direction: column; }
 
-.doc-title-row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-wrap: wrap; }
+.doc-title-row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-wrap: wrap; position: sticky; top: 60px; z-index: 51; box-shadow: 0 1px 0 var(--border); }
 .doc-title-input { flex: 1; min-width: 160px; font-size: 15px; font-weight: 600; font-family: var(--font-doc); border: 1px solid transparent; background: transparent; color: var(--text); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); }
 .doc-title-input:hover { border-color: var(--border); background: var(--surface); }
 .doc-title-input:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-light); }

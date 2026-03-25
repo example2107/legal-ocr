@@ -100,15 +100,15 @@ const ICONS = {
       <path d="M2 13.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
     </svg>
   ),
-  // New indent icons: simple arrows with lines
+  // New clean indent icons: lines + arrow direction
   'outdent': (
     <svg viewBox="0 0 16 16" fill="currentColor">
-      <path d="M2 2.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0 11a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm3-5.5a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 0 1h-8a.5.5 0 0 1-.5-.5zM1.646 6.646l2-2a.5.5 0 0 1 .708.708L2.707 7l1.647 1.646a.5.5 0 0 1-.708.708l-2-2a.5.5 0 0 1 0-.708z"/>
+      <path d="M2 2h12v1.5H2V2zm0 10.5h12V14H2v-1.5zm4-5.25h8V8.75H6V7.25zM4.5 8 2 5.5v5L4.5 8z"/>
     </svg>
   ),
   'indent': (
     <svg viewBox="0 0 16 16" fill="currentColor">
-      <path d="M2 2.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0 11a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm5-5.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5zM1.646 9.354l2 2a.5.5 0 0 0 .708-.708L2.707 9l1.647-1.646a.5.5 0 0 0-.708-.708l-2 2a.5.5 0 0 0 0 .708z"/>
+      <path d="M2 2h12v1.5H2V2zm0 10.5h12V14H2v-1.5zm4-5.25h8V8.75H6V7.25zM2 5.5 4.5 8 2 10.5v-5z"/>
     </svg>
   ),
   'clear-format': (

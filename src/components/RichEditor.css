@@ -6,7 +6,7 @@
   flex: 1;
 }
 
-/* ── Toolbar — sticky, sits just below the app header (60px) ── */
+/* ── Toolbar — sticky below app header + title row ── */
 .rich-toolbar {
   display: flex;
   align-items: center;
@@ -15,11 +15,13 @@
   padding: 6px 12px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  /* Sticky: header is 60px + doc-title-row ~53px = 113px */
   position: sticky;
+  /* header=60px + title-row=53px = 113px */
   top: 113px;
   z-index: 50;
   flex-shrink: 0;
+  /* Prevent toolbar from overlapping text */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
 
 .rich-sep {
@@ -84,15 +86,18 @@
 .rich-content {
   flex: 1;
   min-height: 500px;
+  /* A4 at 96dpi ≈ 794px wide, with 25mm margins → text ≈ 650px */
+  /* We use 700px max to match typical PDF output width */
+  width: 100%;
+  max-width: 760px;
   padding: 32px 40px;
   font-family: var(--font-doc);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.85;
   color: var(--text);
   outline: none;
   overflow-y: auto;
   caret-color: var(--accent);
-  /* Enable browser spellcheck red underlines */
   -webkit-spell-check: true;
 }
 
