@@ -37,9 +37,11 @@ export default function App() {
   const [originalPage, setOriginalPage] = useState(0);
   const [zoomActive, setZoomActive] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
+  const [showViewerTip, setShowViewerTip] = useState(false);
   const viewerBodyRef = useRef(null);
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
   const zoomActiveRef = useRef(false);
+  const tipTimerRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pastedText, setPastedText] = useState('');
@@ -96,19 +98,27 @@ export default function App() {
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
 
-  // Wheel zoom через ref — вешаем один раз, zoomActiveRef всегда актуален
+  // Wheel: если мышь над вьюером — всегда перехватываем скролл
   useEffect(() => {
+    const el = viewerBodyRef.current;
+    if (!el) return;
     const handler = (e) => {
-      if (!zoomActiveRef.current) return;
       e.preventDefault();
       e.stopPropagation();
-      setZoomScale(s => {
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
-      });
+      if (zoomActiveRef.current) {
+        // Активный режим — зум
+        setZoomScale(s => {
+          const delta = e.deltaY > 0 ? -0.1 : 0.1;
+          return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
+        });
+      } else {
+        // Неактивный режим — скроллим сам документ
+        el.scrollTop += e.deltaY;
+        el.scrollLeft += e.deltaX;
+      }
     };
-    window.addEventListener('wheel', handler, { passive: false });
-    return () => window.removeEventListener('wheel', handler);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
   }, []);
 
   useEffect(() => { setHistory(loadHistory()); }, []);
@@ -1005,15 +1015,31 @@ ${paras}
                       el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
                     }}
                     onDoubleClick={(e) => {
-                      // Двойной клик — переключаем режим зума
                       if (dragRef.current?.dragging) return;
                       const next = !zoomActive;
                       zoomActiveRef.current = next;
                       setZoomActive(next);
                     }}
+                    onMouseMove={() => {
+                      // Мышь двигается — скрываем подсказку, сбрасываем таймер
+                      setShowViewerTip(false);
+                      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+                      // Запускаем таймер — покажем подсказку через 600ms остановки
+                      tipTimerRef.current = setTimeout(() => setShowViewerTip(true), 600);
+                    }}
+                    onMouseLeave={() => {
+                      setShowViewerTip(false);
+                      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+                    }}
                     draggable={false}
-                    title={zoomActive ? 'Режим зума активен: колесико — зум, зажать — перетащить. Двойной клик для выхода' : 'Двойной клик чтобы активировать зум и перетаскивание'}
                   />
+                  {showViewerTip && (
+                    <div className="viewer-tooltip">
+                      {zoomActive
+                        ? '🔍 Колесико — зум · Зажать и тащить — переместить · Двойной клик — выход'
+                        : '💡 Двойной клик — активировать зум и перетаскивание'}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

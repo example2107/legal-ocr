@@ -411,6 +411,30 @@ a { color: var(--accent); }
   gap: 4px;
 }
 
+/* Viewer tooltip */
+.viewer-tooltip {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  animation: tooltipFade 0.15s ease;
+}
+@keyframes tooltipFade {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* viewer-body needs position:relative for tooltip */
+.viewer-body { position: relative; }
+
 /* Active state for viewer button */
 .btn-original.active {
   background: var(--accent-light);
