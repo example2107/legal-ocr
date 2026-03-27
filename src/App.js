@@ -876,9 +876,8 @@ ${paras}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
-            </div>{/* doc-card */}
+            </div>
 
-          </div>
           </div>
           </div>
         )}
