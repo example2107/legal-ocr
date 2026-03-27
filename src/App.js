@@ -992,9 +992,10 @@ ${paras}
                       dragRef.current = { dragging: false, startX: e.clientX, startY: e.clientY, scrollLeft: viewerBodyRef.current?.scrollLeft || 0, scrollTop: viewerBodyRef.current?.scrollTop || 0 };
                     }}
                     onMouseMove={(e) => {
-                      const d = dragRef.current;
                       if (!zoomActive) return;
-                      // Если сдвинулись больше 5px — это drag
+                      // e.buttons === 1 — левая кнопка реально зажата
+                      if (e.buttons !== 1) { dragRef.current.dragging = false; return; }
+                      const d = dragRef.current;
                       if (!d.dragging && (Math.abs(e.clientX - d.startX) > 5 || Math.abs(e.clientY - d.startY) > 5)) {
                         d.dragging = true;
                       }
@@ -1009,7 +1010,7 @@ ${paras}
                       const next = !zoomActive;
                       zoomActiveRef.current = next;
                       setZoomActive(next);
-                      if (!next) setZoomScale(1);
+                      // Масштаб НЕ сбрасываем при деактивации
                     }}
                     draggable={false}
                     title={zoomActive ? 'Активен: колесико — зум, зажать — перетащить. Кликните для выхода' : 'Кликните чтобы активировать зум и перетаскивание'}
