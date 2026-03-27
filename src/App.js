@@ -775,7 +775,6 @@ ${paras}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
-          <>
           <div className="result-outer">
           <div className="result-area">
 
@@ -884,7 +883,6 @@ ${paras}
           </div>
         )}
 
-        {/* ── ORIGINAL FILE VIEWER — fixed right panel ── */}
         {showOriginal && originalImages.length > 0 && (
           <div className="viewer-panel">
             <div className="viewer-header">
@@ -912,8 +910,6 @@ ${paras}
               />
             </div>
           </div>
-        )}
-          </>
         )}
 
       </main>
