@@ -1004,16 +1004,15 @@ ${paras}
                       el.scrollLeft = d.scrollLeft - (e.clientX - d.startX);
                       el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
                     }}
-                    onClick={(e) => {
-                      // Если был drag — не переключаем
+                    onDoubleClick={(e) => {
+                      // Двойной клик — переключаем режим зума
                       if (dragRef.current?.dragging) return;
                       const next = !zoomActive;
                       zoomActiveRef.current = next;
                       setZoomActive(next);
-                      // Масштаб НЕ сбрасываем при деактивации
                     }}
                     draggable={false}
-                    title={zoomActive ? 'Активен: колесико — зум, зажать — перетащить. Кликните для выхода' : 'Кликните чтобы активировать зум и перетаскивание'}
+                    title={zoomActive ? 'Режим зума активен: колесико — зум, зажать — перетащить. Двойной клик для выхода' : 'Двойной клик чтобы активировать зум и перетаскивание'}
                   />
                 </div>
               </div>
