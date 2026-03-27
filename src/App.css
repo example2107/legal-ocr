@@ -387,9 +387,19 @@ a { color: var(--accent); }
 }
 
 /* Zoom mode for viewer */
+.viewer-panel.viewer-zoom-mode {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light), 0 4px 20px rgba(45,90,142,.15);
+}
+.viewer-panel.viewer-zoom-mode .viewer-header {
+  background: var(--accent-light);
+  border-bottom-color: var(--accent);
+}
+.viewer-panel.viewer-zoom-mode .viewer-title::before {
+  content: '🔍 ';
+}
 .viewer-body.zoom-active {
   overflow: auto;
-  background: var(--bg2);
   cursor: grab;
 }
 .viewer-body.zoom-active:active {
