@@ -59,13 +59,14 @@ a { color: var(--accent); }
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-badge { font-size: 12px; background: var(--green-light); color: var(--green); padding: 4px 10px; border-radius: 20px; font-weight: 500; }
 
-.main { flex: 1; max-width: 1400px; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
+.main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
 .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text3); border-top: 1px solid var(--border); background: var(--surface); }
 
 /* ============================
    CARDS
    ============================ */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
+.api-card, .upload-card, .history-section, .error-block, .btn-primary, .progress-card { max-width: 720px; width: 100%; align-self: center; }
 .card-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
 
 /* ============================
@@ -228,9 +229,8 @@ a { color: var(--accent); }
    DOCUMENT CARD
    ============================ */
 .doc-card {
-  flex: 1;
-  min-width: 0;
-  max-width: 800px;
+  flex: 0 0 800px;
+  width: 800px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
