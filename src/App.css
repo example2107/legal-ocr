@@ -59,7 +59,7 @@ a { color: var(--accent); }
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-badge { font-size: 12px; background: var(--green-light); color: var(--green); padding: 4px 10px; border-radius: 20px; font-weight: 500; }
 
-.main { flex: 1; max-width: 1400px; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
+.main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
 .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text3); border-top: 1px solid var(--border); background: var(--surface); }
 
 /* ============================
