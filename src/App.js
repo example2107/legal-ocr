@@ -976,15 +976,12 @@ ${paras}
                 <div
                   ref={setViewerBodyRef}
                   className={"viewer-body" + (zoomActive ? " zoom-active" : "")}
-                  onMouseMove={(e) => {
-                    const d = dragRef.current;
-                    if (!d.dragging) return;
-                    const el = viewerBodyRef.current;
-                    el.scrollLeft = d.scrollLeft - (e.clientX - d.startX);
-                    el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
-                  }}
                   onMouseUp={() => { dragRef.current.dragging = false; }}
-                  onMouseLeave={() => { dragRef.current.dragging = false; }}
+                  onMouseLeave={() => {
+                    dragRef.current.dragging = false;
+                    setViewerTip(null);
+                    if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+                  }}
                 >
                   <img
                     src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
@@ -993,19 +990,21 @@ ${paras}
                     style={{
                       transform: `scale(${zoomScale})`,
                       transformOrigin: 'top left',
-                      cursor: zoomActive ? (dragRef.current?.dragging ? 'grabbing' : 'grab') : 'pointer',
+                      cursor: zoomActive ? 'grab' : 'default',
                       userSelect: 'none',
-                      transition: dragRef.current?.dragging ? 'none' : 'transform 0.15s ease',
+                      transition: 'transform 0.15s ease',
                     }}
                     onMouseDown={(e) => {
                       if (e.button !== 0) return;
-                      // Запоминаем стартовую позицию — для различения клика и drag
                       dragRef.current = { dragging: false, startX: e.clientX, startY: e.clientY, scrollLeft: viewerBodyRef.current?.scrollLeft || 0, scrollTop: viewerBodyRef.current?.scrollTop || 0 };
                     }}
                     onMouseMove={(e) => {
-                      if (!zoomActive) return;
-                      // e.buttons === 1 — левая кнопка реально зажата
-                      if (e.buttons !== 1) { dragRef.current.dragging = false; return; }
+                      // Tooltip — сбрасываем и перезапускаем таймер
+                      setViewerTip(null);
+                      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+                      tipTimerRef.current = setTimeout(() => setViewerTip({ x: e.clientX, y: e.clientY }), 600);
+                      // Drag — только в активном режиме с зажатой кнопкой
+                      if (!zoomActive || e.buttons !== 1) return;
                       const d = dragRef.current;
                       if (!d.dragging && (Math.abs(e.clientX - d.startX) > 5 || Math.abs(e.clientY - d.startY) > 5)) {
                         d.dragging = true;
@@ -1015,18 +1014,11 @@ ${paras}
                       el.scrollLeft = d.scrollLeft - (e.clientX - d.startX);
                       el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
                     }}
-                    onDoubleClick={(e) => {
+                    onDoubleClick={() => {
                       if (dragRef.current?.dragging) return;
                       const next = !zoomActive;
                       zoomActiveRef.current = next;
                       setZoomActive(next);
-                    }}
-                    onMouseMove={(e) => {
-                      setViewerTip(null);
-                      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
-                      const x = e.clientX;
-                      const y = e.clientY;
-                      tipTimerRef.current = setTimeout(() => setViewerTip({ x, y }), 600);
                     }}
                     onMouseLeave={() => {
                       setViewerTip(null);
