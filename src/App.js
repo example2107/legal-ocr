@@ -909,9 +909,9 @@ ${paras}
             </div>
           )}
 
-            </div>{/* editor-shift */}
-          </div>{/* result-area */}
-          </div>{/* result-outer */}
+            </div>
+          </div>
+          </div>
         )}
 
       </main>
