@@ -159,6 +159,14 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
+  // Post-process: remove word duplication before ⚠️ markers
+  // Claude sometimes writes: "слово ⚠️[НЕТОЧНО: слово]" — remove the duplicate before marker
+  const deduped = rawText.replace(
+    /([\wА-яЁё]+)\s+⚠️\[НЕТОЧНО:\s*\1\]/gi,
+    '⚠️[НЕТОЧНО: $1]'
+  );
+  const processText = deduped;
+
   // Auto-center patterns for typical legal document sections
   // Strip ** markdown wrapping before testing, since Claude often writes **УСТАНОВИЛ:**
   const LEGAL_CENTER_RE = /(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ|УСТАНОВИЛА|ПОСТАНОВИЛА|РЕШИЛА|ОПРЕДЕЛИЛА|ПРИГОВОРИЛА|УСТАНОВИЛО|ПОСТАНОВИЛО)[:\s]/i;
@@ -167,7 +175,7 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
     return LEGAL_CENTER_RE.test(stripped) && stripped.length < 60;
   };
 
-  return rawText.split('\n').map(line => {
+  return processText.split('\n').map(line => {
     if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
     if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
     // Skip --- (page break artifact)

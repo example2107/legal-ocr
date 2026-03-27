@@ -413,23 +413,24 @@ export default function App() {
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
         // Tab stop at 9072 twips (right page margin) with right alignment
         // leftText → Tab → rightText (aligned to right margin)
-        paras += `<w:p>
-          <w:pPr>
-            <w:jc w:val="left"/>
-            <w:spacing w:after="0" w:before="0"/>
-            <w:tabs>
-              <w:tab w:val="right" w:pos="9072"/>
-            </w:tabs>
-          </w:pPr>
-          <w:r><w:rPr>${fontProps}</w:rPr><w:t xml:space="preserve">${esc(leftText)}</w:t></w:r>
-          <w:r><w:rPr>${fontProps}</w:rPr><w:tab/></w:r>
-          <w:r><w:rPr>${fontProps}</w:rPr><w:t xml:space="preserve">${esc(rightText)}</w:t></w:r>
-        </w:p>`;
+        paras += '<w:p>' +
+          '<w:pPr>' +
+            '<w:jc w:val="left"/>' +
+            '<w:spacing w:after="0" w:before="0"/>' +
+            '<w:tabs><w:tab w:val="right" w:pos="9072"/></w:tabs>' +
+          '</w:pPr>' +
+          '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(leftText) + '</w:t></w:r>' +
+          '<w:r><w:rPr>' + fontProps + '</w:rPr><w:tab/></w:r>' +
+          '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(rightText) + '</w:t></w:r>' +
+        '</w:p>';
         continue;
       }
 
-      const align = getAlign(node);
-      const pPr = `<w:pPr><w:jc w:val="${align}"/><w:spacing w:after="0" w:before="0"/></w:pPr>`;
+      // Check for inline style center (from [CENTER] tags rendered as style="text-align:center")
+      let align = getAlign(node);
+      if (node.style && node.style.textAlign === 'center') align = 'center';
+      if (node.tagName === 'H1' || node.tagName === 'H2') align = 'center';
+      const pPr = '<w:pPr><w:jc w:val="' + align + '"/><w:spacing w:after="0" w:before="0"/></w:pPr>';
 
       let rStyle = '';
       if (tag === 'H1') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>';
@@ -438,10 +439,10 @@ export default function App() {
 
       const runs = nodeToRuns(node);
       const styledRuns = rStyle
-        ? runs.replace(/<w:r>/g, `<w:r>${rStyle}`)
+        ? runs.replace(/<w:r>/g, '<w:r>' + rStyle)
         : runs;
 
-      paras += `<w:p>${pPr}${styledRuns}</w:p>`;
+      paras += '<w:p>' + pPr + styledRuns + '</w:p>';
     }
 
     // Build minimal .docx XML structure
