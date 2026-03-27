@@ -350,8 +350,8 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     const mark = e.target.closest('mark.uncertain');
     if (mark) {
       e.preventDefault();
-      // Берём координаты из самого элемента — надёжнее чем e.clientX/Y при скролле
-      const rect = mark.getBoundingClientRect();
+      // Берём координаты из e.target — именно тот элемент по которому кликнули
+      const rect = e.target.getBoundingClientRect();
       setCtxMenu({ x: rect.left, y: rect.bottom + 4, mark });
     }
   }, []);
