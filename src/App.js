@@ -39,24 +39,31 @@ export default function App() {
   const [progress, setProgress] = useState(null);
   const progressCreepRef = useRef(null);
 
-  // Slowly creep progress bar forward while waiting for API (never reaches target automatically)
-  const startProgressCreep = useCallback((current, max) => {
+  // Animate progress bar smoothly to a target integer value
+  const animateTo = useCallback((target, message) => {
     if (progressCreepRef.current) clearInterval(progressCreepRef.current);
     progressCreepRef.current = setInterval(() => {
       setProgress(prev => {
         if (!prev) return prev;
-        const gap = max - prev.percent;
-        if (gap <= 1) return prev;
-        // Move 30% of the remaining gap each tick — slows down as it approaches max
-        const next = Math.min(prev.percent + Math.max(0.5, gap * 0.04), max - 0.5);
-        return { ...prev, percent: Math.round(next * 10) / 10 };
+        const cur = Math.round(prev.percent);
+        if (cur >= target) {
+          clearInterval(progressCreepRef.current);
+          return { ...prev, percent: target, message: message || prev.message };
+        }
+        // Larger steps when far away, smaller when close — always integer
+        const step = Math.max(1, Math.round((target - cur) / 5));
+        return { ...prev, percent: Math.min(cur + step, target) };
       });
-    }, 300);
+    }, 100);
   }, []);
 
   const stopProgressCreep = useCallback(() => {
     if (progressCreepRef.current) {
       clearInterval(progressCreepRef.current);
+      progressCreepRef.current = null;
+    }
+  }, []);
+CreepRef.current);
       progressCreepRef.current = null;
     }
   }, []);
@@ -151,10 +158,10 @@ export default function App() {
       if (pasteMode) {
         setProgress({ percent: 10, message: 'Анализ текста...' });
         result = await analyzePastedText(pastedText, apiKey.trim(), provider, p => {
-          const pct = p.percent ?? (p.stage === 'done' ? 100 : 50);
+          const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
           setProgress({ percent: pct, message: p.message });
           if (p.stage !== 'done') {
-            startProgressCreep(pct, Math.min(pct + 12, 98));
+            animateTo(Math.min(pct + 10, 98), null);
           } else {
             stopProgressCreep();
           }
@@ -174,12 +181,14 @@ export default function App() {
           }
         }
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
-          const pct = p.percent ?? (p.stage === 'done' ? 100 : 50);
+          // Use integer percentages only — no decimal fractions
+          const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
           setProgress({ percent: pct, message: p.message });
-          if (p.stage !== 'done') {
-            // Creep toward next milestone (never quite reaching it) to show activity
-            const nextMilestone = p.stage === 'ocr' ? Math.min(pct + 15, 68) : Math.min(pct + 10, 98);
-            startProgressCreep(pct, nextMilestone);
+          if (p.stage === 'ocr') {
+            // While waiting for next page API call — slowly creep toward next milestone
+            animateTo(Math.min(pct + 12, 69), null);
+          } else if (p.stage === 'analysis') {
+            animateTo(Math.min(pct + 8, 98), null);
           } else {
             stopProgressCreep();
           }
@@ -364,7 +373,8 @@ export default function App() {
     const getAlign = (el) => {
       const t = el.style?.textAlign || '';
       const tag = el.tagName?.toUpperCase() || '';
-      if (t === 'center' || tag === 'H1' || tag === 'H2') return 'center';
+      // Center: explicit style, heading tags, or strong-only short line (ПОСТАНОВЛЕНИЕ etc)
+      if (t === 'center' || tag === 'H1' || tag === 'H2' || tag === 'H3') return 'center';
       if (t === 'right') return 'right';
       return 'both'; // justified by default
     };
@@ -404,25 +414,23 @@ export default function App() {
       const tag = node.tagName?.toUpperCase() || '';
       if (tag === 'HR') continue; // skip hr - page break artifact
       
-      // lr-row: use right-aligned tab stop — the Word standard for left+right on same line
-      // This correctly handles both short (signatures) and long (city+date) lines
+      // lr-row: render left text on one line, right text on the next line
+      // Simple and reliable - no tab tricks that cause justify stretching
       if (node.classList && node.classList.contains('lr-row')) {
         const spans = node.querySelectorAll('span');
-        const leftText = spans[0] ? spans[0].textContent : '';
-        const rightText = spans[1] ? spans[1].textContent : '';
+        const leftText = spans[0] ? spans[0].textContent.trim() : '';
+        const rightText = spans[1] ? spans[1].textContent.trim() : '';
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
-        // Tab stop at 9072 twips (right page margin) with right alignment
-        // leftText → Tab → rightText (aligned to right margin)
-        paras += '<w:p>' +
-          '<w:pPr>' +
-            '<w:jc w:val="left"/>' +
-            '<w:spacing w:after="0" w:before="0"/>' +
-            '<w:tabs><w:tab w:val="right" w:pos="9072"/></w:tabs>' +
-          '</w:pPr>' +
-          '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(leftText) + '</w:t></w:r>' +
-          '<w:r><w:rPr>' + fontProps + '</w:rPr><w:tab/></w:r>' +
-          '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(rightText) + '</w:t></w:r>' +
-        '</w:p>';
+        // Left text on its own line
+        if (leftText) {
+          paras += '<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>' +
+            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(leftText) + '</w:t></w:r></w:p>';
+        }
+        // Right text on next line, also left-aligned
+        if (rightText) {
+          paras += '<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>' +
+            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(rightText) + '</w:t></w:r></w:p>';
+        }
         continue;
       }
 
@@ -737,9 +745,9 @@ ${paras}
           <div className="progress-card">
             <div className="progress-msg">{progress.message}</div>
             <div className="progress-bar-wrap">
-              <div className="progress-bar" style={{ width: `${progress.percent || 0}%` }} />
+              <div className="progress-bar" style={{ width: `${Math.round(progress.percent || 0)}%` }} />
             </div>
-            <div className="progress-pct">{progress.percent || 0}%</div>
+            <div className="progress-pct">{Math.round(progress.percent || 0)}%</div>
           </div>
         )}
 
