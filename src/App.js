@@ -89,6 +89,7 @@ export default function App() {
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
   const [showUncertainWarning, setShowUncertainWarning] = useState(false);
+  const [showLongDocWarning, setShowLongDocWarning] = useState(false);
   const [highlightUncertain, setHighlightUncertain] = useState(false);
   const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
   const pendingNavRef = useRef(null);
@@ -247,6 +248,7 @@ export default function App() {
       setPersonalData(pd);
       setAnonymized(initialAnon);
       setLastSavedState(null);
+      setShowLongDocWarning(result.text.length > 25000);
 
       stopProgressCreep();
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
@@ -730,7 +732,7 @@ ${paras}
                     <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
                     <div className="dropzone-icon">📄</div>
                     <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF — любой размер</div>
+                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF · Рекомендуем до 8–10 страниц</div>
                   </div>
                   {files.length > 0 && (
                     <div className="file-list">
@@ -938,6 +940,13 @@ ${paras}
                   <button className="btn-tool" onClick={() => triggerExport('pdf')}>⬇ PDF</button>
                 </div>
               </div>
+
+              {showLongDocWarning && (
+                <div className="long-doc-warning">
+                  ⚠️ Документ содержит более 25 000 символов — часть персональных данных могла быть пропущена при анализе. Рекомендуем разбить документ на части по 8–10 страниц и загружать отдельно.
+                  <button className="long-doc-close" onClick={() => setShowLongDocWarning(false)}>✕</button>
+                </div>
+              )}
 
               <RichEditor
                 html={editorHtml}

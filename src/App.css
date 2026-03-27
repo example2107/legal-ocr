@@ -437,6 +437,33 @@ a { color: var(--accent); }
 }
 
 /* ============================
+   LONG DOC WARNING
+   ============================ */
+.long-doc-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--yellow-light);
+  border: 1px solid var(--yellow-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #5a3e00;
+  line-height: 1.5;
+  margin: 0 0 2px 0;
+}
+.long-doc-warning { flex: 1; }
+.long-doc-close {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.long-doc-close:hover { background: var(--bg3); color: var(--text); }
+
+/* ============================
    SAVE TOAST
    ============================ */
 .save-toast {
