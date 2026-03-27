@@ -286,7 +286,7 @@ a { color: var(--accent); }
 
 /* Viewer panel — inline column inside result-area, same height as editor */
 .viewer-panel {
-  width: 380px;
+  width: 560px;
   flex-shrink: 0;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -296,7 +296,7 @@ a { color: var(--accent); }
   flex-direction: column;
   position: sticky;
   top: 80px;
-  max-height: calc(100vh - 100px);
+  height: calc(100vh - 100px);
   overflow: hidden;
   animation: viewerSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
