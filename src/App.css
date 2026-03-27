@@ -286,45 +286,47 @@ a { color: var(--accent); }
    ORIGINAL FILE VIEWER
    ============================ */
 
-/* Outer wrapper — shifts left when viewer is open */
+/* Outer wrapper — simple flex row: [pd-panel + editor-shift] */
 .result-outer {
+  display: block;
+}
+
+/* editor-shift: wraps doc-card + viewer panel, shifts left when viewer opens */
+.editor-shift {
   display: flex;
   align-items: flex-start;
   gap: 0;
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  min-height: calc(100vh - 120px);
 }
 
-/* When viewer is open — shift left to make room */
+/* When viewer is open — shift left to make room for viewer panel */
 @media (min-width: 1200px) {
-  .result-outer.viewer-open {
-    transform: translateX(-200px);
+  .editor-shift.viewer-open {
+    transform: translateX(-210px);
   }
 }
 
-/* result-area stays its natural size inside result-outer */
-.result-outer .result-area {
-  flex-shrink: 0;
-}
-
-/* Viewer panel — slides in from the right */
+/* Viewer panel — fixed on right side, full viewport height */
 .viewer-panel {
   flex-shrink: 0;
-  width: 380px;
-  margin-left: 20px;
+  width: 420px;
+  margin-left: 24px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 109px;
-  max-height: calc(100vh - 130px);
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  height: calc(100vh - 76px);
+  z-index: 50;
   animation: viewerSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 24px rgba(0,0,0,.10);
 }
 
 @keyframes viewerSlideIn {
-  from { opacity: 0; transform: translateX(30px); }
+  from { opacity: 0; transform: translateX(40px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 

@@ -775,7 +775,7 @@ ${paras}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
-          <div className={'result-outer' + (showOriginal ? ' viewer-open' : '')}>
+          <div className="result-outer">
           <div className="result-area">
 
             {hasPD && (
@@ -847,6 +847,7 @@ ${paras}
               </aside>
             )}
 
+            <div className={'editor-shift' + (showOriginal ? ' viewer-open' : '')}>
             <div className="doc-card">
               <div className="doc-title-row">
                 <input
@@ -876,9 +877,7 @@ ${paras}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
-            </div>
-
-          </div>
+            </div>{/* doc-card */}
 
           {/* ── ORIGINAL FILE VIEWER PANEL ── */}
           {showOriginal && originalImages.length > 0 && (
@@ -910,7 +909,9 @@ ${paras}
             </div>
           )}
 
-          </div>
+            </div>{/* editor-shift */}
+          </div>{/* result-area */}
+          </div>{/* result-outer */}
         )}
 
       </main>
