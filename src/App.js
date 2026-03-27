@@ -63,10 +63,6 @@ export default function App() {
       progressCreepRef.current = null;
     }
   }, []);
-CreepRef.current);
-      progressCreepRef.current = null;
-    }
-  }, []);
   const [error, setError] = useState(null);
 
   const [docId, setDocId] = useState(null);
