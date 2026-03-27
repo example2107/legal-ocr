@@ -296,8 +296,8 @@ a { color: var(--accent); }
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 68px;
-  height: calc(100vh - 80px);
+  top: 80px;
+  max-height: calc(100vh - 100px);
   overflow: hidden;
   animation: viewerSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
