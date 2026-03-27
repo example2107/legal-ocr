@@ -286,13 +286,17 @@ a { color: var(--accent); }
    ORIGINAL FILE VIEWER
    ============================ */
 
-/* Viewer panel — fixed to right side of viewport, full height, no layout shift */
+/* Viewer panel — fixed to right side of viewport, full height, no layout shift.
+   Positioned to start right after the doc-card right edge:
+   main centers at max 1400px with 24px padding.
+   pd-panel=280px + gap=20px + doc-card max=800px + padding=24px = 1148px from left of main.
+   On wide screens main starts at (viewport-1400)/2 from left edge.
+   We use calc to position exactly after the editor content. */
 .viewer-panel {
   position: fixed;
   top: 56px;
   right: 0;
-  /* Take all space from right edge of editor (1060px) to viewport right edge */
-  left: 1060px;
+  left: calc(50% + 572px); /* 50% = center of viewport, 572px = half of (280+20+800+24*2) */
   height: calc(100vh - 56px);
   background: var(--surface);
   border-left: 1px solid var(--border);
@@ -300,7 +304,7 @@ a { color: var(--accent); }
   flex-direction: column;
   z-index: 100;
   animation: viewerSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 280px;
+  overflow: hidden;
 }
 
 @keyframes viewerSlideIn {
