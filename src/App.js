@@ -379,8 +379,9 @@ export default function App() {
       let runs = '';
       const walk = (node, bold = false, italic = false, underline = false) => {
         if (node.nodeType === 3) {
-          const text = node.textContent;
-          if (!text) return;
+          // Collapse multiple spaces into one (removes OCR trailing space artifacts)
+          const text = node.textContent.replace(/  +/g, ' ');
+          if (!text || !text.trim()) return;
           // Always include Times New Roman 14pt (28 half-points) as base font
           const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
           const rPr = [
@@ -414,8 +415,9 @@ export default function App() {
       // Simple and reliable - no tab tricks that cause justify stretching
       if (node.classList && node.classList.contains('lr-row')) {
         const spans = node.querySelectorAll('span');
-        const leftText = spans[0] ? spans[0].textContent.trim() : '';
-        const rightText = spans[1] ? spans[1].textContent.trim() : '';
+        // Strip ALL whitespace including trailing spaces from OCR artifacts
+        const leftText = (spans[0] ? spans[0].textContent : '').trim().replace(/\s+/g, ' ');
+        const rightText = (spans[1] ? spans[1].textContent : '').trim().replace(/\s+/g, ' ');
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
         // Left text on its own line
         if (leftText) {
