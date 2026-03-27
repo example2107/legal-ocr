@@ -775,6 +775,7 @@ ${paras}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
+          <>
           <div className="result-outer">
           <div className="result-area">
 
@@ -912,6 +913,7 @@ ${paras}
             </div>
           </div>
         )}
+          </>
 
       </main>
 
