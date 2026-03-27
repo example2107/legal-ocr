@@ -516,7 +516,8 @@ ${paras}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (docTitle || 'документ').replace(/\.pdf$/i, '') + '.docx';
+    const baseDocx = (docTitle || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '');
+    a.download = 'ЮрДок_' + baseDocx + '.docx';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -527,8 +528,9 @@ ${paras}
       .replace(/<mark class="uncertain[^"]*"[^>]*>/g, '<span class="uncertain-export">')
       .replace(/<\/mark>/g, '</span>');
 
+    const pdfTitle = 'ЮрДок_' + (docTitle || 'документ').replace(/\.pdf$/i, '');
     const printHtml = `<!DOCTYPE html>
-<html lang="ru"><head><meta charset="utf-8"/><title>${docTitle}</title>
+<html lang="ru"><head><meta charset="utf-8"/><title>${pdfTitle}</title>
 <style>
   /* A4: 210mm wide, margins 25mm each side → text = 160mm */
   /* Times New Roman 14pt matches editor (14px) so line breaks are identical */
