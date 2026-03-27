@@ -286,20 +286,19 @@ a { color: var(--accent); }
    ORIGINAL FILE VIEWER
    ============================ */
 
-/* Viewer panel — fixed to right side of viewport, full height, no layout shift.
-   Positioned to start right after the doc-card right edge:
-   main centers at max 1400px with 24px padding.
-   pd-panel=280px + gap=20px + doc-card max=800px + padding=24px = 1148px from left of main.
-   On wide screens main starts at (viewport-1400)/2 from left edge.
-   We use calc to position exactly after the editor content. */
+/* Viewer panel — sits right next to the editor, full page height */
 .viewer-panel {
   position: fixed;
   top: 56px;
   right: 0;
-  left: calc(50% + 572px); /* 50% = center of viewport, 572px = half of (280+20+800+24*2) */
-  height: calc(100vh - 56px);
+  /* Start right after doc-card: 50% center + pd-panel(280) + gap(20) + doc-card(800) + padding(24) = 572px from center */
+  left: calc(50% + 572px);
+  /* End where the footer starts — use bottom padding to avoid footer overlap */
+  bottom: 56px; /* matches footer height (padding 20px top + bottom + text line ~16px) */
   background: var(--surface);
   border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 0 var(--radius);
   display: flex;
   flex-direction: column;
   z-index: 100;
