@@ -965,12 +965,6 @@ ${paras}
                 <div
                   ref={viewerBodyRef}
                   className={"viewer-body" + (zoomActive ? " zoom-active" : "")}
-                  onMouseDown={(e) => {
-                    if (!zoomActive || e.button !== 0) return;
-                    const el = viewerBodyRef.current;
-                    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
-                    e.preventDefault();
-                  }}
                   onMouseMove={(e) => {
                     const d = dragRef.current;
                     if (!d.dragging) return;
@@ -992,12 +986,26 @@ ${paras}
                       userSelect: 'none',
                       transition: dragRef.current?.dragging ? 'none' : 'transform 0.15s ease',
                     }}
+                    onMouseDown={(e) => {
+                      if (e.button !== 0) return;
+                      // Запоминаем стартовую позицию — для различения клика и drag
+                      dragRef.current = { dragging: false, startX: e.clientX, startY: e.clientY, scrollLeft: viewerBodyRef.current?.scrollLeft || 0, scrollTop: viewerBodyRef.current?.scrollTop || 0 };
+                    }}
+                    onMouseMove={(e) => {
+                      const d = dragRef.current;
+                      if (!zoomActive) return;
+                      // Если сдвинулись больше 5px — это drag
+                      if (!d.dragging && (Math.abs(e.clientX - d.startX) > 5 || Math.abs(e.clientY - d.startY) > 5)) {
+                        d.dragging = true;
+                      }
+                      if (!d.dragging) return;
+                      const el = viewerBodyRef.current;
+                      el.scrollLeft = d.scrollLeft - (e.clientX - d.startX);
+                      el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
+                    }}
                     onClick={(e) => {
-                      // Не переключать если это был drag
-                      if (dragRef.current.dragging) return;
-                      const wasDrag = Math.abs(e.clientX - dragRef.current.startX) > 4 ||
-                                      Math.abs(e.clientY - dragRef.current.startY) > 4;
-                      if (wasDrag) return;
+                      // Если был drag — не переключаем
+                      if (dragRef.current?.dragging) return;
                       const next = !zoomActive;
                       zoomActiveRef.current = next;
                       setZoomActive(next);
