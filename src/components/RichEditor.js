@@ -265,13 +265,15 @@ function UncertainContextMenu({ x, y, onRemove, onClose }) {
     return () => document.removeEventListener('click', handler);
   }, [onClose]);
 
-  // После рендера — сдвигаем если меню выходит за правый/нижний край
+  // После рендера корректируем если выходит за правый/нижний край
   React.useEffect(() => {
     const el = menuRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    if (rect.right > window.innerWidth)  el.style.left = (x - rect.width)  + 'px';
-    if (rect.bottom > window.innerHeight) el.style.top = (y - rect.height) + 'px';
+    if (rect.right > window.innerWidth - 8)
+      el.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight - 8)
+      el.style.top = Math.max(8, y - rect.height - 8) + 'px';
   }, [x, y]);
 
   return (
@@ -348,7 +350,9 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     const mark = e.target.closest('mark.uncertain');
     if (mark) {
       e.preventDefault();
-      setCtxMenu({ x: e.clientX, y: e.clientY, mark });
+      // Берём координаты из самого элемента — надёжнее чем e.clientX/Y при скролле
+      const rect = mark.getBoundingClientRect();
+      setCtxMenu({ x: rect.left, y: rect.bottom + 4, mark });
     }
   }, []);
 
