@@ -230,8 +230,6 @@ a { color: var(--accent); }
 .doc-card {
   flex: 1;
   min-width: 0;
-  /* Cap card width so it doesn't stretch across full screen */
-  max-width: 800px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -286,32 +284,29 @@ a { color: var(--accent); }
    ORIGINAL FILE VIEWER
    ============================ */
 
-/* Viewer panel — sits right next to the editor, full page height */
+/* Viewer panel — inline column inside result-area, same height as editor */
 .viewer-panel {
-  position: fixed;
-  top: 56px;
-  right: 0;
-  /* Start right after doc-card: 50% center + pd-panel(280) + gap(20) + doc-card(800) + padding(24) = 572px from center */
-  left: calc(50% + 572px);
-  /* End where the footer starts — use bottom padding to avoid footer overlap */
-  bottom: 56px; /* matches footer height (padding 20px top + bottom + text line ~16px) */
+  width: 380px;
+  flex-shrink: 0;
   background: var(--surface);
-  border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  border-radius: 0 0 0 var(--radius);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  z-index: 100;
-  animation: viewerSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 100px);
   overflow: hidden;
+  animation: viewerSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes viewerSlideIn {
-  from { opacity: 0; transform: translateX(40px); }
+  from { opacity: 0; transform: translateX(20px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* Only show on desktop */
+/* Hide on narrow screens */
 @media (max-width: 1199px) {
   .viewer-panel { display: none; }
   .btn-original { display: none !important; }

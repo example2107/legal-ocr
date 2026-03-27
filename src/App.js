@@ -86,6 +86,7 @@ export default function App() {
   const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
+  const viewerFileInputRef = useRef();
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
@@ -863,6 +864,39 @@ ${paras}
                       onClick={() => { setShowOriginal(v => !v); setOriginalPage(0); }}
                     >👁 Оригинал</button>
                   )}
+                  {originalImages.length === 0 && (
+                    <button
+                      className="btn-tool btn-original"
+                      onClick={() => viewerFileInputRef.current?.click()}
+                      title="Загрузите оригинал для просмотра рядом с текстом"
+                    >👁 Загрузить оригинал</button>
+                  )}
+                  <input
+                    ref={viewerFileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf"
+                    className="visually-hidden"
+                    onChange={async (e) => {
+                      const newFiles = Array.from(e.target.files);
+                      e.target.value = '';
+                      if (!newFiles.length) return;
+                      const allImages = [];
+                      for (const file of newFiles) {
+                        if (file.type === 'application/pdf') {
+                          const { pdfToImages } = await import('./utils/pdfUtils');
+                          const pages = await pdfToImages(file, () => {});
+                          allImages.push(...pages);
+                        } else {
+                          const { imageFileToBase64 } = await import('./utils/pdfUtils');
+                          allImages.push(await imageFileToBase64(file));
+                        }
+                      }
+                      setOriginalImages(allImages);
+                      setShowOriginal(true);
+                      setOriginalPage(0);
+                    }}
+                  />
                   <button className="btn-tool btn-save" onClick={() => triggerExport('save')}>💾 Сохранить</button>
                   <button className="btn-tool" onClick={() => triggerExport('docx')}>⬇ DOCX</button>
                   <button className="btn-tool" onClick={() => triggerExport('pdf')}>⬇ PDF</button>
@@ -878,36 +912,36 @@ ${paras}
               />
             </div>
 
-          </div>
-          </div>
-        )}
-
-        {showOriginal && originalImages.length > 0 && (
-          <div className="viewer-panel">
-            <div className="viewer-header">
-              <span className="viewer-title">Оригинальный файл</span>
-              <div className="viewer-nav">
-                <button
-                  className="viewer-nav-btn"
-                  disabled={originalPage === 0}
-                  onClick={() => setOriginalPage(p => Math.max(0, p - 1))}
-                >←</button>
-                <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
-                <button
-                  className="viewer-nav-btn"
-                  disabled={originalPage === originalImages.length - 1}
-                  onClick={() => setOriginalPage(p => Math.min(originalImages.length - 1, p + 1))}
-                >→</button>
+            {showOriginal && originalImages.length > 0 && (
+              <div className="viewer-panel">
+                <div className="viewer-header">
+                  <span className="viewer-title">Оригинальный файл</span>
+                  <div className="viewer-nav">
+                    <button
+                      className="viewer-nav-btn"
+                      disabled={originalPage === 0}
+                      onClick={() => setOriginalPage(p => Math.max(0, p - 1))}
+                    >←</button>
+                    <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
+                    <button
+                      className="viewer-nav-btn"
+                      disabled={originalPage === originalImages.length - 1}
+                      onClick={() => setOriginalPage(p => Math.min(originalImages.length - 1, p + 1))}
+                    >→</button>
+                  </div>
+                  <button className="viewer-close" onClick={() => setShowOriginal(false)}>✕ Скрыть</button>
+                </div>
+                <div className="viewer-body">
+                  <img
+                    src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
+                    alt={'Страница ' + (originalPage + 1)}
+                    className="viewer-img"
+                  />
+                </div>
               </div>
-              <button className="viewer-close" onClick={() => setShowOriginal(false)}>✕ Скрыть</button>
-            </div>
-            <div className="viewer-body">
-              <img
-                src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
-                alt={'Страница ' + (originalPage + 1)}
-                className="viewer-img"
-              />
-            </div>
+            )}
+
+          </div>
           </div>
         )}
 
