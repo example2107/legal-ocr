@@ -192,7 +192,7 @@ a { color: var(--accent); }
 /* ============================
    RESULT AREA
    ============================ */
-.result-area { display: flex; gap: 20px; align-items: flex-start; justify-content: center; width: 100vw; position: relative; left: 50%; transform: translateX(-50%); padding: 0 24px; box-sizing: border-box; }
+.result-area { display: flex; gap: 20px; align-items: flex-start; justify-content: center; width: 100%; padding: 0; box-sizing: border-box; }
 
 /* ============================
    PD PANEL
