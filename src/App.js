@@ -211,7 +211,7 @@ export default function App() {
 
   const handleUncertainProceed = () => {
     setShowUncertainWarning(false);
-    setHighlightUncertain(false);
+    setHighlightUncertain(false); // stop animation when user chooses to proceed
     if (pendingExportAction === 'save') handleSave();
     else if (pendingExportAction === 'pdf') handleDownloadPdf();
     else if (pendingExportAction === 'docx') handleDownloadDocx();
@@ -220,7 +220,7 @@ export default function App() {
 
   const handleUncertainCancel = () => {
     setShowUncertainWarning(false);
-    setHighlightUncertain(false);
+    // Animation stays ON so user sees the highlights
     setPendingExportAction(null);
     // Scroll to first uncertain mark
     if (editorDomRef.current) {
@@ -367,29 +367,43 @@ export default function App() {
       const tag = node.tagName?.toUpperCase() || '';
       if (tag === 'HR') continue; // skip hr - page break artifact
       
-      // lr-row: render as borderless 2-column table
+      // lr-row: detect if it's a short signature line (city+date) or long positional line
       if (node.classList && node.classList.contains('lr-row')) {
         const spans = node.querySelectorAll('span');
         const leftText = spans[0] ? spans[0].textContent : '';
         const rightText = spans[1] ? spans[1].textContent : '';
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
-        paras += `<w:tbl>
-          <w:tblPr><w:tblW w:w="9072" w:type="dxa"/><w:tblBorders>
-            <w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/>
-            <w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/>
-            <w:insideH w:val="none" w:sz="0"/><w:insideV w:val="none" w:sz="0"/>
-          </w:tblBorders></w:tblPr>
-          <w:tr>
-            <w:tc><w:tcPr><w:tcW w:w="4536" w:type="dxa"/></w:tcPr>
-              <w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>
-                <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(leftText)}</w:t></w:r></w:p>
-            </w:tc>
-            <w:tc><w:tcPr><w:tcW w:w="4536" w:type="dxa"/></w:tcPr>
-              <w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="0" w:before="0"/></w:pPr>
-                <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(rightText)}</w:t></w:r></w:p>
-            </w:tc>
-          </w:tr>
-        </w:tbl>`;
+        const combined = leftText + '   ' + rightText;
+        // Both texts are short (signature/city-date lines) → plain paragraph, left+spaces+right
+        // Long lines (city + full date) → use flex table
+        const isShort = leftText.length < 25 && rightText.length < 35;
+        if (isShort) {
+          // Render as simple paragraph: left text, spaces, right text
+          paras += `<w:p><w:pPr><w:jc w:val="both"/><w:spacing w:after="0" w:before="0"/></w:pPr>
+            <w:r><w:rPr>${fontProps}</w:rPr><w:t xml:space="preserve">${esc(leftText)}</w:t></w:r>
+            <w:r><w:rPr>${fontProps}</w:rPr><w:tab/></w:r>
+            <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(rightText)}</w:t></w:r>
+          </w:p>`;
+        } else {
+          // Longer lines: borderless table with proper column widths
+          paras += `<w:tbl>
+            <w:tblPr><w:tblW w:w="9072" w:type="dxa"/><w:tblBorders>
+              <w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/>
+              <w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/>
+              <w:insideH w:val="none" w:sz="0"/><w:insideV w:val="none" w:sz="0"/>
+            </w:tblBorders></w:tblPr>
+            <w:tr>
+              <w:tc><w:tcPr><w:tcW w:w="5040" w:type="dxa"/></w:tcPr>
+                <w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>
+                  <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(leftText)}</w:t></w:r></w:p>
+              </w:tc>
+              <w:tc><w:tcPr><w:tcW w:w="4032" w:type="dxa"/></w:tcPr>
+                <w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="0" w:before="0"/></w:pPr>
+                  <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(rightText)}</w:t></w:r></w:p>
+              </w:tc>
+            </w:tr>
+          </w:tbl>`;
+        }
         continue;
       }
 

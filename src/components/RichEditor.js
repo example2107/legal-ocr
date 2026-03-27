@@ -125,7 +125,7 @@ function annotLine(text, marks, anonymized) {
     if (mt.startsWith('⚠️[')) {
       const inner = mt.slice(3, -1);
       const isUnread = inner === 'НЕЧИТАЕМО';
-      out += `<mark class="uncertain${isUnread ? ' unreadable' : ''}" title="${isUnread ? 'Текст не удалось распознать' : 'Возможно неточное распознавание'}">${isUnread ? '[НЕЧИТАЕМО]' : esc(inner.replace('НЕТОЧНО: ', ''))}</mark>`;
+      out += `<mark class="uncertain${isUnread ? ' unreadable' : ''}" data-tooltip="${isUnread ? 'Нечитаемый фрагмент · ПКМ — снять выделение' : 'Возможно неточное распознавание · ПКМ — снять выделение'}">${isUnread ? '[НЕЧИТАЕМО]' : esc(inner.replace('НЕТОЧНО: ', ''))}</mark>`;
     } else {
       const hl = marks.find(m => m.txt === mt);
       if (hl) {
@@ -160,12 +160,17 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
   // Auto-center patterns for typical legal document sections
-  const CENTER_PATTERNS = /^(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ|УСТАНОВИЛА|ПОСТАНОВИЛА|РЕШИЛА|ОПРЕДЕЛИЛА|ПРИГОВОРИЛА|УСТАНОВИЛО|ПОСТАНОВИЛО)[:\s]/i;
+  // Strip ** markdown wrapping before testing, since Claude often writes **УСТАНОВИЛ:**
+  const LEGAL_CENTER_RE = /(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ|УСТАНОВИЛА|ПОСТАНОВИЛА|РЕШИЛА|ОПРЕДЕЛИЛА|ПРИГОВОРИЛА|УСТАНОВИЛО|ПОСТАНОВИЛО)[:\s]/i;
+  const isLegalCenter = (line) => {
+    const stripped = line.replace(/\*\*/g, '').trim();
+    return LEGAL_CENTER_RE.test(stripped) && stripped.length < 60;
+  };
 
   return rawText.split('\n').map(line => {
     if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
     if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
-    // Skip --- (page break artifact) — render as empty line
+    // Skip --- (page break artifact)
     if (line === '---') return '<div><br/></div>';
     if (!line.trim()) return '<div><br/></div>';
     // [CENTER]text[/CENTER] tag from OCR prompt
@@ -178,9 +183,11 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
     if (lrMatch) {
       return `<div class="lr-row"><span>${annotLine(lrMatch[1], marks, anonymized)}</span><span>${annotLine(lrMatch[2], marks, anonymized)}</span></div>`;
     }
-    // Auto-center legal section headers
-    if (CENTER_PATTERNS.test(line.trim())) {
-      return `<div style="text-align:center"><strong>${annotLine(line, marks, anonymized)}</strong></div>`;
+    // Auto-center legal section headers (handles ** wrapping too)
+    if (isLegalCenter(line)) {
+      // Strip ** from display, keep bold via <strong>
+      const clean = line.replace(/\*\*/g, '').trim();
+      return `<div style="text-align:center"><strong>${annotLine(clean, marks, anonymized)}</strong></div>`;
     }
     return `<div>${annotLine(line, marks, anonymized)}</div>`;
   }).join('');
@@ -357,7 +364,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         className={"rich-content" + (highlightUncertain ? " uncertain-highlight-active" : "")}
         contentEditable
         suppressContentEditableWarning
-        spellCheck="true"
+        spellCheck={false}
         onInput={() => { if (!isComposing.current) notifyChange(); }}
         onCompositionStart={() => { isComposing.current = true; }}
         onCompositionEnd={() => { isComposing.current = false; notifyChange(); }}
