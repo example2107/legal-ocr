@@ -265,17 +265,20 @@ function UncertainContextMenu({ x, y, onRemove, onClose }) {
     return () => document.removeEventListener('click', handler);
   }, [onClose]);
 
-  // Корректируем позицию чтобы меню не выходило за правый/нижний край экрана
-  const menuW = 240;
-  const menuH = 36;
-  const left = x + menuW > window.innerWidth ? x - menuW : x;
-  const top = y + menuH > window.innerHeight ? y - menuH : y;
+  // После рендера — сдвигаем если меню выходит за правый/нижний край
+  React.useEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.right > window.innerWidth)  el.style.left = (x - rect.width)  + 'px';
+    if (rect.bottom > window.innerHeight) el.style.top = (y - rect.height) + 'px';
+  }, [x, y]);
 
   return (
     <div
       ref={menuRef}
       className="uncertain-menu"
-      style={{ position: 'fixed', top: top, left: left, zIndex: 9999 }}
+      style={{ position: 'fixed', top: y, left: x, zIndex: 9999 }}
       onMouseDown={e => e.stopPropagation()}
     >
       <div className="uncertain-menu-item" onClick={onRemove}>

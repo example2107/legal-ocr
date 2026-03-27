@@ -387,12 +387,12 @@ a { color: var(--accent); }
 
 /* Zoom mode for viewer */
 .viewer-body.zoom-active {
-  cursor: none;
   overflow: auto;
   background: var(--bg2);
+  cursor: grab;
 }
-.viewer-body.zoom-active .viewer-img {
-  cursor: zoom-in;
+.viewer-body.zoom-active:active {
+  cursor: grabbing;
 }
 .viewer-zoom-controls {
   display: flex;

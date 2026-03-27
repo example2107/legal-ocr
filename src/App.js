@@ -37,6 +37,9 @@ export default function App() {
   const [originalPage, setOriginalPage] = useState(0);
   const [zoomActive, setZoomActive] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
+  const [zoomOffset, setZoomOffset] = useState({ x: 0, y: 0 });
+  const viewerBodyRef = useRef(null);
+  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pastedText, setPastedText] = useState('');
@@ -93,6 +96,23 @@ export default function App() {
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
 
+  // Wheel zoom — должен быть passive:false чтобы preventDefault работал
+  useEffect(() => {
+    const el = viewerBodyRef.current;
+    if (!el) return;
+    const handler = (e) => {
+      if (!zoomActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setZoomScale(s => {
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
+      });
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [zoomActive]);
+
   useEffect(() => { setHistory(loadHistory()); }, []);
   const refreshHistory = () => setHistory(loadHistory());
 
@@ -122,6 +142,7 @@ export default function App() {
     setOriginalPage(0);
     setZoomActive(false);
     setZoomScale(1);
+    setZoomOffset({ x: 0, y: 0 });
     setError(null);
     setProgress(null);
     setShowUnsaved(false);
@@ -942,22 +963,41 @@ ${paras}
                   <button className="viewer-close" onClick={() => { setShowOriginal(false); setZoomActive(false); setZoomScale(1); }}>✕ Скрыть</button>
                 </div>
                 <div
+                  ref={viewerBodyRef}
                   className={"viewer-body" + (zoomActive ? " zoom-active" : "")}
-                  onWheel={zoomActive ? (e) => {
+                  onMouseDown={zoomActive ? (e) => {
+                    if (e.button !== 0) return;
+                    const el = viewerBodyRef.current;
+                    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
                     e.preventDefault();
-                    e.stopPropagation();
-                    setZoomScale(s => {
-                      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                      return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
-                    });
                   } : undefined}
+                  onMouseMove={zoomActive ? (e) => {
+                    const d = dragRef.current;
+                    if (!d.dragging) return;
+                    const el = viewerBodyRef.current;
+                    el.scrollLeft = d.scrollLeft - (e.clientX - d.startX);
+                    el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
+                  } : undefined}
+                  onMouseUp={() => { dragRef.current.dragging = false; }}
+                  onMouseLeave={() => { dragRef.current.dragging = false; }}
                 >
                   <img
                     src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
                     alt={'Страница ' + (originalPage + 1)}
                     className="viewer-img"
-                    style={{ transform: `scale(${zoomScale})`, transformOrigin: 'top center', cursor: zoomActive ? 'zoom-in' : 'pointer' }}
-                    onClick={() => { setZoomActive(v => !v); }}
+                    style={{
+                      transform: `scale(${zoomScale})`,
+                      transformOrigin: 'top center',
+                      cursor: zoomActive ? (dragRef.current?.dragging ? 'grabbing' : 'grab') : 'pointer',
+                      userSelect: 'none',
+                    }}
+                    onClick={(e) => {
+                      // Не переключать режим если это был drag
+                      if (Math.abs(e.clientX - dragRef.current.startX) > 3 || Math.abs(e.clientY - dragRef.current.startY) > 3) return;
+                      setZoomActive(v => !v);
+                      if (zoomActive) setZoomScale(1);
+                    }}
+                    draggable={false}
                     title={zoomActive ? 'Кликните чтобы выйти из режима зума' : 'Кликните для приближения колесиком мыши'}
                   />
                 </div>
