@@ -286,43 +286,20 @@ a { color: var(--accent); }
    ORIGINAL FILE VIEWER
    ============================ */
 
-/* Outer wrapper — simple flex row: [pd-panel + editor-shift] */
-.result-outer {
-  display: block;
-}
-
-/* editor-shift: wraps doc-card + viewer panel, shifts left when viewer opens */
-.editor-shift {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* When viewer is open — shift left to make room for viewer panel */
-@media (min-width: 1200px) {
-  .editor-shift.viewer-open {
-    transform: translateX(-210px);
-  }
-}
-
-/* Viewer panel — fixed on right side, full viewport height */
+/* Viewer panel — fixed to right side of viewport, full height, no layout shift */
 .viewer-panel {
-  flex-shrink: 0;
+  position: fixed;
+  top: 56px;
+  right: 0;
   width: 420px;
-  margin-left: 24px;
+  height: calc(100vh - 56px);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  position: fixed;
-  top: 60px;
-  right: 16px;
-  height: calc(100vh - 76px);
-  z-index: 50;
-  animation: viewerSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 24px rgba(0,0,0,.10);
+  z-index: 100;
+  animation: viewerSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -4px 0 20px rgba(0,0,0,.08);
 }
 
 @keyframes viewerSlideIn {

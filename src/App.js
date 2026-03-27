@@ -847,7 +847,6 @@ ${paras}
               </aside>
             )}
 
-            <div className={'editor-shift' + (showOriginal ? ' viewer-open' : '')}>
             <div className="doc-card">
               <div className="doc-title-row">
                 <input
@@ -879,38 +878,38 @@ ${paras}
               />
             </div>{/* doc-card */}
 
-          {/* ── ORIGINAL FILE VIEWER PANEL ── */}
-          {showOriginal && originalImages.length > 0 && (
-            <div className="viewer-panel">
-              <div className="viewer-header">
-                <span className="viewer-title">Оригинальный файл</span>
-                <div className="viewer-nav">
-                  <button
-                    className="viewer-nav-btn"
-                    disabled={originalPage === 0}
-                    onClick={() => setOriginalPage(p => Math.max(0, p - 1))}
-                  >←</button>
-                  <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
-                  <button
-                    className="viewer-nav-btn"
-                    disabled={originalPage === originalImages.length - 1}
-                    onClick={() => setOriginalPage(p => Math.min(originalImages.length - 1, p + 1))}
-                  >→</button>
-                </div>
-                <button className="viewer-close" onClick={() => setShowOriginal(false)}>✕ Скрыть</button>
-              </div>
-              <div className="viewer-body">
-                <img
-                  src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
-                  alt={'Страница ' + (originalPage + 1)}
-                  className="viewer-img"
-                />
-              </div>
-            </div>
-          )}
-
-            </div>
           </div>
+          </div>
+          </div>
+        )}
+
+        {/* ── ORIGINAL FILE VIEWER — fixed right panel ── */}
+        {showOriginal && originalImages.length > 0 && (
+          <div className="viewer-panel">
+            <div className="viewer-header">
+              <span className="viewer-title">Оригинальный файл</span>
+              <div className="viewer-nav">
+                <button
+                  className="viewer-nav-btn"
+                  disabled={originalPage === 0}
+                  onClick={() => setOriginalPage(p => Math.max(0, p - 1))}
+                >←</button>
+                <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
+                <button
+                  className="viewer-nav-btn"
+                  disabled={originalPage === originalImages.length - 1}
+                  onClick={() => setOriginalPage(p => Math.min(originalImages.length - 1, p + 1))}
+                >→</button>
+              </div>
+              <button className="viewer-close" onClick={() => setShowOriginal(false)}>✕ Скрыть</button>
+            </div>
+            <div className="viewer-body">
+              <img
+                src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
+                alt={'Страница ' + (originalPage + 1)}
+                className="viewer-img"
+              />
+            </div>
           </div>
         )}
 
