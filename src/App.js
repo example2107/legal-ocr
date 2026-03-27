@@ -37,6 +37,29 @@ export default function App() {
   const [pastedText, setPastedText] = useState('');
 
   const [progress, setProgress] = useState(null);
+  const progressCreepRef = useRef(null);
+
+  // Slowly creep progress bar forward while waiting for API (never reaches target automatically)
+  const startProgressCreep = useCallback((current, max) => {
+    if (progressCreepRef.current) clearInterval(progressCreepRef.current);
+    progressCreepRef.current = setInterval(() => {
+      setProgress(prev => {
+        if (!prev) return prev;
+        const gap = max - prev.percent;
+        if (gap <= 1) return prev;
+        // Move 30% of the remaining gap each tick — slows down as it approaches max
+        const next = Math.min(prev.percent + Math.max(0.5, gap * 0.04), max - 0.5);
+        return { ...prev, percent: Math.round(next * 10) / 10 };
+      });
+    }, 300);
+  }, []);
+
+  const stopProgressCreep = useCallback(() => {
+    if (progressCreepRef.current) {
+      clearInterval(progressCreepRef.current);
+      progressCreepRef.current = null;
+    }
+  }, []);
   const [error, setError] = useState(null);
 
   const [docId, setDocId] = useState(null);
@@ -128,7 +151,13 @@ export default function App() {
       if (pasteMode) {
         setProgress({ percent: 10, message: 'Анализ текста...' });
         result = await analyzePastedText(pastedText, apiKey.trim(), provider, p => {
-          setProgress({ percent: p.stage === 'done' ? 100 : 60, message: p.message });
+          const pct = p.percent ?? (p.stage === 'done' ? 100 : 50);
+          setProgress({ percent: pct, message: p.message });
+          if (p.stage !== 'done') {
+            startProgressCreep(pct, Math.min(pct + 12, 98));
+          } else {
+            stopProgressCreep();
+          }
         });
       } else {
         setProgress({ percent: 2, message: 'Подготовка файлов...' });
@@ -145,9 +174,15 @@ export default function App() {
           }
         }
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
-          if (p.stage === 'ocr') setProgress({ percent: 25 + Math.round((p.current / p.total) * 60), message: p.message });
-          else if (p.stage === 'analysis') setProgress({ percent: 90, message: p.message });
-          else setProgress({ percent: 100, message: 'Готово!' });
+          const pct = p.percent ?? (p.stage === 'done' ? 100 : 50);
+          setProgress({ percent: pct, message: p.message });
+          if (p.stage !== 'done') {
+            // Creep toward next milestone (never quite reaching it) to show activity
+            const nextMilestone = p.stage === 'ocr' ? Math.min(pct + 15, 68) : Math.min(pct + 10, 98);
+            startProgressCreep(pct, nextMilestone);
+          } else {
+            stopProgressCreep();
+          }
         });
       }
 
@@ -166,8 +201,10 @@ export default function App() {
       setAnonymized(initialAnon);
       setLastSavedState(null);
 
+      stopProgressCreep();
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
     } catch (err) {
+      stopProgressCreep();
       setError(err.message || 'Произошла ошибка');
       setView(VIEW_HOME);
       setProgress(null);
@@ -367,43 +404,27 @@ export default function App() {
       const tag = node.tagName?.toUpperCase() || '';
       if (tag === 'HR') continue; // skip hr - page break artifact
       
-      // lr-row: detect if it's a short signature line (city+date) or long positional line
+      // lr-row: use right-aligned tab stop — the Word standard for left+right on same line
+      // This correctly handles both short (signatures) and long (city+date) lines
       if (node.classList && node.classList.contains('lr-row')) {
         const spans = node.querySelectorAll('span');
         const leftText = spans[0] ? spans[0].textContent : '';
         const rightText = spans[1] ? spans[1].textContent : '';
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
-        const combined = leftText + '   ' + rightText;
-        // Both texts are short (signature/city-date lines) → plain paragraph, left+spaces+right
-        // Long lines (city + full date) → use flex table
-        const isShort = leftText.length < 25 && rightText.length < 35;
-        if (isShort) {
-          // Render as simple paragraph: left text, spaces, right text
-          paras += `<w:p><w:pPr><w:jc w:val="both"/><w:spacing w:after="0" w:before="0"/></w:pPr>
-            <w:r><w:rPr>${fontProps}</w:rPr><w:t xml:space="preserve">${esc(leftText)}</w:t></w:r>
-            <w:r><w:rPr>${fontProps}</w:rPr><w:tab/></w:r>
-            <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(rightText)}</w:t></w:r>
-          </w:p>`;
-        } else {
-          // Longer lines: borderless table with proper column widths
-          paras += `<w:tbl>
-            <w:tblPr><w:tblW w:w="9072" w:type="dxa"/><w:tblBorders>
-              <w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/>
-              <w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/>
-              <w:insideH w:val="none" w:sz="0"/><w:insideV w:val="none" w:sz="0"/>
-            </w:tblBorders></w:tblPr>
-            <w:tr>
-              <w:tc><w:tcPr><w:tcW w:w="5040" w:type="dxa"/></w:tcPr>
-                <w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>
-                  <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(leftText)}</w:t></w:r></w:p>
-              </w:tc>
-              <w:tc><w:tcPr><w:tcW w:w="4032" w:type="dxa"/></w:tcPr>
-                <w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="0" w:before="0"/></w:pPr>
-                  <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(rightText)}</w:t></w:r></w:p>
-              </w:tc>
-            </w:tr>
-          </w:tbl>`;
-        }
+        // Tab stop at 9072 twips (right page margin) with right alignment
+        // leftText → Tab → rightText (aligned to right margin)
+        paras += `<w:p>
+          <w:pPr>
+            <w:jc w:val="left"/>
+            <w:spacing w:after="0" w:before="0"/>
+            <w:tabs>
+              <w:tab w:val="right" w:pos="9072"/>
+            </w:tabs>
+          </w:pPr>
+          <w:r><w:rPr>${fontProps}</w:rPr><w:t xml:space="preserve">${esc(leftText)}</w:t></w:r>
+          <w:r><w:rPr>${fontProps}</w:rPr><w:tab/></w:r>
+          <w:r><w:rPr>${fontProps}</w:rPr><w:t xml:space="preserve">${esc(rightText)}</w:t></w:r>
+        </w:p>`;
         continue;
       }
 

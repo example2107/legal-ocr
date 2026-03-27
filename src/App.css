@@ -131,7 +131,20 @@ a { color: var(--accent); }
 .progress-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
 .progress-msg { font-size: 14px; color: var(--text2); margin-bottom: 12px; }
 .progress-bar-wrap { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
-.progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), #4a90d9); border-radius: 3px; transition: width .4s ease; }
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #4a90d9);
+  border-radius: 3px;
+  /* Smooth transition - 0.8s so jumps between API calls feel gradual */
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Subtle shimmer animation to show activity while waiting */
+  background-size: 200% 100%;
+  animation: progressShimmer 1.8s ease-in-out infinite;
+}
+@keyframes progressShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .progress-pct { font-size: 12px; color: var(--text3); margin-top: 6px; text-align: right; }
 
 /* ============================
