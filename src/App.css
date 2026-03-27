@@ -230,6 +230,7 @@ a { color: var(--accent); }
 .doc-card {
   flex: 1;
   min-width: 0;
+  max-width: 800px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -286,7 +287,7 @@ a { color: var(--accent); }
 
 /* Viewer panel — inline column inside result-area, same height as editor */
 .viewer-panel {
-  width: 560px;
+  width: 700px;
   flex-shrink: 0;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -295,8 +296,8 @@ a { color: var(--accent); }
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 80px;
-  height: calc(100vh - 100px);
+  top: 68px;
+  height: calc(100vh - 80px);
   overflow: hidden;
   animation: viewerSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
