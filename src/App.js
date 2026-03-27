@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
-import { recognizeDocument, analyzePastedText } from './utils/claudeApi';
+import { recognizeDocument, analyzePastedText, PROVIDERS } from './utils/claudeApi';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
@@ -29,6 +29,7 @@ export default function App() {
   const [view, setView] = useState(VIEW_HOME);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [provider, setProvider] = useState('claude');
 
   const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -51,6 +52,8 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
+  const [showUncertainWarning, setShowUncertainWarning] = useState(false);
+  const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
 
@@ -123,7 +126,7 @@ export default function App() {
       let result;
       if (pasteMode) {
         setProgress({ percent: 10, message: 'Анализ текста...' });
-        result = await analyzePastedText(pastedText, apiKey.trim(), p => {
+        result = await analyzePastedText(pastedText, apiKey.trim(), provider, p => {
           setProgress({ percent: p.stage === 'done' ? 100 : 60, message: p.message });
         });
       } else {
@@ -140,7 +143,7 @@ export default function App() {
             allImages.push(await imageFileToBase64(file));
           }
         }
-        result = await recognizeDocument(allImages, apiKey.trim(), p => {
+        result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
           if (p.stage === 'ocr') setProgress({ percent: 25 + Math.round((p.current / p.total) * 60), message: p.message });
           else if (p.stage === 'analysis') setProgress({ percent: 90, message: p.message });
           else setProgress({ percent: 100, message: 'Готово!' });
@@ -187,6 +190,41 @@ export default function App() {
   };
 
   // ── Save ──────────────────────────────────────────────────────────────────────
+  const countUncertain = () => {
+    if (!editorDomRef.current) return 0;
+    return editorDomRef.current.querySelectorAll('mark.uncertain').length;
+  };
+
+  const triggerExport = (action) => {
+    const count = countUncertain();
+    if (count > 0) {
+      setPendingExportAction(action);
+      setShowUncertainWarning(true);
+    } else {
+      if (action === 'save') handleSave();
+      else if (action === 'pdf') handleDownloadPdf();
+      else if (action === 'docx') handleDownloadDocx();
+    }
+  };
+
+  const handleUncertainProceed = () => {
+    setShowUncertainWarning(false);
+    if (pendingExportAction === 'save') handleSave();
+    else if (pendingExportAction === 'pdf') handleDownloadPdf();
+    else if (pendingExportAction === 'docx') handleDownloadDocx();
+    setPendingExportAction(null);
+  };
+
+  const handleUncertainCancel = () => {
+    setShowUncertainWarning(false);
+    setPendingExportAction(null);
+    // Scroll to first uncertain mark
+    if (editorDomRef.current) {
+      const first = editorDomRef.current.querySelector('mark.uncertain');
+      if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
   const handleSave = () => {
     const currentHtml = editorDomRef.current?.innerHTML || editorHtml;
     saveDocument({
@@ -467,6 +505,23 @@ ${paras}
         </div>
       </header>
 
+      {/* ── UNCERTAIN WARNING MODAL ── */}
+      {showUncertainWarning && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-title">⚠️ Есть непроверенные фрагменты</div>
+            <div className="modal-body">
+              В документе остались места с неточным распознаванием (выделены двойным подчёркиванием).
+              Рекомендуем проверить и исправить их перед сохранением.
+            </div>
+            <div className="modal-actions">
+              <button className="btn-tool" onClick={handleUncertainCancel}>Перейти к исправлению</button>
+              <button className="btn-primary btn-sm" onClick={handleUncertainProceed}>Всё равно продолжить</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── SAVE TOAST ── */}
       {savedMsg && (
         <div className="save-toast">✓ Документ сохранён</div>
@@ -493,11 +548,26 @@ ${paras}
           <>
             <section className="card api-card">
               <div className="card-label">API ключ Claude</div>
-              <div className="api-input-wrap">
+              <div className="provider-select-wrap">
+                <label className="provider-label">Провайдер ИИ</label>
+                <div className="provider-tabs">
+                  {Object.entries(PROVIDERS).map(([key, p]) => (
+                    <button
+                      key={key}
+                      className={'provider-tab' + (provider === key ? ' active' : '')}
+                      onClick={() => { setProvider(key); setApiKey(''); }}
+                      type="button"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="api-input-wrap" style={{ marginTop: 8 }}>
                 <input
                   type={showApiKey ? 'text' : 'password'}
                   className="api-input"
-                  placeholder="sk-ant-..."
+                  placeholder={PROVIDERS[provider].placeholder}
                   value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
                   autoComplete="off"
@@ -507,7 +577,9 @@ ${paras}
               </div>
               <div className="api-hint">
                 Ключ не сохраняется.{' '}
-                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>
+                {provider === 'claude' && <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
+                {provider === 'openai' && <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
+                {provider === 'gemini' && <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
               </div>
             </section>
 
@@ -690,9 +762,9 @@ ${paras}
                   spellCheck={false}
                 />
                 <div className="doc-title-actions">
-                  <button className="btn-tool btn-save" onClick={handleSave}>💾 Сохранить</button>
-                  <button className="btn-tool" onClick={handleDownloadDocx}>⬇ DOCX</button>
-                  <button className="btn-tool" onClick={handleDownloadPdf}>⬇ PDF</button>
+                  <button className="btn-tool btn-save" onClick={() => triggerExport('save')}>💾 Сохранить</button>
+                  <button className="btn-tool" onClick={() => triggerExport('docx')}>⬇ DOCX</button>
+                  <button className="btn-tool" onClick={() => triggerExport('pdf')}>⬇ PDF</button>
                 </div>
               </div>
 

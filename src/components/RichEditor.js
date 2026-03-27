@@ -164,6 +164,11 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
     if (line.startsWith('### ')) return `<h3>${annotLine(line.slice(4), marks, anonymized)}</h3>`;
     if (line === '---') return '<hr/>';
     if (!line.trim()) return '<div><br/></div>';
+    // LEFTRIGHT: left text | right text
+    const lrMatch = line.match(/^\[LEFTRIGHT:\s*(.+?)\s*\|\s*(.+?)\s*\]$/);
+    if (lrMatch) {
+      return `<div class="lr-row"><span>${annotLine(lrMatch[1], marks, anonymized)}</span><span>${annotLine(lrMatch[2], marks, anonymized)}</span></div>`;
+    }
     return `<div>${annotLine(line, marks, anonymized)}</div>`;
   }).join('');
 }
@@ -208,11 +213,33 @@ export function initPdMarkOriginals(editorEl) {
 }
 
 // ── RichEditor component ───────────────────────────────────────────────────────
+// ── Context menu for uncertain marks ─────────────────────────────────────────
+function UncertainContextMenu({ x, y, onRemove, onClose }) {
+  React.useEffect(() => {
+    const handler = () => onClose();
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="uncertain-menu"
+      style={{ position: 'fixed', top: y, left: x, zIndex: 1000 }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      <div className="uncertain-menu-item" onClick={onRemove}>
+        ✓ Исправлено — снять выделение
+      </div>
+    </div>
+  );
+}
+
 export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
   const isComposing = useRef(false);
+  const [ctxMenu, setCtxMenu] = React.useState(null); // {x, y, mark}
 
   // Only set innerHTML when html prop changes from OUTSIDE (new doc, not user typing)
   useEffect(() => {
@@ -263,6 +290,24 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     }
   }, [onPdClick]);
 
+  const handleContextMenu = useCallback((e) => {
+    const mark = e.target.closest('mark.uncertain');
+    if (mark) {
+      e.preventDefault();
+      setCtxMenu({ x: e.clientX, y: e.clientY, mark });
+    }
+  }, []);
+
+  const removeUncertainMark = useCallback(() => {
+    if (!ctxMenu?.mark) return;
+    const mark = ctxMenu.mark;
+    // Replace the mark with its plain text content
+    const text = document.createTextNode(mark.textContent);
+    mark.parentNode.replaceChild(text, mark);
+    notifyChange();
+    setCtxMenu(null);
+  }, [ctxMenu, notifyChange]);
+
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -306,7 +351,16 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         onBlur={notifyChange}
         onKeyDown={handleKeyDown}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
       />
+      {ctxMenu && (
+        <UncertainContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onRemove={removeUncertainMark}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 }

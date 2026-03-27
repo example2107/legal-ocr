@@ -242,6 +242,27 @@ a { color: var(--accent); }
 .doc-title-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 
 /* ============================
+   PROVIDER SELECTOR
+   ============================ */
+.provider-select-wrap { margin-bottom: 0; }
+.provider-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 8px; }
+.provider-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.provider-tab {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all var(--tr);
+  white-space: nowrap;
+}
+.provider-tab:hover { background: var(--bg2); border-color: var(--border2); color: var(--text); }
+.provider-tab.active { background: var(--accent-light); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* ============================
    SAVE TOAST
    ============================ */
 .save-toast {
