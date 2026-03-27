@@ -747,13 +747,15 @@ ${paras}
 
             {error && <div className="error-block">⚠️ {error}</div>}
 
-            <button
-              className="btn-primary"
-              onClick={handleRecognize}
-              disabled={!apiKey.trim() || (!pasteMode && files.length === 0) || (pasteMode && !pastedText.trim())}
-            >
-              {pasteMode ? 'Анализировать текст' : 'Распознать документ'}
-            </button>
+            <div className="home-btn-wrap">
+              <button
+                className="btn-primary"
+                onClick={handleRecognize}
+                disabled={!apiKey.trim() || (!pasteMode && files.length === 0) || (pasteMode && !pastedText.trim())}
+              >
+                {pasteMode ? 'Анализировать текст' : 'Распознать документ'}
+              </button>
+            </div>
 
             {history.length > 0 && (
               <section className="history-section">
