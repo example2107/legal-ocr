@@ -32,6 +32,9 @@ export default function App() {
   const [provider, setProvider] = useState('claude');
 
   const [files, setFiles] = useState([]);
+  const [originalImages, setOriginalImages] = useState([]); // for file viewer
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [originalPage, setOriginalPage] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pastedText, setPastedText] = useState('');
@@ -111,6 +114,9 @@ export default function App() {
     setFiles([]);
     setPastedText('');
     setPasteMode(false);
+    setOriginalImages([]);
+    setShowOriginal(false);
+    setOriginalPage(0);
     setError(null);
     setProgress(null);
     setShowUnsaved(false);
@@ -176,6 +182,7 @@ export default function App() {
             allImages.push(await imageFileToBase64(file));
           }
         }
+        setOriginalImages(allImages); // save for viewer
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
           // Use integer percentages only — no decimal fractions
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
@@ -768,6 +775,7 @@ ${paras}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
+          <div className={'result-outer' + (showOriginal ? ' viewer-open' : '')}>
           <div className="result-area">
 
             {hasPD && (
@@ -849,6 +857,12 @@ ${paras}
                   spellCheck={false}
                 />
                 <div className="doc-title-actions">
+                  {originalImages.length > 0 && (
+                    <button
+                      className={'btn-tool btn-original' + (showOriginal ? ' active' : '')}
+                      onClick={() => { setShowOriginal(v => !v); setOriginalPage(0); }}
+                    >👁 Оригинал</button>
+                  )}
                   <button className="btn-tool btn-save" onClick={() => triggerExport('save')}>💾 Сохранить</button>
                   <button className="btn-tool" onClick={() => triggerExport('docx')}>⬇ DOCX</button>
                   <button className="btn-tool" onClick={() => triggerExport('pdf')}>⬇ PDF</button>
@@ -863,6 +877,38 @@ ${paras}
                 highlightUncertain={highlightUncertain}
               />
             </div>
+
+          </div>
+
+          {/* ── ORIGINAL FILE VIEWER PANEL ── */}
+          {showOriginal && originalImages.length > 0 && (
+            <div className="viewer-panel">
+              <div className="viewer-header">
+                <span className="viewer-title">Оригинальный файл</span>
+                <div className="viewer-nav">
+                  <button
+                    className="viewer-nav-btn"
+                    disabled={originalPage === 0}
+                    onClick={() => setOriginalPage(p => Math.max(0, p - 1))}
+                  >←</button>
+                  <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
+                  <button
+                    className="viewer-nav-btn"
+                    disabled={originalPage === originalImages.length - 1}
+                    onClick={() => setOriginalPage(p => Math.min(originalImages.length - 1, p + 1))}
+                  >→</button>
+                </div>
+                <button className="viewer-close" onClick={() => setShowOriginal(false)}>✕ Скрыть</button>
+              </div>
+              <div className="viewer-body">
+                <img
+                  src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
+                  alt={'Страница ' + (originalPage + 1)}
+                  className="viewer-img"
+                />
+              </div>
+            </div>
+          )}
 
           </div>
         )}
