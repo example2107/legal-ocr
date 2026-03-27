@@ -411,12 +411,9 @@ a { color: var(--accent); }
   gap: 4px;
 }
 
-/* Viewer tooltip */
+/* Viewer tooltip — fixed, появляется у курсора */
 .viewer-tooltip {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
   background: rgba(0,0,0,0.72);
   color: #fff;
   font-size: 12px;
@@ -424,16 +421,13 @@ a { color: var(--accent); }
   border-radius: 20px;
   white-space: nowrap;
   pointer-events: none;
-  z-index: 10;
+  z-index: 9999;
   animation: tooltipFade 0.15s ease;
 }
 @keyframes tooltipFade {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
-/* viewer-body needs position:relative for tooltip */
-.viewer-body { position: relative; }
 
 /* Active state for viewer button */
 .btn-original.active {

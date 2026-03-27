@@ -37,7 +37,7 @@ export default function App() {
   const [originalPage, setOriginalPage] = useState(0);
   const [zoomActive, setZoomActive] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
-  const [showViewerTip, setShowViewerTip] = useState(false);
+  const [viewerTip, setViewerTip] = useState(null); // null или {x, y}
   const viewerBodyRef = useRef(null);
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
   const zoomActiveRef = useRef(false);
@@ -98,27 +98,28 @@ export default function App() {
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
 
-  // Wheel: если мышь над вьюером — всегда перехватываем скролл
-  useEffect(() => {
-    const el = viewerBodyRef.current;
+  // Wheel вешаем через callback-ref на viewer-body — срабатывает когда элемент реально появился
+  const setViewerBodyRef = useCallback((el) => {
+    if (viewerBodyRef.current) {
+      viewerBodyRef.current.removeEventListener('wheel', viewerBodyRef._wheelHandler);
+    }
+    viewerBodyRef.current = el;
     if (!el) return;
     const handler = (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (zoomActiveRef.current) {
-        // Активный режим — зум
         setZoomScale(s => {
           const delta = e.deltaY > 0 ? -0.1 : 0.1;
           return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
         });
       } else {
-        // Неактивный режим — скроллим сам документ
         el.scrollTop += e.deltaY;
         el.scrollLeft += e.deltaX;
       }
     };
+    viewerBodyRef._wheelHandler = handler;
     el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
   }, []);
 
   useEffect(() => { setHistory(loadHistory()); }, []);
@@ -973,7 +974,7 @@ ${paras}
                   <button className="viewer-close" onClick={() => { setShowOriginal(false); zoomActiveRef.current = false; setZoomActive(false); setZoomScale(1); }}>✕ Скрыть</button>
                 </div>
                 <div
-                  ref={viewerBodyRef}
+                  ref={setViewerBodyRef}
                   className={"viewer-body" + (zoomActive ? " zoom-active" : "")}
                   onMouseMove={(e) => {
                     const d = dragRef.current;
@@ -1020,23 +1021,23 @@ ${paras}
                       zoomActiveRef.current = next;
                       setZoomActive(next);
                     }}
-                    onMouseMove={() => {
-                      // Мышь двигается — скрываем подсказку, сбрасываем таймер
-                      setShowViewerTip(false);
+                    onMouseMove={(e) => {
+                      setViewerTip(null);
                       if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
-                      // Запускаем таймер — покажем подсказку через 600ms остановки
-                      tipTimerRef.current = setTimeout(() => setShowViewerTip(true), 600);
+                      const x = e.clientX;
+                      const y = e.clientY;
+                      tipTimerRef.current = setTimeout(() => setViewerTip({ x, y }), 600);
                     }}
                     onMouseLeave={() => {
-                      setShowViewerTip(false);
+                      setViewerTip(null);
                       if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
                     }}
                     draggable={false}
                   />
-                  {showViewerTip && (
-                    <div className="viewer-tooltip">
+                  {viewerTip && (
+                    <div className="viewer-tooltip" style={{ left: viewerTip.x + 16, top: viewerTip.y + 16 }}>
                       {zoomActive
-                        ? '🔍 Колесико — зум · Зажать и тащить — переместить · Двойной клик — выход'
+                        ? '🔍 Колесико — зум · Зажать — переместить · Двойной клик — выход'
                         : '💡 Двойной клик — активировать зум и перетаскивание'}
                     </div>
                   )}
