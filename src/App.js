@@ -53,6 +53,7 @@ export default function App() {
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
   const [showUncertainWarning, setShowUncertainWarning] = useState(false);
+  const [highlightUncertain, setHighlightUncertain] = useState(false);
   const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
@@ -200,6 +201,7 @@ export default function App() {
     if (count > 0) {
       setPendingExportAction(action);
       setShowUncertainWarning(true);
+      setHighlightUncertain(true);
     } else {
       if (action === 'save') handleSave();
       else if (action === 'pdf') handleDownloadPdf();
@@ -209,6 +211,7 @@ export default function App() {
 
   const handleUncertainProceed = () => {
     setShowUncertainWarning(false);
+    setHighlightUncertain(false);
     if (pendingExportAction === 'save') handleSave();
     else if (pendingExportAction === 'pdf') handleDownloadPdf();
     else if (pendingExportAction === 'docx') handleDownloadDocx();
@@ -217,6 +220,7 @@ export default function App() {
 
   const handleUncertainCancel = () => {
     setShowUncertainWarning(false);
+    setHighlightUncertain(false);
     setPendingExportAction(null);
     // Scroll to first uncertain mark
     if (editorDomRef.current) {
@@ -361,10 +365,34 @@ export default function App() {
     for (const node of tmp.childNodes) {
       if (node.nodeType !== 1) continue;
       const tag = node.tagName?.toUpperCase() || '';
-      if (tag === 'HR') {
-        paras += '<w:p><w:r><w:t>─────────────────────────────────────</w:t></w:r></w:p>';
+      if (tag === 'HR') continue; // skip hr - page break artifact
+      
+      // lr-row: render as borderless 2-column table
+      if (node.classList && node.classList.contains('lr-row')) {
+        const spans = node.querySelectorAll('span');
+        const leftText = spans[0] ? spans[0].textContent : '';
+        const rightText = spans[1] ? spans[1].textContent : '';
+        const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
+        paras += `<w:tbl>
+          <w:tblPr><w:tblW w:w="9072" w:type="dxa"/><w:tblBorders>
+            <w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/>
+            <w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/>
+            <w:insideH w:val="none" w:sz="0"/><w:insideV w:val="none" w:sz="0"/>
+          </w:tblBorders></w:tblPr>
+          <w:tr>
+            <w:tc><w:tcPr><w:tcW w:w="4536" w:type="dxa"/></w:tcPr>
+              <w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>
+                <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(leftText)}</w:t></w:r></w:p>
+            </w:tc>
+            <w:tc><w:tcPr><w:tcW w:w="4536" w:type="dxa"/></w:tcPr>
+              <w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="0" w:before="0"/></w:pPr>
+                <w:r><w:rPr>${fontProps}</w:rPr><w:t>${esc(rightText)}</w:t></w:r></w:p>
+            </w:tc>
+          </w:tr>
+        </w:tbl>`;
         continue;
       }
+
       const align = getAlign(node);
       const pPr = `<w:pPr><w:jc w:val="${align}"/><w:spacing w:after="0" w:before="0"/></w:pPr>`;
 
@@ -374,7 +402,6 @@ export default function App() {
       else if (tag === 'H3') rStyle = '<w:rPr><w:b/><w:bCs/></w:rPr>';
 
       const runs = nodeToRuns(node);
-      // Inject rStyle into each run if heading
       const styledRuns = rStyle
         ? runs.replace(/<w:r>/g, `<w:r>${rStyle}`)
         : runs;
@@ -462,6 +489,8 @@ ${paras}
   h3 { font-size: 14pt; font-weight: 600; margin: 0; }
   div { min-height: 1.7em; margin: 0; padding: 0; text-align: justify; }
   p { text-indent: 1.5em; margin: 0; padding: 0; text-align: justify; }
+  .lr-row { display: flex; justify-content: space-between; align-items: baseline; text-align: left; }
+  .lr-row span:last-child { text-align: right; }
   hr { border: none; border-top: 1px solid #ccc; margin: 6pt 0; }
   ol, ul { padding-left: 2em; }
   .pd-export { font-weight: bold; }
@@ -547,7 +576,6 @@ ${paras}
         {view === VIEW_HOME && (
           <>
             <section className="card api-card">
-              <div className="card-label">API ключ Claude</div>
               <div className="provider-select-wrap">
                 <label className="provider-label">Провайдер ИИ</label>
                 <div className="provider-tabs">
@@ -773,6 +801,7 @@ ${paras}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
                 editorRef={editorDomRef}
+                highlightUncertain={highlightUncertain}
               />
             </div>
 

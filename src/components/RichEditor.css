@@ -93,6 +93,15 @@
 .rich-content li { min-height: 1.7em; margin: 0; }
 
 /* ── Uncertain marks ── */
+@keyframes uncertainPulse {
+  0%, 100% { border-bottom-color: #f57c00; color: #4a3000; }
+  50% { border-bottom-color: #ff9800; color: #e65100; background: rgba(255, 152, 0, 0.12); }
+}
+@keyframes uncertainPulseRed {
+  0%, 100% { border-bottom-color: #c0392b; }
+  50% { border-bottom-color: #e74c3c; background: rgba(231, 76, 60, 0.12); }
+}
+
 .rich-content mark.uncertain {
   background: none;
   color: #4a3000;
@@ -100,11 +109,57 @@
   padding: 0 1px;
   cursor: help;
   border-radius: 0;
+  position: relative;
 }
 .rich-content mark.uncertain.unreadable {
   color: #c0392b;
   border-bottom: 3px double #c0392b;
   font-style: italic;
+}
+
+/* Animation when warning modal is open */
+.uncertain-highlight-active mark.uncertain {
+  animation: uncertainPulse 1s ease-in-out infinite;
+}
+.uncertain-highlight-active mark.uncertain.unreadable {
+  animation: uncertainPulseRed 1s ease-in-out infinite;
+}
+
+/* Custom tooltip on hover */
+.rich-content mark.uncertain::after {
+  content: 'ПКМ — снять выделение';
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(40, 40, 40, 0.92);
+  color: #fff;
+  font-size: 11px;
+  font-family: var(--font-body);
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 5px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 100;
+}
+.rich-content mark.uncertain::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: rgba(40, 40, 40, 0.92);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 100;
+}
+.rich-content mark.uncertain:hover::after,
+.rich-content mark.uncertain:hover::before {
+  opacity: 1;
 }
 
 /* ── PD marks ── */

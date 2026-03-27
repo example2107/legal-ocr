@@ -159,15 +159,28 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
+  // Auto-center patterns for typical legal document sections
+  const CENTER_PATTERNS = /^(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ|УСТАНОВИЛА|ПОСТАНОВИЛА|РЕШИЛА|ОПРЕДЕЛИЛА|ПРИГОВОРИЛА|УСТАНОВИЛО|ПОСТАНОВИЛО)[:\s]/i;
+
   return rawText.split('\n').map(line => {
-    if (line.startsWith('## ')) return `<h2>${annotLine(line.slice(3), marks, anonymized)}</h2>`;
-    if (line.startsWith('### ')) return `<h3>${annotLine(line.slice(4), marks, anonymized)}</h3>`;
-    if (line === '---') return '<hr/>';
+    if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
+    if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
+    // Skip --- (page break artifact) — render as empty line
+    if (line === '---') return '<div><br/></div>';
     if (!line.trim()) return '<div><br/></div>';
+    // [CENTER]text[/CENTER] tag from OCR prompt
+    const centerMatch = line.match(/^\[CENTER\](.+?)\[\/CENTER\]$/);
+    if (centerMatch) {
+      return `<div style="text-align:center">${annotLine(centerMatch[1], marks, anonymized)}</div>`;
+    }
     // LEFTRIGHT: left text | right text
     const lrMatch = line.match(/^\[LEFTRIGHT:\s*(.+?)\s*\|\s*(.+?)\s*\]$/);
     if (lrMatch) {
       return `<div class="lr-row"><span>${annotLine(lrMatch[1], marks, anonymized)}</span><span>${annotLine(lrMatch[2], marks, anonymized)}</span></div>`;
+    }
+    // Auto-center legal section headers
+    if (CENTER_PATTERNS.test(line.trim())) {
+      return `<div style="text-align:center"><strong>${annotLine(line, marks, anonymized)}</strong></div>`;
     }
     return `<div>${annotLine(line, marks, anonymized)}</div>`;
   }).join('');
@@ -234,7 +247,7 @@ function UncertainContextMenu({ x, y, onRemove, onClose }) {
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -341,7 +354,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
 
       <div
         ref={editorRef}
-        className="rich-content"
+        className={"rich-content" + (highlightUncertain ? " uncertain-highlight-active" : "")}
         contentEditable
         suppressContentEditableWarning
         spellCheck="true"
