@@ -257,16 +257,25 @@ export function initPdMarkOriginals(editorEl) {
 // ── RichEditor component ───────────────────────────────────────────────────────
 // ── Context menu for uncertain marks ─────────────────────────────────────────
 function UncertainContextMenu({ x, y, onRemove, onClose }) {
+  const menuRef = React.useRef(null);
+
   React.useEffect(() => {
     const handler = () => onClose();
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [onClose]);
 
+  // Корректируем позицию чтобы меню не выходило за правый/нижний край экрана
+  const menuW = 240;
+  const menuH = 36;
+  const left = x + menuW > window.innerWidth ? x - menuW : x;
+  const top = y + menuH > window.innerHeight ? y - menuH : y;
+
   return (
     <div
+      ref={menuRef}
       className="uncertain-menu"
-      style={{ position: 'fixed', top: y, left: x, zIndex: 1000 }}
+      style={{ position: 'fixed', top: top, left: left, zIndex: 9999 }}
       onMouseDown={e => e.stopPropagation()}
     >
       <div className="uncertain-menu-item" onClick={onRemove}>

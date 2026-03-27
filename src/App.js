@@ -35,6 +35,8 @@ export default function App() {
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
   const [showOriginal, setShowOriginal] = useState(false);
   const [originalPage, setOriginalPage] = useState(0);
+  const [zoomActive, setZoomActive] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pastedText, setPastedText] = useState('');
@@ -118,6 +120,8 @@ export default function App() {
     setOriginalImages([]);
     setShowOriginal(false);
     setOriginalPage(0);
+    setZoomActive(false);
+    setZoomScale(1);
     setError(null);
     setProgress(null);
     setShowUnsaved(false);
@@ -920,22 +924,41 @@ ${paras}
                     <button
                       className="viewer-nav-btn"
                       disabled={originalPage === 0}
-                      onClick={() => setOriginalPage(p => Math.max(0, p - 1))}
+                      onClick={() => { setOriginalPage(p => Math.max(0, p - 1)); setZoomScale(1); setZoomActive(false); }}
                     >←</button>
                     <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
                     <button
                       className="viewer-nav-btn"
                       disabled={originalPage === originalImages.length - 1}
-                      onClick={() => setOriginalPage(p => Math.min(originalImages.length - 1, p + 1))}
+                      onClick={() => { setOriginalPage(p => Math.min(originalImages.length - 1, p + 1)); setZoomScale(1); setZoomActive(false); }}
                     >→</button>
                   </div>
-                  <button className="viewer-close" onClick={() => setShowOriginal(false)}>✕ Скрыть</button>
+                  <div className="viewer-zoom-controls">
+                    <button className="viewer-nav-btn" onClick={() => setZoomScale(s => Math.max(0.5, +(s - 0.25).toFixed(2)))} title="Отдалить">−</button>
+                    <span className="viewer-page-info" style={{minWidth: 40}}>{Math.round(zoomScale * 100)}%</span>
+                    <button className="viewer-nav-btn" onClick={() => setZoomScale(s => Math.min(4, +(s + 0.25).toFixed(2)))} title="Приблизить">+</button>
+                    <button className="viewer-nav-btn" onClick={() => setZoomScale(1)} title="Сбросить масштаб" style={{fontSize:11}}>↺</button>
+                  </div>
+                  <button className="viewer-close" onClick={() => { setShowOriginal(false); setZoomActive(false); setZoomScale(1); }}>✕ Скрыть</button>
                 </div>
-                <div className="viewer-body">
+                <div
+                  className={"viewer-body" + (zoomActive ? " zoom-active" : "")}
+                  onWheel={zoomActive ? (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setZoomScale(s => {
+                      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                      return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
+                    });
+                  } : undefined}
+                >
                   <img
                     src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
                     alt={'Страница ' + (originalPage + 1)}
                     className="viewer-img"
+                    style={{ transform: `scale(${zoomScale})`, transformOrigin: 'top center', cursor: zoomActive ? 'zoom-in' : 'pointer' }}
+                    onClick={() => { setZoomActive(v => !v); }}
+                    title={zoomActive ? 'Кликните чтобы выйти из режима зума' : 'Кликните для приближения колесиком мыши'}
                   />
                 </div>
               </div>

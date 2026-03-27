@@ -385,6 +385,21 @@ a { color: var(--accent); }
   display: block;
 }
 
+/* Zoom mode for viewer */
+.viewer-body.zoom-active {
+  cursor: none;
+  overflow: auto;
+  background: var(--bg2);
+}
+.viewer-body.zoom-active .viewer-img {
+  cursor: zoom-in;
+}
+.viewer-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* Active state for viewer button */
 .btn-original.active {
   background: var(--accent-light);
