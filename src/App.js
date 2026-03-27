@@ -411,23 +411,38 @@ export default function App() {
       const tag = node.tagName?.toUpperCase() || '';
       if (tag === 'HR') continue; // skip hr - page break artifact
       
-      // lr-row: render left text on one line, right text on the next line
-      // Simple and reliable - no tab tricks that cause justify stretching
+      // lr-row: smart rendering — city+date on one line, signatures on separate lines
       if (node.classList && node.classList.contains('lr-row')) {
         const spans = node.querySelectorAll('span');
-        // Strip ALL whitespace including trailing spaces from OCR artifacts
         const leftText = (spans[0] ? spans[0].textContent : '').trim().replace(/\s+/g, ' ');
         const rightText = (spans[1] ? spans[1].textContent : '').trim().replace(/\s+/g, ' ');
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
-        // Left text on its own line
-        if (leftText) {
-          paras += '<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>' +
-            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(leftText) + '</w:t></w:r></w:p>';
-        }
-        // Right text on next line, also left-aligned
-        if (rightText) {
-          paras += '<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>' +
-            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(rightText) + '</w:t></w:r></w:p>';
+
+        // Detect city+date: short left text AND right contains year or month name
+        const hasDate = /\d{4}/.test(rightText) ||
+          /января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря/.test(rightText);
+        const isCityDate = leftText.length < 30 && hasDate;
+
+        if (isCityDate) {
+          // City + date on one line via right-aligned tab stop
+          paras += '<w:p>' +
+            '<w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/>' +
+              '<w:tabs><w:tab w:val="right" w:pos="9072"/></w:tabs>' +
+            '</w:pPr>' +
+            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(leftText) + '</w:t></w:r>' +
+            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:tab/></w:r>' +
+            '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(rightText) + '</w:t></w:r>' +
+          '</w:p>';
+        } else {
+          // Signatures/positions: two separate left-aligned lines (no justify stretching)
+          if (leftText) {
+            paras += '<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>' +
+              '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(leftText) + '</w:t></w:r></w:p>';
+          }
+          if (rightText) {
+            paras += '<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:after="0" w:before="0"/></w:pPr>' +
+              '<w:r><w:rPr>' + fontProps + '</w:rPr><w:t xml:space="preserve">' + esc(rightText) + '</w:t></w:r></w:p>';
+          }
         }
         continue;
       }
