@@ -291,7 +291,8 @@ a { color: var(--accent); }
   position: fixed;
   top: 56px;
   right: 0;
-  width: 420px;
+  /* Take all space from right edge of editor (1060px) to viewport right edge */
+  left: 1060px;
   height: calc(100vh - 56px);
   background: var(--surface);
   border-left: 1px solid var(--border);
@@ -299,7 +300,7 @@ a { color: var(--accent); }
   flex-direction: column;
   z-index: 100;
   animation: viewerSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: -4px 0 20px rgba(0,0,0,.08);
+  min-width: 280px;
 }
 
 @keyframes viewerSlideIn {
