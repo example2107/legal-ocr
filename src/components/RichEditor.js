@@ -108,12 +108,13 @@ function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 // Строит regex-паттерн для упоминания человека:
 // - Захватывает падежные окончания каждого слова ФИО (через усечение корня)
-// - Захватывает инициалы после фамилии (А., В.Г., и т.п.)
+// - Захватывает инициалы после фамилии (А., В.Г.) и перед фамилией (С.В. Фамилия)
 function buildPersonPattern(mention) {
-  const initials = '(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.?|\\s+[А-ЯЁ]\\.)?';
+  // Инициалы после: пробел + заглавная + точка (+ опц. ещё одна пара)
+  const initialsAfter = '(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.?|\\s+[А-ЯЁ]\\.)?';
+  // Инициалы перед: заглавная + точка (одна или две пары) + пробел
+  const initialsBefore = '(?:[А-ЯЁ]\\.[А-ЯЁ]\\.?\\s+|[А-ЯЁ]\\.\\s+)?';
 
-  // Для русского слова длиннее 4 букв — убираем 2 последних буквы (окончание)
-  // и разрешаем любое новое окончание до 5 букв
   const wordToPattern = (word) => {
     if (/[А-яЁё]/.test(word.slice(-1)) && word.length > 4) {
       return escRe(word.slice(0, -2)) + '[А-яЁё]{0,5}';
@@ -122,16 +123,21 @@ function buildPersonPattern(mention) {
   };
 
   const words = mention.split(/\s+/);
-  if (words.length > 1) {
-    // Многословное ФИО — применяем усечение к каждому слову
+
+  // Если mention начинается с инициалов (напр. "С.В. Лаптева")
+  if (/^[А-ЯЁ]\.[А-ЯЁ]?\.?\s/.test(mention)) {
     const base = words.map(wordToPattern).join('\\s+');
-    return base + initials;
+    return base + initialsAfter;
   }
 
-  // Одно слово
-  return wordToPattern(mention) + initials;
-}
+  if (words.length > 1) {
+    const base = words.map(wordToPattern).join('\\s+');
+    return base + initialsAfter;
+  }
 
+  // Одно слово — ищем с инициалами до и после
+  return initialsBefore + wordToPattern(mention) + initialsAfter;
+}
 function applyBold(html) {
   return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
