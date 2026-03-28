@@ -431,8 +431,9 @@ a { color: var(--accent); }
 /* ============================
    PAGE SEPARATOR
    ============================ */
-.right-block {
-  margin-left: 55%;
+.right-block,
+.rich-content .right-block {
+  margin-left: 55% !important;
   text-align: justify;
   min-height: 1.7em;
 }

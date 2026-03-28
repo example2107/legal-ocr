@@ -87,6 +87,7 @@
 /* No space between paragraphs — like Google Docs "remove space before/after paragraph" */
 /* Justify by default — matches PDF/DOCX output */
 .rich-content div { min-height: 1.7em; margin: 0; padding: 0; text-align: justify; }
+.rich-content .right-block { margin-left: 55%; text-align: justify; min-height: 1.7em; }
 .rich-content p { text-indent: 1.5em; margin: 0; padding: 0; text-align: justify; }
 .rich-content br { display: block; margin: 0; }
 .rich-content hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
