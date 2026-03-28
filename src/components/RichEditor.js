@@ -380,6 +380,11 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
     if (indentMatch) {
       return `<div style="text-indent:2em">${annotLine(indentMatch[1], marks, anonymized)}</div>`;
     }
+    // Блок шапки справа [RIGHT-BLOCK]text — реквизиты в правой части документа
+    const rightMatch = line.match(/^\[RIGHT-BLOCK\](.+)$/);
+    if (rightMatch) {
+      return `<div class="right-block">${annotLine(rightMatch[1], marks, anonymized)}</div>`;
+    }
     // [CENTER]text[/CENTER] tag from OCR prompt
     const centerMatch = line.match(/^\[CENTER\](.+?)\[\/CENTER\]$/);
     if (centerMatch) {

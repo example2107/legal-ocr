@@ -130,8 +130,9 @@ function parseParagraph(pEl) {
   }
 
   // Большой отступ = реквизиты справа (шапка документа)
+  // Маркер [RIGHT-BLOCK] — рендерится как блок с отступом ~55% слева
   if (largeIndent) {
-    return bold ? '**' + text + '**' : text;
+    return '[RIGHT-BLOCK]' + (bold ? '**' + text + '**' : text);
   }
 
   // Жирный текст (разделы типа УСТАНОВИЛ, ПОСТАНОВИЛ)

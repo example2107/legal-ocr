@@ -431,6 +431,12 @@ a { color: var(--accent); }
 /* ============================
    PAGE SEPARATOR
    ============================ */
+.right-block {
+  margin-left: 55%;
+  text-align: justify;
+  min-height: 1.7em;
+}
+
 .page-separator {
   display: flex;
   align-items: center;
