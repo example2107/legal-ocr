@@ -440,6 +440,32 @@ a { color: var(--accent); }
 }
 
 /* ============================
+   PAGE SEPARATOR
+   ============================ */
+.page-separator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  user-select: none;
+  cursor: default;
+}
+.page-separator-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border2);
+}
+.page-separator-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  font-family: var(--font-body);
+  white-space: nowrap;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+/* ============================
    LONG DOC WARNING
    ============================ */
 .long-doc-warning {

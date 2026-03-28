@@ -214,6 +214,11 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
     // Skip --- (page break artifact)
     if (line === '---') return '<div><br/></div>';
     if (!line.trim()) return '<div><br/></div>';
+    // Разделитель страниц [PAGE:N]
+    const pageMatch = line.match(/^\[PAGE:(\d+)\]$/);
+    if (pageMatch) {
+      return `<div class="page-separator" contenteditable="false" data-page="${pageMatch[1]}"><span class="page-separator-line"></span><span class="page-separator-label">Страница ${pageMatch[1]}</span><span class="page-separator-line"></span></div>`;
+    }
     // [CENTER]text[/CENTER] tag from OCR prompt
     const centerMatch = line.match(/^\[CENTER\](.+?)\[\/CENTER\]$/);
     if (centerMatch) {

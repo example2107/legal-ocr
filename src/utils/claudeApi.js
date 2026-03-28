@@ -304,10 +304,11 @@ export async function recognizeDocument(images, apiKey, provider, onProgress) {
     if (i === 0) return page;
     const prevEnds = acc.trimEnd();
     const lastChar = prevEnds.slice(-1);
-    // Если предыдущая страница заканчивается на букву/цифру (незавершённое слово/предложение)
-    // — склеиваем через один перенос, иначе через два
-    const separator = /[а-яёА-ЯЁa-zA-Z0-9]/.test(lastChar) ? '\n' : '\n\n';
-    return prevEnds + separator + page;
+    // Если предыдущая страница заканчивается на букву/цифру — склеиваем без пустой строки
+    const textSep = /[а-яёА-ЯЁa-zA-Z0-9]/.test(lastChar) ? '\n' : '\n\n';
+    // Разделитель страниц — специальный маркер с номером следующей страницы
+    const pageMarker = '\n[PAGE:' + (i + 1) + ']\n';
+    return prevEnds + pageMarker + page;
   }, '');
 
   // Шаг 2: Проверка качества — 75–87%
@@ -336,7 +337,8 @@ export async function analyzePastedText(text, apiKey, provider, onProgress) {
 // ── Шаг 2: Проверка качества (отдельный запрос) ───────────────────────────────
 async function runQualityCheck(fullText, apiKey, provider, onProgress) {
   try {
-    const textForCheck = fullText.length > 25000 ? fullText.slice(0, 25000) + '\n...' : fullText;
+    const cleanForCheck = fullText.replace(/\[PAGE:\d+\]/g, '');
+    const textForCheck = cleanForCheck.length > 25000 ? cleanForCheck.slice(0, 25000) + '\n...' : cleanForCheck;
     const checked = await callApi(
       [{ role: 'user', content: PROMPT_QUALITY + textForCheck }],
       apiKey, null, provider
@@ -355,7 +357,8 @@ async function runQualityCheck(fullText, apiKey, provider, onProgress) {
 async function analyzePD(fullText, apiKey, provider, onProgress) {
   let personalData = { persons: [], otherPD: [] };
   try {
-    const textForPD = fullText.length > 25000 ? fullText.slice(0, 25000) + '\n...' : fullText;
+    const cleanForPD = fullText.replace(/\[PAGE:\d+\]/g, '');
+    const textForPD = cleanForPD.length > 25000 ? cleanForPD.slice(0, 25000) + '\n...' : cleanForPD;
     onProgress({ stage: 'analysis', percent: 91, message: 'Поиск персональных данных...' });
     const pdRaw = await callApi(
       [{ role: 'user', content: PROMPT_PD + textForPD }],
