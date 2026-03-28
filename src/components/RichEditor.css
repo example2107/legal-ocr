@@ -77,8 +77,6 @@
   -webkit-spell-check: true;
   box-sizing: border-box;
   text-align: justify;
-  -webkit-hyphens: auto;
-  hyphens: auto;
 }
 
 .rich-content:focus { outline: none; }
