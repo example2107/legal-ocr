@@ -159,13 +159,18 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
-  // Post-process: remove word duplication before ⚠️ markers
-  // Claude sometimes writes: "слово ⚠️[НЕТОЧНО: слово]" — remove the duplicate before marker
-  const deduped = rawText.replace(
+  // Post-process 1: убираем дубль слова перед маркером ⚠️
+  // Claude иногда пишет: "слово ⚠️[НЕТОЧНО: слово]" — оставляем только маркер
+  let processText = rawText.replace(
     /([\wА-яЁё]+)\s+⚠️\[НЕТОЧНО:\s*\1\]/gi,
     '⚠️[НЕТОЧНО: $1]'
   );
-  const processText = deduped;
+  // Post-process 2: убираем подряд идущие одинаковые слова (от 4 букв — избегаем ложных срабатываний)
+  // Например: "КоординарийСпектр КоординарийСпектр" → "КоординарийСпектр"
+  processText = processText.replace(
+    /\b([\wА-яЁё]{4,})\s+\1\b/gi,
+    '$1'
+  );
 
   // Auto-center patterns for typical legal document sections
   // Strip ** markdown wrapping before testing, since Claude often writes **УСТАНОВИЛ:**

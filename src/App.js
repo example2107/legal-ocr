@@ -56,13 +56,14 @@ export default function App() {
       setProgress(prev => {
         if (!prev) return prev;
         const cur = Math.round(prev.percent);
-        if (cur >= target) {
+        // Никогда не уменьшаем прогресс
+        const safeTarget = Math.max(target, cur);
+        if (cur >= safeTarget) {
           clearInterval(progressCreepRef.current);
-          return { ...prev, percent: target, message: message || prev.message };
+          return { ...prev, percent: safeTarget, message: message || prev.message };
         }
-        // Larger steps when far away, smaller when close — always integer
-        const step = Math.max(1, Math.round((target - cur) / 5));
-        return { ...prev, percent: Math.min(cur + step, target) };
+        const step = Math.max(1, Math.round((safeTarget - cur) / 5));
+        return { ...prev, percent: Math.min(cur + step, safeTarget) };
       });
     }, 100);
   }, []);
@@ -197,7 +198,10 @@ export default function App() {
         setProgress({ percent: 10, message: 'Анализ текста...' });
         result = await analyzePastedText(pastedText, apiKey.trim(), provider, p => {
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          setProgress({ percent: pct, message: p.message });
+          setProgress(prev => prev && prev.percent > pct
+            ? { ...prev, message: p.message }
+            : { percent: pct, message: p.message }
+          );
           if (p.stage !== 'done') {
             animateTo(Math.min(pct + 10, 98), null);
           } else {
@@ -222,10 +226,13 @@ export default function App() {
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
           // Use integer percentages only — no decimal fractions
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          setProgress({ percent: pct, message: p.message });
+          // Никогда не уменьшаем прогресс
+          setProgress(prev => prev && prev.percent > pct
+            ? { ...prev, message: p.message }
+            : { percent: pct, message: p.message }
+          );
           if (p.stage === 'ocr') {
-            // While waiting for next page API call — slowly creep toward next milestone
-            animateTo(Math.min(pct + 12, 69), null);
+            animateTo(Math.min(pct + 12, 74), null);
           } else if (p.stage === 'analysis') {
             animateTo(Math.min(pct + 8, 98), null);
           } else {
