@@ -312,7 +312,7 @@ export async function recognizeDocument(images, apiKey, provider, onProgress) {
   }, '');
 
   // Шаг 2: Проверка качества — 75–87%
-  onProgress({ stage: 'quality', percent: 76, message: 'Проверка качества распознавания...' });
+  onProgress({ stage: 'quality', percent: 76, message: 'Начало проверки качества...' });
   const checkedText = await runQualityCheck(fullText, apiKey, provider, onProgress);
 
   // Шаг 3: Анализ ПД — 87–100%
@@ -336,46 +336,77 @@ export async function analyzePastedText(text, apiKey, provider, onProgress) {
 
 // ── Шаг 2: Проверка качества (отдельный запрос) ───────────────────────────────
 async function runQualityCheck(fullText, apiKey, provider, onProgress) {
-  // Извлекаем позиции PAGE маркеров до отправки в API
-  // Храним: { pageNum, anchorBefore } — первые 60 символов текста ДО маркера
-  const pageMarkers = [];
-  const markerRe = /([^\n]{0,60})\n\[PAGE:(\d+)\]\n/g;
-  let m;
-  while ((m = markerRe.exec(fullText)) !== null) {
-    pageMarkers.push({ pageNum: parseInt(m[2]), anchorBefore: m[1].trim().slice(-40) });
+  // Разбиваем текст на страницы по [PAGE:N] маркерам
+  // Проверяем каждую страницу отдельно — так прогресс обновляется равномерно
+  const parts = fullText.split(/(\[PAGE:\d+\])/);
+  // parts = [текст стр.1, '[PAGE:2]', текст стр.2, '[PAGE:3]', текст стр.3, ...]
+
+  // Собираем страницы: { marker, text }
+  const pages = [];
+  let currentText = '';
+  let currentMarker = null;
+  for (const part of parts) {
+    if (/^\[PAGE:\d+\]$/.test(part)) {
+      pages.push({ marker: currentMarker, text: currentText });
+      currentText = '';
+      currentMarker = part;
+    } else {
+      currentText += part;
+    }
+  }
+  pages.push({ marker: currentMarker, text: currentText });
+  // pages[0] = { marker: null, text: 'текст страницы 1' }
+  // pages[1] = { marker: '[PAGE:2]', text: 'текст страницы 2' }
+
+  const total = pages.length;
+
+  // Если страница одна — один запрос без разбивки
+  if (total <= 1) {
+    try {
+      const textForCheck = fullText.replace(/\[PAGE:\d+\]/g, '');
+      const checked = await callApi(
+        [{ role: 'user', content: PROMPT_QUALITY + textForCheck }],
+        apiKey, null, provider
+      );
+      if (checked && checked.length > 50) return checked;
+    } catch (e) { console.warn('Quality check error:', e); }
+    return fullText;
   }
 
-  try {
-    const cleanForCheck = fullText.replace(/\[PAGE:\d+\]/g, '');
-    const textForCheck = cleanForCheck.length > 25000 ? cleanForCheck.slice(0, 25000) + '\n...' : cleanForCheck;
-    const checked = await callApi(
-      [{ role: 'user', content: PROMPT_QUALITY + textForCheck }],
-      apiKey, null, provider
-    );
-    if (checked && checked.length > 50) {
-      // Восстанавливаем PAGE маркеры в тексте после quality check
-      // Ищем якорный текст и вставляем маркер после него
-      let result = checked;
-      for (const { pageNum, anchorBefore } of pageMarkers) {
-        if (!anchorBefore) continue;
-        // Ищем якорь в проверенном тексте (первые 20 символов якоря)
-        const anchor = anchorBefore.slice(-20).replace(/[.*+?^{}()|[\]\\]/g, '\\$&');
-        const anchorRe = new RegExp(anchor);
-        const anchorMatch = anchorRe.exec(result);
-        if (anchorMatch) {
-          const insertPos = anchorMatch.index + anchorMatch[0].length;
-          // Находим конец строки после якоря
-          const nextNewline = result.indexOf('\n', insertPos);
-          const pos = nextNewline !== -1 ? nextNewline : insertPos;
-          result = result.slice(0, pos) + '\n[PAGE:' + pageNum + ']\n' + result.slice(pos + 1);
-        }
-      }
-      return result;
+  // Проверяем постранично — quality check для каждой страницы отдельно
+  const checkedParts = [];
+  for (let i = 0; i < total; i++) {
+    const { marker, text } = pages[i];
+    const pageText = text.trim();
+    // Прогресс: quality check занимает 75–87%, делим равномерно по страницам
+    const pct = Math.round(75 + ((i + 1) / total) * 12);
+    onProgress({
+      stage: 'quality',
+      percent: pct,
+      message: total > 1
+        ? 'Проверка качества: страница ' + (i + 1) + ' из ' + total + '...'
+        : 'Проверка качества распознавания...',
+    });
+
+    if (!pageText) {
+      checkedParts.push((marker ? '\n' + marker + '\n' : '') + text);
+      continue;
     }
-  } catch (e) {
-    console.warn('Quality check error:', e);
+
+    try {
+      const checked = await callApi(
+        [{ role: 'user', content: PROMPT_QUALITY + pageText }],
+        apiKey, null, provider
+      );
+      const result = (checked && checked.length > 30) ? checked : pageText;
+      checkedParts.push((marker ? '\n' + marker + '\n' : '') + result);
+    } catch (e) {
+      console.warn('Quality check error page ' + (i + 1) + ':', e);
+      checkedParts.push((marker ? '\n' + marker + '\n' : '') + pageText);
+    }
   }
-  return fullText; // fallback — возвращаем оригинал с маркерами
+
+  return checkedParts.join('');
 }
 
 // ── Шаг 3: Анализ персональных данных ────────────────────────────────────────
