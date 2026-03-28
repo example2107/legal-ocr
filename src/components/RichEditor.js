@@ -158,7 +158,19 @@ function annotLine(text, marks, anonymized) {
     if (mt.startsWith('⚠️[')) {
       const inner = mt.slice(3, -1);
       const isUnread = inner === 'НЕЧИТАЕМО';
-      out += `<mark class="uncertain${isUnread ? ' unreadable' : ''}" data-tooltip="${isUnread ? 'Нечитаемый фрагмент · ПКМ — снять выделение' : 'Возможно неточное распознавание · ПКМ — снять выделение'}">${isUnread ? '[НЕЧИТАЕМО]' : esc(inner.replace('НЕТОЧНО: ', ''))}</mark>`;
+      if (isUnread) {
+        out += `<mark class="uncertain unreadable" data-tooltip="Нечитаемый фрагмент · ПКМ — снять выделение">[НЕЧИТАЕМО]</mark>`;
+      } else {
+        // Парсим формат "НЕТОЧНО: слово" или "НЕТОЧНО: слово | вариант"
+        const content = inner.replace('НЕТОЧНО: ', '');
+        const parts = content.split('|').map(s => s.trim());
+        const wrongWord = parts[0];
+        const suggestion = parts[1] || '';
+        const tooltip = suggestion
+          ? 'Возможно неточное распознавание · ПКМ — варианты'
+          : 'Возможно неточное распознавание · ПКМ — снять выделение';
+        out += `<mark class="uncertain" data-tooltip="${tooltip}" data-suggestion="${esc(suggestion)}">${esc(wrongWord)}</mark>`;
+      }
     } else {
       // Ищем mark по совпадению паттерна (не точная строка, т.к. падеж мог измениться)
       const entry = patternEntries.find(e => {
@@ -211,6 +223,51 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
   // Инициалы после фамилий обрабатываются через buildPersonPattern в annotLine —
   // паттерн захватывает «Фамилия И.О.» и «Фамилия И.» как единое совпадение.
 
+  // Post-process 3: склеиваем строки которые OCR разбил по переносам PDF
+  // Если строка не заканчивается на знак препинания — она продолжается на следующей строке
+  // Склеиваем через пробел чтобы получить полные абзацы и корректный justify
+  const lines = processText.split('\n');
+  const mergedLines = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    // Специальные строки — не склеиваем
+    const isSpecial = !trimmed ||
+      trimmed.startsWith('## ') ||
+      trimmed.startsWith('### ') ||
+      trimmed === '---' ||
+      /^\[PAGE:\d+\]$/.test(trimmed) ||
+      /^\[CENTER\]/.test(trimmed) ||
+      /^\[LEFTRIGHT:/.test(trimmed) ||
+      /^\*\*(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ)[:\s*]/.test(trimmed);
+
+    if (isSpecial) {
+      mergedLines.push(line);
+      continue;
+    }
+
+    // Если предыдущая строка не заканчивается на знак препинания — склеиваем
+    if (mergedLines.length > 0) {
+      const prev = mergedLines[mergedLines.length - 1];
+      const prevTrimmed = prev.trim();
+      const prevIsSpecial = !prevTrimmed ||
+        prevTrimmed.startsWith('## ') ||
+        prevTrimmed.startsWith('### ') ||
+        prevTrimmed === '---' ||
+        /^\[PAGE:\d+\]$/.test(prevTrimmed) ||
+        /^\[CENTER\]/.test(prevTrimmed) ||
+        /^\[LEFTRIGHT:/.test(prevTrimmed);
+
+      // Склеиваем если предыдущая строка не заканчивается на . ! ? : ; » " и не спецстрока
+      if (!prevIsSpecial && prevTrimmed && !/[.!?:;»"\]]$/.test(prevTrimmed)) {
+        mergedLines[mergedLines.length - 1] = prev.trimEnd() + ' ' + trimmed;
+        continue;
+      }
+    }
+    mergedLines.push(line);
+  }
+  const mergedText = mergedLines.join('\n');
+
   // Auto-center patterns for typical legal document sections
   // Strip ** markdown wrapping before testing, since Claude often writes **УСТАНОВИЛ:**
   const LEGAL_CENTER_RE = /(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ|УСТАНОВИЛА|ПОСТАНОВИЛА|РЕШИЛА|ОПРЕДЕЛИЛА|ПРИГОВОРИЛА|УСТАНОВИЛО|ПОСТАНОВИЛО)[:\s]/i;
@@ -219,7 +276,7 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
     return LEGAL_CENTER_RE.test(stripped) && stripped.length < 60;
   };
 
-  return processText.split('\n').map(line => {
+  return mergedText.split('\n').map(line => {
     if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
     if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
     // Skip --- (page break artifact)
@@ -305,19 +362,38 @@ export function initPdMarkOriginals(editorEl) {
 
 // ── RichEditor component ───────────────────────────────────────────────────────
 // ── Context menu for uncertain marks ─────────────────────────────────────────
-function UncertainContextMenu({ x, y, onRemove, onClose }) {
+function UncertainContextMenu({ x, y, onRemove, onApplySuggestion, suggestion, onClose }) {
+  const menuRef = React.useRef(null);
+
   React.useEffect(() => {
     const handler = () => onClose();
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [onClose]);
 
+  // Корректируем позицию если меню выходит за край экрана
+  React.useEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 8)
+      el.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight - 8)
+      el.style.top = Math.max(8, y - rect.height - 8) + 'px';
+  }, [x, y]);
+
   return (
     <div
+      ref={menuRef}
       className="uncertain-menu"
       style={{ position: 'fixed', top: y + 4, left: x, zIndex: 9999 }}
       onMouseDown={e => e.stopPropagation()}
     >
+      {suggestion && (
+        <div className="uncertain-menu-item uncertain-menu-suggestion" onClick={onApplySuggestion}>
+          ✏️ Заменить на: <strong>{suggestion}</strong>
+        </div>
+      )}
       <div className="uncertain-menu-item" onClick={onRemove}>
         ✓ Исправлено — снять выделение
       </div>
@@ -392,8 +468,19 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
   const removeUncertainMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
     const mark = ctxMenu.mark;
-    // Replace the mark with its plain text content
     const text = document.createTextNode(mark.textContent);
+    mark.parentNode.replaceChild(text, mark);
+    notifyChange();
+    setCtxMenu(null);
+  }, [ctxMenu, notifyChange]);
+
+  const applyUncertainSuggestion = useCallback(() => {
+    if (!ctxMenu?.mark) return;
+    const mark = ctxMenu.mark;
+    const suggestion = mark.dataset.suggestion;
+    if (!suggestion) return;
+    // Заменяем mark на текст с предложенным вариантом
+    const text = document.createTextNode(suggestion);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
@@ -448,7 +535,9 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         <UncertainContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
+          suggestion={ctxMenu.mark?.dataset?.suggestion || ''}
           onRemove={removeUncertainMark}
+          onApplySuggestion={applyUncertainSuggestion}
           onClose={() => setCtxMenu(null)}
         />
       )}

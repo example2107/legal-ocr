@@ -217,6 +217,12 @@
   transition: background var(--tr);
 }
 .uncertain-menu-item:hover { background: var(--green-light); }
+.uncertain-menu-suggestion {
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+.uncertain-menu-suggestion:hover { background: var(--accent-light); }
+.uncertain-menu-suggestion strong { font-weight: 700; }
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
