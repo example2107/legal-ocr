@@ -198,11 +198,19 @@ export default function App() {
       const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
 
       if (isDocx) {
-        // DOCX — извлекаем текст через mammoth, пропускаем OCR и quality check
+        // DOCX — извлекаем текст через mammoth (CDN), пропускаем OCR и quality check
         setProgress({ percent: 10, message: 'Извлечение текста из DOCX...' });
-        const mammoth = await import('mammoth');
+        if (!window.mammoth) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
         const arrayBuffer = await files[0].arrayBuffer();
-        const { value: rawHtml } = await mammoth.convertToHtml({ arrayBuffer });
+        const { value: rawHtml } = await window.mammoth.convertToHtml({ arrayBuffer });
         // Переводим HTML в plain text для PD-анализа
         const tmp = document.createElement('div');
         tmp.innerHTML = rawHtml;
