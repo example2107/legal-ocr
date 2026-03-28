@@ -336,6 +336,15 @@ export async function analyzePastedText(text, apiKey, provider, onProgress) {
 
 // ── Шаг 2: Проверка качества (отдельный запрос) ───────────────────────────────
 async function runQualityCheck(fullText, apiKey, provider, onProgress) {
+  // Извлекаем позиции PAGE маркеров до отправки в API
+  // Храним: { pageNum, anchorBefore } — первые 60 символов текста ДО маркера
+  const pageMarkers = [];
+  const markerRe = /([^\n]{0,60})\n\[PAGE:(\d+)\]\n/g;
+  let m;
+  while ((m = markerRe.exec(fullText)) !== null) {
+    pageMarkers.push({ pageNum: parseInt(m[2]), anchorBefore: m[1].trim().slice(-40) });
+  }
+
   try {
     const cleanForCheck = fullText.replace(/\[PAGE:\d+\]/g, '');
     const textForCheck = cleanForCheck.length > 25000 ? cleanForCheck.slice(0, 25000) + '\n...' : cleanForCheck;
@@ -343,14 +352,30 @@ async function runQualityCheck(fullText, apiKey, provider, onProgress) {
       [{ role: 'user', content: PROMPT_QUALITY + textForCheck }],
       apiKey, null, provider
     );
-    // If model returned something reasonable (not empty, not error message)
     if (checked && checked.length > 50) {
-      return checked;
+      // Восстанавливаем PAGE маркеры в тексте после quality check
+      // Ищем якорный текст и вставляем маркер после него
+      let result = checked;
+      for (const { pageNum, anchorBefore } of pageMarkers) {
+        if (!anchorBefore) continue;
+        // Ищем якорь в проверенном тексте (первые 20 символов якоря)
+        const anchor = anchorBefore.slice(-20).replace(/[.*+?^{}()|[\]\\]/g, '\\$&');
+        const anchorRe = new RegExp(anchor);
+        const anchorMatch = anchorRe.exec(result);
+        if (anchorMatch) {
+          const insertPos = anchorMatch.index + anchorMatch[0].length;
+          // Находим конец строки после якоря
+          const nextNewline = result.indexOf('\n', insertPos);
+          const pos = nextNewline !== -1 ? nextNewline : insertPos;
+          result = result.slice(0, pos) + '\n[PAGE:' + pageNum + ']\n' + result.slice(pos + 1);
+        }
+      }
+      return result;
     }
   } catch (e) {
     console.warn('Quality check error:', e);
   }
-  return fullText; // fallback to original if check fails
+  return fullText; // fallback — возвращаем оригинал с маркерами
 }
 
 // ── Шаг 3: Анализ персональных данных ────────────────────────────────────────
