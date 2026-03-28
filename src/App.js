@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
-import { recognizeDocument, analyzePastedText, PROVIDERS } from './utils/claudeApi';
+import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
@@ -43,8 +43,7 @@ export default function App() {
   const zoomActiveRef = useRef(false);
   const tipTimerRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [pasteMode, setPasteMode] = useState(false);
-  const [pastedText, setPastedText] = useState('');
+
 
   const [progress, setProgress] = useState(null);
   const progressCreepRef = useRef(null);
@@ -178,8 +177,8 @@ export default function App() {
 
   // ── Files ─────────────────────────────────────────────────────────────────────
   const handleFiles = useCallback((newFiles) => {
-    const valid = Array.from(newFiles).filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
-    if (valid.length !== newFiles.length) setError('Поддерживаются только изображения (JPG, PNG, WEBP) и PDF');
+    const valid = Array.from(newFiles).filter(f => f.type.startsWith('image/') || f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.docx'));
+    if (valid.length !== newFiles.length) setError('Поддерживаются JPG, PNG, WEBP, PDF и DOCX');
     setFiles(prev => [...prev, ...valid]);
   }, []);
 
@@ -189,28 +188,36 @@ export default function App() {
   // ── Recognize ─────────────────────────────────────────────────────────────────
   const handleRecognize = async () => {
     if (!apiKey.trim()) { setError('Введите API ключ Claude'); return; }
-    if (!pasteMode && files.length === 0) { setError('Добавьте хотя бы один файл'); return; }
-    if (pasteMode && !pastedText.trim()) { setError('Вставьте текст для обработки'); return; }
+    if (files.length === 0) { setError('Добавьте хотя бы один файл'); return; }
 
     setError(null);
     setView(VIEW_PROCESSING);
 
     try {
       let result;
-      if (pasteMode) {
-        setProgress({ percent: 10, message: 'Анализ текста...' });
-        result = await analyzePastedText(pastedText, apiKey.trim(), provider, p => {
-          const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
+      const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
+
+      if (isDocx) {
+        // DOCX — извлекаем текст через mammoth, пропускаем OCR и quality check
+        setProgress({ percent: 10, message: 'Извлечение текста из DOCX...' });
+        const mammoth = await import('mammoth');
+        const arrayBuffer = await files[0].arrayBuffer();
+        const { value: rawHtml } = await mammoth.convertToHtml({ arrayBuffer });
+        // Переводим HTML в plain text для PD-анализа
+        const tmp = document.createElement('div');
+        tmp.innerHTML = rawHtml;
+        const plainText = tmp.innerText || tmp.textContent || '';
+        setProgress({ percent: 30, message: 'Анализ персональных данных...' });
+        animateTo(90, null);
+        const personalData = await analyzePD(plainText, apiKey.trim(), provider, p => {
+          const pct = p.percent != null ? Math.round(p.percent) : 97;
           setProgress(prev => prev && prev.percent > pct
             ? { ...prev, message: p.message }
             : { percent: pct, message: p.message }
           );
-          if (p.stage !== 'done') {
-            animateTo(Math.min(pct + 10, 98), null);
-          } else {
-            stopProgressCreep();
-          }
         });
+        stopProgressCreep();
+        result = { text: plainText, personalData, docxHtml: rawHtml };
       } else {
         setProgress({ percent: 2, message: 'Подготовка файлов...' });
         const allImages = [];
@@ -225,11 +232,9 @@ export default function App() {
             allImages.push(await imageFileToBase64(file));
           }
         }
-        setOriginalImages(allImages); // save for viewer
+        setOriginalImages(allImages);
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
-          // Use integer percentages only — no decimal fractions
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          // Никогда не уменьшаем прогресс
           setProgress(prev => prev && prev.percent > pct
             ? { ...prev, message: p.message }
             : { percent: pct, message: p.message }
@@ -246,11 +251,12 @@ export default function App() {
 
       const pd = assignLetters(result.personalData);
       const initialAnon = {};
-      const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-      const title = pasteMode
-        ? `Текст от ${formatDate(new Date())}`
-        : (files[0]?.name || `Документ от ${formatDate(new Date())}`);
-      const origName = pasteMode ? '' : (files[0]?.name || '');
+      // Для DOCX используем HTML от mammoth, для остальных — buildAnnotatedHtml
+      const html = result.docxHtml
+        ? buildAnnotatedHtml(result.text, pd, initialAnon, result.docxHtml)
+        : buildAnnotatedHtml(result.text, pd, initialAnon);
+      const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
+      const origName = files[0]?.name || '';
 
       setDocId(generateId());
       setDocTitle(title);
@@ -338,7 +344,7 @@ export default function App() {
       editedHtml: currentHtml,
       personalData,
       anonymized,
-      source: pasteMode ? 'paste' : 'ocr',
+      source: files[0]?.name?.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
     });
     setLastSavedState(JSON.stringify(anonymized));
     refreshHistory();
@@ -736,13 +742,6 @@ ${paras}
             </section>
 
             <section className="card upload-card">
-              <div className="mode-tabs">
-                <button className={`mode-tab ${!pasteMode ? 'active' : ''}`} onClick={() => { setPasteMode(false); setError(null); }}>📄 Загрузить файл</button>
-                <button className={`mode-tab ${pasteMode ? 'active' : ''}`} onClick={() => { setPasteMode(true); setError(null); }}>📋 Вставить текст</button>
-              </div>
-
-              {!pasteMode ? (
-                <>
                   <div
                     className={`dropzone ${isDragging ? 'dragging' : ''}`}
                     onDrop={handleDrop}
@@ -750,10 +749,10 @@ ${paras}
                     onDragLeave={() => setIsDragging(false)}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
+                    <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
                     <div className="dropzone-icon">📄</div>
                     <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF · Рекомендуем до 20–25 страниц</div>
+                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF, DOCX · Рекомендуем до 20–25 страниц</div>
                   </div>
                   {files.length > 0 && (
                     <div className="file-list">
@@ -794,7 +793,7 @@ ${paras}
                           }}
                         >
                           <span className="file-drag-handle" title="Перетащите для изменения порядка">⠿</span>
-                          <span className="file-icon">{file.type === 'application/pdf' ? '📑' : '🖼'}</span>
+                          <span className="file-icon">{file.type === 'application/pdf' ? '📑' : file.name.toLowerCase().endsWith('.docx') ? '📝' : '🖼'}</span>
                           <span className="file-name">{file.name}</span>
                           <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
                           <button className="file-remove" onClick={e => { e.stopPropagation(); removeFile(idx); }}>✕</button>
@@ -803,13 +802,6 @@ ${paras}
                     </div>
                   )}
                 </>
-              ) : (
-                <div className="paste-area">
-                  <div className="card-label" style={{ marginBottom: 8 }}>Вставьте готовый текст документа</div>
-                  <textarea className="paste-textarea" placeholder="Вставьте текст для анализа и обезличивания..." value={pastedText} onChange={e => setPastedText(e.target.value)} rows={10} />
-                  <div className="paste-hint">Персональные данные будут найдены и выделены автоматически</div>
-                </div>
-              )}
             </section>
 
             {error && <div className="error-block">⚠️ {error}</div>}
@@ -818,9 +810,9 @@ ${paras}
               <button
                 className="btn-primary"
                 onClick={handleRecognize}
-                disabled={!apiKey.trim() || (!pasteMode && files.length === 0) || (pasteMode && !pastedText.trim())}
+                disabled={!apiKey.trim() || files.length === 0}
               >
-                {pasteMode ? 'Анализировать текст' : 'Распознать документ'}
+                Распознать документ
               </button>
             </div>
 

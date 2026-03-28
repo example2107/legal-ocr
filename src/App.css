@@ -84,14 +84,6 @@ a { color: var(--accent); }
 .api-hint { margin-top: 8px; font-size: 12px; color: var(--text3); }
 
 /* ============================
-   MODE TABS
-   ============================ */
-.mode-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
-.mode-tab { padding: 8px 18px; font-size: 14px; font-weight: 500; color: var(--text3); border-radius: var(--radius-sm) var(--radius-sm) 0 0; border: 1px solid transparent; border-bottom: none; margin-bottom: -1px; }
-.mode-tab:hover { color: var(--text2); background: var(--bg2); }
-.mode-tab.active { color: var(--accent); background: var(--surface); border-color: var(--border); font-weight: 600; }
-
-/* ============================
    DROPZONE
    ============================ */
 .dropzone { border: 2px dashed var(--border2); border-radius: var(--radius); padding: 40px 24px; text-align: center; cursor: pointer; transition: all var(--tr); background: var(--bg); }
@@ -113,14 +105,6 @@ a { color: var(--accent); }
 .file-item[draggable] { cursor: default; }
 .file-item.dragging { opacity: 0.4; }
 .file-item.drag-over { border-color: var(--accent); background: var(--accent-light); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(45,90,142,.15); }
-
-/* ============================
-   PASTE AREA
-   ============================ */
-.paste-area { display: flex; flex-direction: column; gap: 10px; }
-.paste-textarea { width: 100%; padding: 14px 16px; font-size: 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); resize: vertical; outline: none; background: var(--bg); color: var(--text); line-height: 1.6; transition: border-color var(--tr); }
-.paste-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
-.paste-hint { font-size: 12px; color: var(--text3); }
 
 /* ============================
    BUTTONS

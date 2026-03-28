@@ -445,7 +445,7 @@ async function runQualityCheck(fullText, apiKey, provider, onProgress) {
 }
 
 // ── Шаг 3: Анализ персональных данных ────────────────────────────────────────
-async function analyzePD(fullText, apiKey, provider, onProgress) {
+export async function analyzePD(fullText, apiKey, provider, onProgress) {
   let personalData = { persons: [], otherPD: [] };
   try {
     const cleanForPD = fullText.replace(/\[PAGE:\d+\]/g, '');
