@@ -803,7 +803,7 @@ ${paras}
                 onClick={handleRecognize}
                 disabled={!apiKey.trim() || files.length === 0}
               >
-                Распознать документ
+                {files.length > 0 && files[0].name.toLowerCase().endsWith('.docx') ? '🔒 Обезличить документ' : '🔍 Распознать и обезличить'}
               </button>
             </div>
 
