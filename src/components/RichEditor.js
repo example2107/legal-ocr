@@ -106,14 +106,36 @@ function esc(s) {
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+// Строит regex-паттерн для упоминания человека:
+// - Захватывает падежные окончания фамилий (ым, ого, ому, ой, ем, у, а, е, и)
+// - Захватывает инициалы после фамилии (А., В.Г., и т.п.)
+function buildPersonPattern(mention) {
+  const base = escRe(mention);
+  // Только для слов длиннее 3 букв, заканчивающихся на русскую букву — добавляем опц. окончание
+  const lastChar = mention.slice(-1);
+  const isRussianWord = /[А-яЁё]/.test(lastChar) && mention.length > 3;
+  // Суффикс: опциональное падежное окончание (до 4 букв)
+  const suffix = isRussianWord ? '[А-яЁё]{0,4}' : '';
+  // Опциональные инициалы после: пробел + заглавная буква + точка (+ ещё одна пара)
+  const initials = '(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.?|\\s+[А-ЯЁ]\\.)?';
+  return base + suffix + initials;
+}
+
 function applyBold(html) {
   return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
 function annotLine(text, marks, anonymized) {
+  // Для persons — расширенный паттерн с падежами и инициалами
+  // Для otherPD — точный паттерн
+  const patternEntries = marks.map(m => ({
+    pattern: m.type === 'person' ? buildPersonPattern(m.txt) : escRe(m.txt),
+    mark: m,
+  }));
+
   const patterns = [
     '⚠️\\[(НЕТОЧНО: [^\\]]*|НЕЧИТАЕМО)\\]',
-    ...marks.map(m => escRe(m.txt)),
+    ...patternEntries.map(e => e.pattern),
   ];
   let re;
   try { re = new RegExp(patterns.join('|'), 'g'); } catch { return applyBold(esc(text)); }
@@ -127,7 +149,11 @@ function annotLine(text, marks, anonymized) {
       const isUnread = inner === 'НЕЧИТАЕМО';
       out += `<mark class="uncertain${isUnread ? ' unreadable' : ''}" data-tooltip="${isUnread ? 'Нечитаемый фрагмент · ПКМ — снять выделение' : 'Возможно неточное распознавание · ПКМ — снять выделение'}">${isUnread ? '[НЕЧИТАЕМО]' : esc(inner.replace('НЕТОЧНО: ', ''))}</mark>`;
     } else {
-      const hl = marks.find(m => m.txt === mt);
+      // Ищем mark по совпадению паттерна (не точная строка, т.к. падеж мог измениться)
+      const entry = patternEntries.find(e => {
+        try { return new RegExp('^' + e.pattern + '$').test(mt); } catch { return false; }
+      });
+      const hl = entry ? entry.mark : null;
       if (hl) {
         const isAnon = !!anonymized[hl.id];
         const display = isAnon ? (hl.type === 'person' ? hl.letter : hl.replacement) : esc(mt);
@@ -171,6 +197,8 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized) {
     /\b([\wА-яЁё]{4,})\s+\1\b/gi,
     '$1'
   );
+  // Инициалы после фамилий обрабатываются через buildPersonPattern в annotLine —
+  // паттерн захватывает «Фамилия И.О.» и «Фамилия И.» как единое совпадение.
 
   // Auto-center patterns for typical legal document sections
   // Strip ** markdown wrapping before testing, since Claude often writes **УСТАНОВИЛ:**

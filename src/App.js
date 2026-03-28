@@ -78,6 +78,7 @@ export default function App() {
 
   const [docId, setDocId] = useState(null);
   const [docTitle, setDocTitle] = useState('');
+  const [originalFileName, setOriginalFileName] = useState('');
   const [rawText, setRawText] = useState('');
   // editorHtml is only used for initial load and save/export — NOT rebuilt on every anonymize
   const [editorHtml, setEditorHtml] = useState('');
@@ -154,6 +155,7 @@ export default function App() {
     setZoomActive(false);
     setZoomScale(1);
     setZoomOffset({ x: 0, y: 0 });
+    setOriginalFileName('');
     setError(null);
     setProgress(null);
     setShowUnsaved(false);
@@ -247,15 +249,17 @@ export default function App() {
       const title = pasteMode
         ? `Текст от ${formatDate(new Date())}`
         : (files[0]?.name || `Документ от ${formatDate(new Date())}`);
+      const origName = pasteMode ? '' : (files[0]?.name || '');
 
       setDocId(generateId());
       setDocTitle(title);
+      setOriginalFileName(origName);
       setRawText(result.text);
       setEditorHtml(html);
       setPersonalData(pd);
       setAnonymized(initialAnon);
       setLastSavedState(null);
-      setShowLongDocWarning(result.text.length > 25000);
+      setShowLongDocWarning(result.text.length > 50000);
 
       stopProgressCreep();
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
@@ -275,6 +279,7 @@ export default function App() {
 
     setDocId(entry.id);
     setDocTitle(entry.title);
+    setOriginalFileName(entry.originalFileName || entry.title || '');
     setRawText(entry.text || '');
     setEditorHtml(entry.editedHtml || html);
     setPersonalData(pd);
@@ -327,6 +332,7 @@ export default function App() {
     saveDocument({
       id: docId,
       title: docTitle,
+      originalFileName,
       text: rawText,
       editedHtml: currentHtml,
       personalData,
@@ -567,7 +573,7 @@ ${paras}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const baseDocx = (docTitle || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '');
+    const baseDocx = (originalFileName || docTitle || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '');
     a.download = 'ЮрДок_' + baseDocx + '.docx';
     a.click();
     URL.revokeObjectURL(url);
@@ -579,7 +585,7 @@ ${paras}
       .replace(/<mark class="uncertain[^"]*"[^>]*>/g, '<span class="uncertain-export">')
       .replace(/<\/mark>/g, '</span>');
 
-    const pdfTitle = 'ЮрДок_' + (docTitle || 'документ').replace(/\.pdf$/i, '');
+    const pdfTitle = 'ЮрДок_' + (originalFileName || docTitle || 'документ').replace(/\.pdf$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '');
     const printHtml = `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"/><title>${pdfTitle}</title>
 <style>
@@ -630,14 +636,21 @@ ${paras}
 
       <header className="header">
         <div className="header-inner">
-          <div className="header-left">
-            {view === VIEW_RESULT && <button className="btn-tool" onClick={goHome}>← Главная</button>}
-          </div>
-          <div className="logo">
-            <span className="logo-icon">⚖</span>
-            <div>
-              <div className="logo-title">ЮрДок</div>
-              <div className="logo-sub">Распознавание документов</div>
+          <div className="header-left" />
+          <div className="header-center">
+            {view === VIEW_RESULT && (
+              <button className="btn-tool header-home-btn" onClick={goHome}>← Главная</button>
+            )}
+            <div
+              className="logo"
+              onClick={view !== VIEW_HOME ? goHome : undefined}
+              style={view !== VIEW_HOME ? { cursor: 'pointer' } : {}}
+            >
+              <span className="logo-icon">⚖</span>
+              <div>
+                <div className="logo-title">ЮрДок</div>
+                <div className="logo-sub">Распознавание документов</div>
+              </div>
             </div>
           </div>
           <div className="header-right" />
@@ -739,7 +752,7 @@ ${paras}
                     <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
                     <div className="dropzone-icon">📄</div>
                     <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF · Рекомендуем до 8–10 страниц</div>
+                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF · Рекомендуем до 20–25 страниц</div>
                   </div>
                   {files.length > 0 && (
                     <div className="file-list">
@@ -950,7 +963,7 @@ ${paras}
 
               {showLongDocWarning && (
                 <div className="long-doc-warning">
-                  ⚠️ Документ содержит более 25 000 символов — часть персональных данных могла быть пропущена при анализе. Рекомендуем разбить документ на части по 8–10 страниц и загружать отдельно.
+                  ⚠️ Документ содержит более 50 000 символов (~30+ страниц) — часть персональных данных могла быть пропущена при анализе. Рекомендуем разбить документ на части и загружать отдельно.
                   <button className="long-doc-close" onClick={() => setShowLongDocWarning(false)}>✕</button>
                 </div>
               )}
