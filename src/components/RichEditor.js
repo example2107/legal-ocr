@@ -375,6 +375,11 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
     if (pageMatch) {
       return `<div class="page-separator" contenteditable="false" data-page="${pageMatch[1]}"><span class="page-separator-line"></span><span class="page-separator-label">Страница ${pageMatch[1]}</span><span class="page-separator-line"></span></div>`;
     }
+    // Абзац с отступом первой строки [INDENT]text
+    const indentMatch = line.match(/^\[INDENT\](.+)$/);
+    if (indentMatch) {
+      return `<div style="text-indent:2em">${annotLine(indentMatch[1], marks, anonymized)}</div>`;
+    }
     // [CENTER]text[/CENTER] tag from OCR prompt
     const centerMatch = line.match(/^\[CENTER\](.+?)\[\/CENTER\]$/);
     if (centerMatch) {
