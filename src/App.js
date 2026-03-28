@@ -801,7 +801,6 @@ ${paras}
                       ))}
                     </div>
                   )}
-                </>
             </section>
 
             {error && <div className="error-block">⚠️ {error}</div>}
