@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
+import { parseDocx } from './utils/docxParser';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
@@ -198,30 +199,12 @@ export default function App() {
       const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
 
       if (isDocx) {
-        // DOCX — извлекаем текст через mammoth (CDN), пропускаем OCR и quality check
-        setProgress({ percent: 10, message: 'Извлечение текста из DOCX...' });
-        if (!window.mammoth) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-          });
-        }
-        const arrayBuffer = await files[0].arrayBuffer();
-        const { value: rawHtml } = await window.mammoth.convertToHtml({ arrayBuffer });
-        // Извлекаем plain text для PD-анализа
-        const tmpDiv = document.createElement('div');
-        tmpDiv.innerHTML = rawHtml;
-        // Заменяем блочные теги на переносы строк чтобы сохранить структуру абзацев
-        tmpDiv.querySelectorAll('p, h1, h2, h3, h4, li').forEach(el => {
-          el.insertAdjacentText('afterend', '\n');
-        });
-        const plainText = (tmpDiv.innerText || tmpDiv.textContent || '').trim();
-        setProgress({ percent: 30, message: 'Анализ персональных данных...' });
+        // DOCX — читаем XML напрямую через JSZip, пропускаем OCR и quality check
+        setProgress({ percent: 10, message: 'Чтение документа DOCX...' });
+        const docxText = await parseDocx(files[0]);
+        setProgress({ percent: 40, message: 'Анализ персональных данных...' });
         animateTo(90, null);
-        const personalData = await analyzePD(plainText, apiKey.trim(), provider, p => {
+        const personalData = await analyzePD(docxText, apiKey.trim(), provider, p => {
           const pct = p.percent != null ? Math.round(p.percent) : 97;
           setProgress(prev => prev && prev.percent > pct
             ? { ...prev, message: p.message }
@@ -229,8 +212,7 @@ export default function App() {
           );
         });
         stopProgressCreep();
-        // Сохраняем и plainText (для PD поиска) и rawHtml (для редактора)
-        result = { text: plainText, personalData, docxHtml: rawHtml };
+        result = { text: docxText, personalData };
       } else {
         setProgress({ percent: 2, message: 'Подготовка файлов...' });
         const allImages = [];
@@ -264,10 +246,7 @@ export default function App() {
 
       const pd = assignLetters(result.personalData);
       const initialAnon = {};
-      // Для DOCX используем HTML от mammoth, для остальных — buildAnnotatedHtml
-      const html = result.docxHtml
-        ? buildAnnotatedHtml(result.text, pd, initialAnon, result.docxHtml)
-        : buildAnnotatedHtml(result.text, pd, initialAnon);
+      const html = buildAnnotatedHtml(result.text, pd, initialAnon);
       const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
       const origName = files[0]?.name || '';
 
