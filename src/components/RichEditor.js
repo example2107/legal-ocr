@@ -199,8 +199,90 @@ function annotLine(text, marks, anonymized) {
 }
 
 // ── Build full annotated HTML from rawText (used only on first load) ───────────
-export function buildAnnotatedHtml(rawText, personalData, anonymized) {
+// Аннотирует HTML от mammoth — заменяет упоминания ПД на <mark> прямо в HTML
+function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
+  const { persons = [], otherPD = [] } = personalData;
+  const marks = [];
+  for (const p of persons) {
+    for (const mention of (p.mentions || [p.fullName])) {
+      if (mention && mention.length > 1)
+        marks.push({ txt: mention, type: 'person', cat: p.category, id: p.id, letter: p.letter });
+    }
+  }
+  for (const it of otherPD) {
+    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement });
+  }
+  marks.sort((a, b) => b.txt.length - a.txt.length);
+
+  // Создаём временный DOM и аннотируем текстовые узлы
+  const tmp = document.createElement('div');
+  tmp.innerHTML = docxHtml;
+
+  // Рекурсивно обходим текстовые узлы и заменяем упоминания на marks
+  function annotateNode(node) {
+    if (node.nodeType === 3) { // текстовый узел
+      let text = node.textContent;
+      let changed = false;
+      const fragment = document.createDocumentFragment();
+      let lastIdx = 0;
+
+      // Ищем все совпадения по всем marks
+      const allMatches = [];
+      for (const mark of marks) {
+        try {
+          const pattern = buildPersonPattern(mark.txt);
+          const re = new RegExp(pattern, 'g');
+          let m;
+          while ((m = re.exec(text)) !== null) {
+            allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], mark });
+          }
+        } catch {}
+      }
+
+      // Сортируем по позиции, убираем пересечения
+      allMatches.sort((a, b) => a.start - b.start);
+      const filtered = [];
+      let lastEnd = 0;
+      for (const m of allMatches) {
+        if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
+      }
+
+      for (const { start, end, mt, mark } of filtered) {
+        if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
+        const el = document.createElement('mark');
+        const isAnon = !!anonymized[mark.id];
+        const display = isAnon ? (mark.type === 'person' ? mark.letter : mark.replacement) : mt;
+        const cat = mark.type === 'person' ? (mark.cat === 'private' ? 'priv' : 'prof') : 'oth';
+        el.className = 'pd ' + cat + (isAnon ? ' anon' : '');
+        el.dataset.pdId = mark.id;
+        el.dataset.original = mt;
+        el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+        el.textContent = display;
+        fragment.appendChild(el);
+        lastIdx = end;
+        changed = true;
+      }
+
+      if (changed) {
+        if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+        node.parentNode.replaceChild(fragment, node);
+      }
+    } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+      Array.from(node.childNodes).forEach(annotateNode);
+    }
+  }
+
+  Array.from(tmp.childNodes).forEach(annotateNode);
+  return tmp.innerHTML;
+}
+
+export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) {
   if (!rawText) return '';
+
+  // Если передан HTML от mammoth (DOCX) — аннотируем его напрямую сохраняя форматирование
+  if (docxHtml) {
+    return buildAnnotatedDocxHtml(docxHtml, personalData, anonymized);
+  }
   const { persons = [], otherPD = [] } = personalData;
   const marks = [];
   for (const p of persons) {

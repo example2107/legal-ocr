@@ -211,10 +211,14 @@ export default function App() {
         }
         const arrayBuffer = await files[0].arrayBuffer();
         const { value: rawHtml } = await window.mammoth.convertToHtml({ arrayBuffer });
-        // Переводим HTML в plain text для PD-анализа
-        const tmp = document.createElement('div');
-        tmp.innerHTML = rawHtml;
-        const plainText = tmp.innerText || tmp.textContent || '';
+        // Извлекаем plain text для PD-анализа
+        const tmpDiv = document.createElement('div');
+        tmpDiv.innerHTML = rawHtml;
+        // Заменяем блочные теги на переносы строк чтобы сохранить структуру абзацев
+        tmpDiv.querySelectorAll('p, h1, h2, h3, h4, li').forEach(el => {
+          el.insertAdjacentText('afterend', '\n');
+        });
+        const plainText = (tmpDiv.innerText || tmpDiv.textContent || '').trim();
         setProgress({ percent: 30, message: 'Анализ персональных данных...' });
         animateTo(90, null);
         const personalData = await analyzePD(plainText, apiKey.trim(), provider, p => {
@@ -225,6 +229,7 @@ export default function App() {
           );
         });
         stopProgressCreep();
+        // Сохраняем и plainText (для PD поиска) и rawHtml (для редактора)
         result = { text: plainText, personalData, docxHtml: rawHtml };
       } else {
         setProgress({ percent: 2, message: 'Подготовка файлов...' });
