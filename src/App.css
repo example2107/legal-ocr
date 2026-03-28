@@ -108,6 +108,11 @@ a { color: var(--accent); }
 .file-size { color: var(--text3); flex-shrink: 0; }
 .file-remove { color: var(--text3); font-size: 12px; padding: 2px 6px; border-radius: 4px; }
 .file-remove:hover { background: var(--red-light); color: var(--red); }
+.file-drag-handle { color: var(--text3); font-size: 16px; cursor: grab; padding: 0 4px; flex-shrink: 0; user-select: none; }
+.file-drag-handle:active { cursor: grabbing; }
+.file-item[draggable] { cursor: default; }
+.file-item.dragging { opacity: 0.4; }
+.file-item.drag-over { border-color: var(--accent); background: var(--accent-light); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(45,90,142,.15); }
 
 /* ============================
    PASTE AREA

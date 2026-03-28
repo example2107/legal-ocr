@@ -97,6 +97,7 @@ export default function App() {
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
   const viewerFileInputRef = useRef();
+  const dragFileIdx = useRef(null);
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
@@ -757,7 +758,42 @@ ${paras}
                   {files.length > 0 && (
                     <div className="file-list">
                       {files.map((file, idx) => (
-                        <div key={idx} className="file-item">
+                        <div
+                          key={idx}
+                          className="file-item"
+                          draggable
+                          onDragStart={(e) => {
+                            dragFileIdx.current = idx;
+                            e.currentTarget.classList.add('dragging');
+                          }}
+                          onDragEnd={(e) => {
+                            e.currentTarget.classList.remove('dragging');
+                            dragFileIdx.current = null;
+                            // Убираем over-класс со всех элементов
+                            document.querySelectorAll('.file-item').forEach(el => el.classList.remove('drag-over'));
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.currentTarget.classList.add('drag-over');
+                          }}
+                          onDragLeave={(e) => {
+                            e.currentTarget.classList.remove('drag-over');
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.currentTarget.classList.remove('drag-over');
+                            const from = dragFileIdx.current;
+                            const to = idx;
+                            if (from === null || from === to) return;
+                            setFiles(prev => {
+                              const next = [...prev];
+                              const [moved] = next.splice(from, 1);
+                              next.splice(to, 0, moved);
+                              return next;
+                            });
+                          }}
+                        >
+                          <span className="file-drag-handle" title="Перетащите для изменения порядка">⠿</span>
                           <span className="file-icon">{file.type === 'application/pdf' ? '📑' : '🖼'}</span>
                           <span className="file-name">{file.name}</span>
                           <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
