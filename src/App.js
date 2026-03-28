@@ -632,7 +632,6 @@ ${paras}
           </div>
           <div className="header-right">
             {view === VIEW_RESULT && <button className="btn-tool" onClick={goHome}>← Главная</button>}
-            <div className="header-badge">Данные в браузере</div>
           </div>
         </div>
       </header>
