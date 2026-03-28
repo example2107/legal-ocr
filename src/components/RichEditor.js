@@ -107,18 +107,29 @@ function esc(s) {
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 // Строит regex-паттерн для упоминания человека:
-// - Захватывает падежные окончания фамилий (ым, ого, ому, ой, ем, у, а, е, и)
+// - Захватывает падежные окончания каждого слова ФИО (через усечение корня)
 // - Захватывает инициалы после фамилии (А., В.Г., и т.п.)
 function buildPersonPattern(mention) {
-  const base = escRe(mention);
-  // Только для слов длиннее 3 букв, заканчивающихся на русскую букву — добавляем опц. окончание
-  const lastChar = mention.slice(-1);
-  const isRussianWord = /[А-яЁё]/.test(lastChar) && mention.length > 3;
-  // Суффикс: опциональное падежное окончание (до 4 букв)
-  const suffix = isRussianWord ? '[А-яЁё]{0,4}' : '';
-  // Опциональные инициалы после: пробел + заглавная буква + точка (+ ещё одна пара)
   const initials = '(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.?|\\s+[А-ЯЁ]\\.)?';
-  return base + suffix + initials;
+
+  // Для русского слова длиннее 4 букв — убираем 2 последних буквы (окончание)
+  // и разрешаем любое новое окончание до 5 букв
+  const wordToPattern = (word) => {
+    if (/[А-яЁё]/.test(word.slice(-1)) && word.length > 4) {
+      return escRe(word.slice(0, -2)) + '[А-яЁё]{0,5}';
+    }
+    return escRe(word);
+  };
+
+  const words = mention.split(/\s+/);
+  if (words.length > 1) {
+    // Многословное ФИО — применяем усечение к каждому слову
+    const base = words.map(wordToPattern).join('\\s+');
+    return base + initials;
+  }
+
+  // Одно слово
+  return wordToPattern(mention) + initials;
 }
 
 function applyBold(html) {
