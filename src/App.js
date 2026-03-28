@@ -623,16 +623,17 @@ ${paras}
 
       <header className="header">
         <div className="header-inner">
-          <div className="logo" onClick={view !== VIEW_HOME ? goHome : undefined} style={view !== VIEW_HOME ? { cursor: 'pointer' } : {}}>
+          <div className="header-left">
+            {view === VIEW_RESULT && <button className="btn-tool" onClick={goHome}>← Главная</button>}
+          </div>
+          <div className="logo">
             <span className="logo-icon">⚖</span>
             <div>
               <div className="logo-title">ЮрДок</div>
               <div className="logo-sub">Распознавание документов</div>
             </div>
           </div>
-          <div className="header-right">
-            {view === VIEW_RESULT && <button className="btn-tool" onClick={goHome}>← Главная</button>}
-          </div>
+          <div className="header-right" />
         </div>
       </header>
 
