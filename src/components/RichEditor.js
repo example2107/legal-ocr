@@ -327,6 +327,8 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
       /^\[PAGE:\d+\]$/.test(trimmed) ||
       /^\[CENTER\]/.test(trimmed) ||
       /^\[LEFTRIGHT:/.test(trimmed) ||
+      /^\[RIGHT-BLOCK\]/.test(trimmed) ||
+      /^\[INDENT\]/.test(trimmed) ||
       /^\*\*(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ)[:\s*]/.test(trimmed);
 
     if (isSpecial) {
@@ -344,7 +346,9 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
         prevTrimmed === '---' ||
         /^\[PAGE:\d+\]$/.test(prevTrimmed) ||
         /^\[CENTER\]/.test(prevTrimmed) ||
-        /^\[LEFTRIGHT:/.test(prevTrimmed);
+        /^\[LEFTRIGHT:/.test(prevTrimmed) ||
+        /^\[RIGHT-BLOCK\]/.test(prevTrimmed) ||
+        /^\[INDENT\]/.test(prevTrimmed);
 
       // Склеиваем если предыдущая строка не заканчивается на . ! ? : ; » " и не спецстрока
       if (!prevIsSpecial && prevTrimmed && !/[.!?:;»"\]]$/.test(prevTrimmed)) {
