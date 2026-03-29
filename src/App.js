@@ -293,12 +293,24 @@ export default function App() {
     return editorDomRef.current.querySelectorAll('mark.uncertain').length;
   };
 
+  const countPageSeparators = () => {
+    if (!editorDomRef.current) return 0;
+    return editorDomRef.current.querySelectorAll('.page-separator').length;
+  };
+
   const triggerExport = (action) => {
-    const count = countUncertain();
-    if (count > 0) {
+    const uncertainCount = countUncertain();
+    const separatorCount = countPageSeparators();
+    if (uncertainCount > 0 || separatorCount > 0) {
       setPendingExportAction(action);
       setShowUncertainWarning(true);
       setHighlightUncertain(true);
+      // Подсвечиваем разделители страниц анимацией
+      if (editorDomRef.current) {
+        editorDomRef.current.querySelectorAll('.page-separator').forEach(el => {
+          el.classList.add('page-separator-highlight');
+        });
+      }
     } else {
       if (action === 'save') handleSave();
       else if (action === 'pdf') handleDownloadPdf();
@@ -308,7 +320,13 @@ export default function App() {
 
   const handleUncertainProceed = () => {
     setShowUncertainWarning(false);
-    setHighlightUncertain(false); // stop animation when user chooses to proceed
+    setHighlightUncertain(false);
+    // Убираем подсветку разделителей
+    if (editorDomRef.current) {
+      editorDomRef.current.querySelectorAll('.page-separator').forEach(el => {
+        el.classList.remove('page-separator-highlight');
+      });
+    }
     if (pendingExportAction === 'save') handleSave();
     else if (pendingExportAction === 'pdf') handleDownloadPdf();
     else if (pendingExportAction === 'docx') handleDownloadDocx();
@@ -317,11 +335,11 @@ export default function App() {
 
   const handleUncertainCancel = () => {
     setShowUncertainWarning(false);
-    // Animation stays ON so user sees the highlights
+    // Анимация ⚠️ остаётся включённой, подсветка разделителей тоже
     setPendingExportAction(null);
-    // Scroll to first uncertain mark
+    // Скролл к первому проблемному месту (uncertain или разделитель)
     if (editorDomRef.current) {
-      const first = editorDomRef.current.querySelector('mark.uncertain');
+      const first = editorDomRef.current.querySelector('mark.uncertain, .page-separator-highlight');
       if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   };
@@ -660,10 +678,15 @@ ${paras}
       {showUncertainWarning && (
         <div className="modal-overlay">
           <div className="modal">
-            <div className="modal-title">⚠️ Есть непроверенные фрагменты</div>
+            <div className="modal-title">⚠️ Документ требует проверки</div>
             <div className="modal-body">
-              В документе остались места с неточным распознаванием (выделены двойным подчёркиванием).
-              Рекомендуем проверить и исправить их перед сохранением.
+              {countUncertain() > 0 && (
+                <div>Найдено <strong>{countUncertain()}</strong> {countUncertain() === 1 ? 'фрагмент' : 'фрагментов'} с неточным распознаванием — выделены двойным подчёркиванием.</div>
+              )}
+              {countPageSeparators() > 0 && (
+                <div style={{marginTop: countUncertain() > 0 ? 8 : 0}}>Найдено <strong>{countPageSeparators()}</strong> {countPageSeparators() === 1 ? 'разделитель страниц' : 'разделителей страниц'} — они выделены и не должны оставаться в финальном документе.</div>
+              )}
+              <div style={{marginTop: 10, color: 'var(--text2)'}}>Рекомендуем проверить и исправить их перед сохранением.</div>
             </div>
             <div className="modal-actions">
               <button className="btn-tool" onClick={handleUncertainCancel}>Перейти к исправлению</button>

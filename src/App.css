@@ -445,6 +445,17 @@ a { color: var(--accent); }
   margin: 12px 0;
   user-select: none;
   cursor: default;
+  transition: background var(--tr);
+}
+@keyframes separatorPulse {
+  0%, 100% { background: var(--yellow-light, #fff8e1); }
+  50% { background: #ffe082; }
+}
+.page-separator.page-separator-highlight {
+  background: var(--yellow-light, #fff8e1);
+  border-radius: 6px;
+  padding: 4px 8px;
+  animation: separatorPulse 1.2s ease-in-out infinite;
 }
 .page-separator-line {
   flex: 1;
