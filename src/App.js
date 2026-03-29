@@ -626,27 +626,9 @@ ${paras}
   ol, ul { padding-left: 2em; }
   .pd-export { font-weight: bold; }
   .uncertain-export { text-decoration: underline dotted; }
-  /* Кнопка закрытия — видна только на экране, не печатается */
-  @media print { #close-btn { display: none; } }
-  #close-btn {
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    padding: 8px 18px;
-    background: #2d5a8e;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: Arial, sans-serif;
-    cursor: pointer;
-    z-index: 9999;
-    box-shadow: 0 2px 8px rgba(0,0,0,.2);
-  }
-  #close-btn:hover { background: #1e3f66; }
+
 </style></head>
 <body>
-<button id="close-btn" onclick="window.close()">✕ Закрыть окно</button>
 ${content}
 </body></html>`;
 
@@ -656,7 +638,9 @@ ${content}
     w.document.close();
     setTimeout(() => {
       w.print();
-      w.addEventListener('afterprint', () => w.close());
+      // afterprint не срабатывает в Chrome при сохранении PDF
+      // закрываем окно через 3 секунды — диалог к этому моменту уже открылся
+      setTimeout(() => w.close(), 3000);
     }, 500);
   };
 
