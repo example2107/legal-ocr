@@ -590,7 +590,7 @@ ${paras}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const baseDocx = (originalFileName || docTitle || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '');
+    const baseDocx = (docTitle || originalFileName || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '').replace(/\.webp$/i, '');
     a.download = 'ЮрДок_' + baseDocx + '.docx';
     a.click();
     URL.revokeObjectURL(url);
@@ -602,7 +602,7 @@ ${paras}
       .replace(/<mark class="uncertain[^"]*"[^>]*>/g, '<span class="uncertain-export">')
       .replace(/<\/mark>/g, '</span>');
 
-    const pdfTitle = 'ЮрДок_' + (originalFileName || docTitle || 'документ').replace(/\.pdf$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '');
+    const pdfTitle = 'ЮрДок_' + (docTitle || originalFileName || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '').replace(/\.webp$/i, '');
     const printHtml = `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"/><title>${pdfTitle}</title>
 <style>
@@ -636,7 +636,11 @@ ${paras}
     w.document.write(printHtml);
     w.document.close();
     w.focus();
-    setTimeout(() => w.print(), 500);
+    setTimeout(() => {
+      w.print();
+      // Закрываем окно после того как диалог печати закрылся
+      w.addEventListener('afterprint', () => w.close());
+    }, 500);
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────────
