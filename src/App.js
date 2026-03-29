@@ -6,7 +6,7 @@ import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichE
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
-const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩ'.split('').map(l => l + '.');
+const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ'.split('').map(l => l + '.');
 const makeProfletter = (n) => `[ФИО ${n}]`;
 
 function assignLetters(personalData) {
