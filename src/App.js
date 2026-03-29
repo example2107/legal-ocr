@@ -519,11 +519,29 @@ export default function App() {
         continue;
       }
 
+      // Пропускаем разделители страниц
+      if (node.classList && node.classList.contains('page-separator')) continue;
+
+      // Шапка справа (right-block) — левый отступ 55% = ~5100 DXA от поля
+      const isRightBlock = node.classList && node.classList.contains('right-block');
+      // Абзацный отступ первой строки
+      const hasTextIndent = node.style && node.style.textIndent;
+
       // Check for inline style center (from [CENTER] tags rendered as style="text-align:center")
       let align = getAlign(node);
       if (node.style && node.style.textAlign === 'center') align = 'center';
       if (node.tagName === 'H1' || node.tagName === 'H2') align = 'center';
-      const pPr = '<w:pPr><w:jc w:val="' + align + '"/><w:spacing w:after="0" w:before="0"/></w:pPr>';
+
+      let pPr;
+      if (isRightBlock) {
+        // right-block: левый отступ ~5100 DXA (≈9см), выравнивание по ширине
+        pPr = '<w:pPr><w:jc w:val="both"/><w:spacing w:after="0" w:before="0"/><w:ind w:left="5100"/></w:pPr>';
+      } else if (hasTextIndent) {
+        // text-indent: отступ первой строки ~709 DXA (≈1.25см)
+        pPr = '<w:pPr><w:jc w:val="both"/><w:spacing w:after="0" w:before="0"/><w:ind w:firstLine="709"/></w:pPr>';
+      } else {
+        pPr = '<w:pPr><w:jc w:val="' + align + '"/><w:spacing w:after="0" w:before="0"/></w:pPr>';
+      }
 
       let rStyle = '';
       if (tag === 'H1') rStyle = '<w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>';
@@ -618,6 +636,8 @@ ${paras}
   h3 { font-size: 14pt; font-weight: 600; margin: 0; }
   div { min-height: 1.7em; margin: 0; padding: 0; text-align: justify; }
   p { text-indent: 1.5em; margin: 0; padding: 0; text-align: justify; }
+  .right-block { margin-left: 55%; text-align: justify; min-height: 1.7em; }
+  .page-separator { display: none; }
   .lr-row { display: flex; justify-content: space-between; align-items: baseline; text-align: left; }
   .lr-row span:last-child { text-align: right; }
   hr { border: none; border-top: 1px solid #ccc; margin: 6pt 0; }
