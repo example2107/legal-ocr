@@ -155,7 +155,7 @@ function annotLine(text, marks, anonymized) {
     ...patternEntries.map(e => e.pattern),
   ];
   let re;
-  try { re = new RegExp(patterns.join('|'), 'g'); } catch { return applyBold(esc(text)); }
+  try { re = new RegExp(patterns.join('|'), 'gi'); } catch { return applyBold(esc(text)); }
 
   let out = '', last = 0, match;
   while ((match = re.exec(text)) !== null) {
@@ -180,7 +180,7 @@ function annotLine(text, marks, anonymized) {
     } else {
       // Ищем mark по совпадению паттерна (не точная строка, т.к. падеж мог измениться)
       const entry = patternEntries.find(e => {
-        try { return new RegExp('^' + e.pattern + '$').test(mt); } catch { return false; }
+        try { return new RegExp('^' + e.pattern + '$', 'i').test(mt); } catch { return false; }
       });
       const hl = entry ? entry.mark : null;
       if (hl) {
