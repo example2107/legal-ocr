@@ -490,10 +490,13 @@ export default function App() {
         const rightText = (spans[1] ? spans[1].textContent : '').trim().replace(/\s+/g, ' ');
         const fontProps = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="28"/><w:szCs w:val="28"/>';
 
-        // Detect city+date: short left text AND right contains year or month name
-        const hasDate = /\d{4}/.test(rightText) ||
-          /января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря/.test(rightText);
-        const isCityDate = leftText.length < 30 && hasDate;
+        // Detect city+date line: дата может быть слева или справа
+        const monthRe = /января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря/;
+        const yearRe = /\d{4}/;
+        const hasDateLeft = yearRe.test(leftText) || monthRe.test(leftText);
+        const hasDateRight = yearRe.test(rightText) || monthRe.test(rightText);
+        // isCityDate = одна сторона содержит дату, другая — город/адрес
+        const isCityDate = (hasDateLeft || hasDateRight) && (leftText.length > 0 && rightText.length > 0);
 
         if (isCityDate) {
           // City + date on one line via right-aligned tab stop
