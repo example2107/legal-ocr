@@ -195,6 +195,11 @@ function annotLine(text, marks, anonymized) {
     last = match.index + mt.length;
   }
   if (last < text.length) out += applyBold(esc(text.slice(last)));
+  // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
+  // курсор не застревал внутри маркера
+  out = out
+    .replace(/([^\s>])(<mark\s)/g, '$1 $2')              // пробел перед <mark> если его нет
+    .replace(/(<\/mark>)([^\s<.,;:!?)»"\]])/g, '$1 $2'); // пробел после </mark> если его нет (не перед знаками препинания)
   return out;
 }
 
