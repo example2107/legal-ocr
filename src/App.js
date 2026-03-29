@@ -148,8 +148,6 @@ export default function App() {
   const doGoHome = () => {
     setView(VIEW_HOME);
     setFiles([]);
-    setPastedText('');
-    setPasteMode(false);
     setOriginalImages([]);
     setShowOriginal(false);
     setOriginalPage(0);

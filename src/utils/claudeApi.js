@@ -212,7 +212,7 @@ async function callOpenAI(messages, apiKey, system) {
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-    body: JSON.stringify({ model: PROVIDERS.openai.model, max_tokens: 64000, messages: oaiMessages }),
+    body: JSON.stringify({ model: PROVIDERS.openai.model, max_completion_tokens: 64000, messages: oaiMessages }),
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
