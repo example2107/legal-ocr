@@ -298,14 +298,26 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
 
   // Post-process 1: убираем дубль слова перед маркером ⚠️
   // Claude иногда пишет: "слово ⚠️[НЕТОЧНО: слово]" — оставляем только маркер
+  // Ловим как точное совпадение, так и совпадение по корню (первые 5 букв)
   let processText = rawText.replace(
-    /([\wА-яЁё]+)\s+⚠️\[НЕТОЧНО:\s*\1\]/gi,
-    '⚠️[НЕТОЧНО: $1]'
+    /([А-яЁёa-zA-Z]{2,})\s+⚠️\[НЕТОЧНО:\s*([А-яЁёa-zA-Z| ]+)\]/gi,
+    (full, wordBefore, inner) => {
+      // Берём первое слово из маркера (до | если есть вариант)
+      const markerWord = inner.split('|')[0].trim();
+      // Сравниваем по корню — первые 5 букв (или меньше если слово короткое)
+      const rootLen = Math.min(5, Math.min(wordBefore.length, markerWord.length));
+      const sameRoot = wordBefore.slice(0, rootLen).toLowerCase() === markerWord.slice(0, rootLen).toLowerCase();
+      if (sameRoot) {
+        // Убираем слово перед маркером — оставляем только маркер
+        return '⚠️[НЕТОЧНО: ' + inner + ']';
+      }
+      return full;
+    }
   );
   // Post-process 2: убираем подряд идущие одинаковые слова (от 4 букв — избегаем ложных срабатываний)
   // Например: "КоординарийСпектр КоординарийСпектр" → "КоординарийСпектр"
   processText = processText.replace(
-    /\b([\wА-яЁё]{4,})\s+\1\b/gi,
+    /\b([А-яЁёa-zA-Z]{4,})\s+\1\b/gi,
     '$1'
   );
   // Инициалы после фамилий обрабатываются через buildPersonPattern в annotLine —
@@ -595,6 +607,25 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     }
   }, [exec]);
 
+  // Выносим курсор за пределы <mark class="pd"> при вводе текста
+  const escapeFromPdMark = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    // Ищем ближайший mark.pd вокруг курсора
+    const mark = node.nodeType === 3
+      ? node.parentElement?.closest('mark.pd')
+      : node.closest?.('mark.pd');
+    if (!mark) return;
+    // Курсор внутри mark — выносим его сразу после mark
+    const newRange = document.createRange();
+    newRange.setStartAfter(mark);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }, []);
+
   return (
     <div className="rich-editor-wrap">
       <div className="rich-toolbar" onMouseDown={e => e.preventDefault()}>
@@ -625,7 +656,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         contentEditable
         suppressContentEditableWarning
         spellCheck={false}
-        onInput={() => { if (!isComposing.current) notifyChange(); }}
+        onInput={() => {
+          escapeFromPdMark();
+          if (!isComposing.current) notifyChange();
+        }}
         onCompositionStart={() => { isComposing.current = true; }}
         onCompositionEnd={() => { isComposing.current = false; notifyChange(); }}
         onBlur={notifyChange}
