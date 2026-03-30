@@ -903,7 +903,7 @@ ${content}
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
           <div className="result-outer">
-          <div className="result-area">
+          <div className={"result-area" + (showOriginal && originalImages.length > 0 ? " viewer-open" : "")}>
 
             {hasPD && (
               <aside className="pd-panel">
