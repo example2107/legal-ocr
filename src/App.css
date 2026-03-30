@@ -308,9 +308,9 @@ a { color: var(--accent); }
 
 /* Экраны 1200-1700px — колонки растягиваются заполняя доступное пространство */
 @media (min-width: 1200px) and (max-width: 1700px) {
-  .result-area { gap: 10px; padding: 0 10px; justify-content: flex-start; }
+  .result-area { gap: 10px; padding: 0 10px; justify-content: space-between; }
   .main { padding: 20px 12px; }
-  .pd-panel { width: 220px; min-width: 220px; flex-shrink: 0; font-size: 12px; padding: 12px; }
+  .pd-panel { width: 280px; min-width: 280px; flex-shrink: 0; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
   .doc-card { flex: 1 1 auto; min-width: 440px; max-width: 700px; width: auto; }
   .viewer-panel { flex: 1 1 auto; min-width: 300px; max-width: 500px; width: auto; }
