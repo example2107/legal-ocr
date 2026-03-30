@@ -99,6 +99,36 @@ export default function App() {
   const viewerFileInputRef = useRef();
   const dragFileIdx = useRef(null);
 
+  // ── Resizable panels ──────────────────────────────────────────────────────
+  const [pdWidth, setPdWidth] = React.useState(280);
+  const [viewerWidth, setViewerWidth] = React.useState(500);
+
+  const startResize = React.useCallback((type) => (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startPd = pdWidth;
+    const startViewer = viewerWidth;
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      if (type === 'pd') {
+        setPdWidth(w => Math.max(160, Math.min(400, startPd + dx)));
+      } else {
+        setViewerWidth(w => Math.max(200, Math.min(700, startViewer - dx)));
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [pdWidth, viewerWidth]);
+
 
 
   // Direct ref to the editor DOM element — used for DOM patching
@@ -907,7 +937,7 @@ ${content}
           <div className={"result-area" + (showOriginal && originalImages.length > 0 ? " viewer-open" : "")}>
 
             {hasPD && (
-              <aside className="pd-panel">
+              <aside className="pd-panel" style={{ width: pdWidth, minWidth: pdWidth, flexShrink: 0 }}>
                 <div className="pd-panel-title">Персональные данные</div>
                 <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
 
@@ -975,6 +1005,9 @@ ${content}
               </aside>
             )}
 
+            {hasPD && (
+              <div className="panel-resizer" onMouseDown={startResize('pd')} />
+            )}
 
             <div className="doc-card">
               <div className="doc-title-row">
@@ -1049,7 +1082,10 @@ ${content}
 
 
             {showOriginal && originalImages.length > 0 && (
-              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")}>
+              <div className="panel-resizer" onMouseDown={startResize('viewer')} />
+            )}
+            {showOriginal && originalImages.length > 0 && (
+              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={{ width: viewerWidth, minWidth: viewerWidth, flexShrink: 0 }}>
                 <div className="viewer-header">
                   <span className="viewer-title">Оригинальный файл</span>
                   <div className="viewer-nav">
