@@ -308,15 +308,18 @@ a { color: var(--accent); }
   .btn-original { display: none !important; }
 }
 
-/* MacBook 14" и другие экраны 1200-1600px — уменьшаем колонки чтобы всё влезло */
+/* MacBook 14" и другие экраны 1200-1600px */
 @media (min-width: 1200px) and (max-width: 1600px) {
   .main { padding: 20px 12px; }
-  .result-area { gap: 10px; justify-content: flex-start; }
-  .result-area.viewer-open { justify-content: space-between; }
-  .pd-panel { width: 240px; min-width: 240px; font-size: 12px; padding: 12px; }
+  /* Без вьюера — редактор по центру */
+  .result-area { gap: 10px; justify-content: center; }
+  /* С вьюером — панель ПД и редактор фиксированы, вьюер занимает остаток */
+  .result-area.viewer-open { justify-content: flex-start; }
+  .pd-panel { width: 260px; min-width: 260px; flex-shrink: 0; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
-  .doc-card { width: 560px; flex: 0 0 560px; }
-  .viewer-panel { width: 380px; flex: 0 0 380px; }
+  .doc-card { width: 620px; flex: 0 0 620px; }
+  /* Вьюер растягивается на весь остаток */
+  .result-area.viewer-open .viewer-panel { flex: 1 1 auto; min-width: 280px; max-width: none; width: auto; }
   .viewer-title { font-size: 12px; }
 }
 
