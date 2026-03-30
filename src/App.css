@@ -306,6 +306,24 @@ a { color: var(--accent); }
   .btn-original { display: none !important; }
 }
 
+/* Средние экраны 1200-1700px (14" ноутбуки) — уменьшаем колонки чтобы всё влезло */
+@media (min-width: 1200px) and (max-width: 1700px) {
+  .pd-panel { width: 220px; }
+  .doc-card { width: 600px; flex: 0 0 600px; }
+  .viewer-panel { width: 420px; }
+  .result-area { gap: 12px; }
+}
+
+/* Узкие ноутбуки 1366px (HD) и небольшие экраны до 1500px */
+@media (min-width: 1200px) and (max-width: 1500px) {
+  .pd-panel { width: 190px; font-size: 12px; padding: 12px; }
+  .pd-panel-title { font-size: 12px; }
+  .doc-card { width: 520px; flex: 0 0 520px; }
+  .viewer-panel { width: 340px; }
+  .result-area { gap: 8px; padding: 0 8px; }
+  .main { padding: 20px 12px; }
+}
+
 .viewer-header {
   display: flex;
   align-items: center;
