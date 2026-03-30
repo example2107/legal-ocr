@@ -1188,7 +1188,6 @@ ${content}
             )}
 
           </div>
-          </div>
         )}
 
       </main>
