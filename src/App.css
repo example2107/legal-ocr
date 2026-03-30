@@ -316,13 +316,13 @@ a { color: var(--accent); }
 
 /* Узкие ноутбуки 1366px (HD) и небольшие экраны до 1500px */
 @media (min-width: 1200px) and (max-width: 1500px) {
-  .pd-panel { width: 240px; font-size: 12px; padding: 12px; }
-  .pd-panel-title { font-size: 12px; }
-  .doc-card { width: 580px; flex: 0 0 580px; }
-  .viewer-panel { width: 400px; min-width: 400px; }
-  .viewer-title { font-size: 12px; }
-  .result-area { gap: 8px; padding: 0 8px; }
+  .result-area { gap: 8px; padding: 0 8px; justify-content: flex-start; }
   .main { padding: 20px 12px; }
+  .pd-panel { width: 220px; min-width: 220px; font-size: 12px; padding: 12px; }
+  .pd-panel-title { font-size: 12px; }
+  .doc-card { flex: 1 1 auto; min-width: 480px; max-width: 600px; width: auto; }
+  .viewer-panel { flex: 1 1 auto; min-width: 320px; max-width: 450px; width: auto; }
+  .viewer-title { font-size: 12px; }
 }
 
 .viewer-header {
