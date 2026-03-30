@@ -308,11 +308,25 @@ a { color: var(--accent); }
   .btn-original { display: none !important; }
 }
 
+/* < 1100px — панель ПД переезжает наверх, редактор на всю ширину */
+@media (max-width: 1099px) {
+  .result-area { flex-direction: column; gap: 16px; }
+  .pd-panel {
+    width: 100% !important;
+    min-width: unset !important;
+    max-height: none;
+    position: static;
+    font-size: 13px;
+    padding: 14px;
+  }
+  .doc-card { width: 100% !important; min-width: unset !important; max-width: 100% !important; }
+}
+
 /* 1200–2200px — адаптивные колонки (охватывает все устройства при разных масштабах) */
 @media (min-width: 1200px) and (max-width: 2200px) {
   .main { padding: 20px 12px; }
   /* Ограничиваем максимальную ширину всей строки колонок */
-  .result-area { gap: 10px; padding: 0 10px; justify-content: center; max-width: 1800px; margin: 0 auto; }
+  .result-area { gap: 10px; padding: 0 10px; justify-content: center; max-width: 1600px; margin: 0 auto; }
   .result-area.viewer-open { justify-content: space-between; }
   /* Панель ПД — фиксированная ширина, не сжимается */
   .pd-panel { width: 280px; min-width: 280px; flex-shrink: 0; font-size: 12px; padding: 12px; }
