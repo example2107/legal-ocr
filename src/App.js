@@ -101,7 +101,10 @@ export default function App() {
 
   // ── Resizable panels ──────────────────────────────────────────────────────
   const [pdWidth, setPdWidth] = React.useState(280);
-  const [viewerWidth, setViewerWidth] = React.useState(500);
+  const [viewerWidth, setViewerWidth] = React.useState(() => {
+    // MacBook 14" (1512px) и другие узкие экраны — вьюер поменьше чтобы влезал
+    return window.innerWidth <= 1600 ? 380 : 500;
+  });
 
   const startResize = React.useCallback((type) => (e) => {
     e.preventDefault();
