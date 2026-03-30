@@ -300,22 +300,35 @@ a { color: var(--accent); }
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* Hide on narrow screens */
+/* ── Адаптивный layout ────────────────────────────────────────────────────── */
+
+/* < 1200px — вьюер скрыт, только панель ПД + редактор */
 @media (max-width: 1199px) {
   .viewer-panel { display: none; }
   .btn-original { display: none !important; }
 }
 
-/* Экраны 1200-1700px — колонки растягиваются заполняя доступное пространство */
-@media (min-width: 1200px) and (max-width: 1700px) {
+/* 1200–2200px — адаптивные колонки (охватывает все устройства при разных масштабах) */
+@media (min-width: 1200px) and (max-width: 2200px) {
+  .main { padding: 20px 12px; }
   .result-area { gap: 10px; padding: 0 10px; justify-content: center; }
   .result-area.viewer-open { justify-content: space-between; }
-  .main { padding: 20px 12px; }
+  /* Панель ПД — фиксированная ширина, не сжимается */
   .pd-panel { width: 280px; min-width: 280px; flex-shrink: 0; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
-  .doc-card { flex: 1 1 auto; min-width: 440px; max-width: 700px; width: auto; }
-  .viewer-panel { flex: 1 1 auto; min-width: 300px; max-width: 500px; width: auto; }
+  /* Редактор — растягивается, но не уже 440px и не шире 750px */
+  .doc-card { flex: 1 1 auto; min-width: 440px; max-width: 750px; width: auto; }
+  /* Вьюер — растягивается, но не уже 300px и не шире 550px */
+  .viewer-panel { flex: 1 1 auto; min-width: 300px; max-width: 550px; width: auto; }
   .viewer-title { font-size: 12px; }
+}
+
+/* > 2200px — очень широкие экраны (PC 2560px при 100%), стандартный centered layout */
+@media (min-width: 2201px) {
+  .result-area { justify-content: center; gap: 20px; }
+  .pd-panel { width: 300px; }
+  .doc-card { width: 800px; flex: 0 0 800px; }
+  .viewer-panel { width: 700px; flex: 0 0 700px; }
 }
 
 .viewer-header {
