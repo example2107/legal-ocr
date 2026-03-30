@@ -318,8 +318,8 @@ a { color: var(--accent); }
   .pd-panel { width: 260px; min-width: 260px; flex-shrink: 0; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
   .doc-card { width: 620px; flex: 0 0 620px; }
-  /* Вьюер растягивается на весь остаток */
-  .result-area.viewer-open .viewer-panel { flex: 1 1 auto; min-width: 280px; max-width: none; width: auto; }
+  /* Вьюер растягивается на остаток, но не шире 420px */
+  .result-area.viewer-open .viewer-panel { flex: 1 1 auto; min-width: 260px; max-width: 420px; width: auto; }
   .viewer-title { font-size: 12px; }
 }
 
