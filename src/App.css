@@ -313,13 +313,12 @@ a { color: var(--accent); }
   .main { padding: 20px 12px; }
   /* Без вьюера — редактор по центру */
   .result-area { gap: 10px; justify-content: center; }
-  /* С вьюером — панель ПД и редактор фиксированы, вьюер занимает остаток */
+  /* С вьюером — все три блока точно влезают в 1512px */
   .result-area.viewer-open { justify-content: flex-start; }
   .pd-panel { width: 260px; min-width: 260px; flex-shrink: 0; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
   .doc-card { width: 620px; flex: 0 0 620px; }
-  /* Вьюер растягивается на остаток, но не шире 420px */
-  .result-area.viewer-open .viewer-panel { flex: 1 1 auto; min-width: 260px; max-width: 420px; width: auto; }
+  .result-area.viewer-open .viewer-panel { width: 588px; flex: 0 0 588px; }
   .viewer-title { font-size: 12px; }
 }
 
