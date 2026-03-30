@@ -103,7 +103,7 @@ export default function App() {
   const [pdWidth, setPdWidth] = React.useState(280);
   const [viewerWidth, setViewerWidth] = React.useState(() => {
     // MacBook 14" (1512px) и другие узкие экраны — вьюер поменьше чтобы влезал
-    return window.innerWidth <= 1600 ? 380 : 500;
+    return window.innerWidth <= 1600 ? 340 : 500;
   });
 
   const startResize = React.useCallback((type) => (e) => {
