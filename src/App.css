@@ -331,10 +331,10 @@ a { color: var(--accent); }
   /* Панель ПД — фиксированная ширина, не сжимается */
   .pd-panel { width: 280px; min-width: 280px; flex-shrink: 0; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
-  /* Редактор — растягивается, но не уже 440px и не шире 750px */
-  .doc-card { flex: 1 1 auto; min-width: 440px; max-width: 750px; width: auto; }
-  /* Вьюер — растягивается, но не уже 300px и не шире 550px */
-  .viewer-panel { flex: 1 1 auto; min-width: 300px; max-width: 550px; width: auto; }
+  /* Редактор — приоритет по ширине, растягивается до 800px */
+  .doc-card { flex: 2 1 auto; min-width: 440px; max-width: 800px; width: auto; }
+  /* Вьюер — жертвует шириной в пользу редактора, сжимается до 240px */
+  .viewer-panel { flex: 1 1 auto; min-width: 240px; max-width: 550px; width: auto; }
   .viewer-title { font-size: 12px; }
 }
 
