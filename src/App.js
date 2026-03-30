@@ -100,32 +100,42 @@ export default function App() {
   const dragFileIdx = useRef(null);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
-  const [pdWidth, setPdWidth] = useState(null);      // null = авто
-  const [viewerWidth, setViewerWidth] = useState(null); // null = авто
-  const resizingRef = useRef(null); // { type: 'pd'|'viewer', startX, startW }
-  const resultAreaRef = useRef(null);
+  // Начальные ширины зависят от экрана
+  const [pdWidth, setPdWidth] = useState(() => {
+    const w = window.innerWidth;
+    if (w <= 1400) return 240;
+    if (w <= 1700) return 260;
+    return 280;
+  });
+  const [viewerWidth, setViewerWidth] = useState(() => {
+    const w = window.innerWidth;
+    if (w <= 1400) return 380;
+    if (w <= 1700) return 430;
+    return 500;
+  });
+  const pdPanelRef = useRef(null);
+  const viewerPanelRef = useRef(null);
 
   const handleResizerMouseDown = (type) => (e) => {
     e.preventDefault();
-    const panel = type === 'pd'
-      ? e.currentTarget.previousSibling
-      : e.currentTarget.nextSibling;
-    resizingRef.current = { type, startX: e.clientX, startW: panel?.offsetWidth || 280 };
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = type === 'pd'
+      ? (pdPanelRef.current?.offsetWidth || pdWidth)
+      : (viewerPanelRef.current?.offsetWidth || viewerWidth);
+
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
     const onMove = (ev) => {
-      if (!resizingRef.current) return;
-      const { type, startX, startW } = resizingRef.current;
       const dx = ev.clientX - startX;
       if (type === 'pd') {
-        setPdWidth(Math.max(180, Math.min(420, startW + dx)));
+        setPdWidth(Math.max(180, Math.min(460, startW + dx)));
       } else {
-        setViewerWidth(Math.max(200, Math.min(700, startW - dx)));
+        setViewerWidth(Math.max(200, Math.min(750, startW - dx)));
       }
     };
     const onUp = () => {
-      resizingRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMove);
@@ -942,7 +952,7 @@ ${content}
           <div className="result-area" ref={resultAreaRef}>
 
             {hasPD && (
-              <aside className="pd-panel" style={pdWidth ? { width: pdWidth, minWidth: pdWidth, maxWidth: pdWidth } : {}}>
+              <aside className="pd-panel" ref={pdPanelRef} style={{ width: pdWidth, minWidth: pdWidth, maxWidth: pdWidth, flexShrink: 0 }}>
                 <div className="pd-panel-title">Персональные данные</div>
                 <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
 
@@ -1090,7 +1100,7 @@ ${content}
             )}
 
             {showOriginal && originalImages.length > 0 && (
-              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={viewerWidth ? { width: viewerWidth, minWidth: viewerWidth, maxWidth: viewerWidth, flex: 'none' } : {}}>
+              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} ref={viewerPanelRef} style={{ width: viewerWidth, minWidth: viewerWidth, maxWidth: viewerWidth, flexShrink: 0, flex: 'none' }}>
                 <div className="viewer-header">
                   <span className="viewer-title">Оригинальный файл</span>
                   <div className="viewer-nav">

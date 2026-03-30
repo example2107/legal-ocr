@@ -186,7 +186,7 @@ a { color: var(--accent); }
 /* ============================
    RESULT AREA
    ============================ */
-.result-area { display: flex; gap: 20px; align-items: flex-start; justify-content: center; width: 100%; padding: 0; box-sizing: border-box; }
+.result-area { display: flex; gap: 0; align-items: flex-start; justify-content: flex-start; width: 100%; padding: 0; box-sizing: border-box; }
 
 /* ============================
    PD PANEL
@@ -302,27 +302,26 @@ a { color: var(--accent); }
 
 /* ── Resizable panel divider ─────────────────────────────────────────────── */
 .resizer {
-  width: 6px;
+  width: 5px;
   flex-shrink: 0;
   cursor: col-resize;
-  background: transparent;
-  border-radius: 3px;
+  background: var(--border);
   transition: background 0.15s;
   position: relative;
   z-index: 10;
+  margin: 0 2px;
 }
 .resizer:hover,
 .resizer:active {
   background: var(--accent);
-  opacity: 0.5;
 }
-/* Увеличиваем область захвата через псевдоэлемент */
+/* Увеличиваем область захвата */
 .resizer::after {
   content: '';
   position: absolute;
   top: 0;
-  left: -4px;
-  right: -4px;
+  left: -5px;
+  right: -5px;
   bottom: 0;
 }
 
@@ -332,6 +331,11 @@ a { color: var(--accent); }
 @media (max-width: 1199px) {
   .viewer-panel { display: none; }
   .btn-original { display: none !important; }
+}
+
+/* MacBook 14" и другие экраны 1200-1600px — уменьшаем начальные размеры */
+@media (min-width: 1200px) and (max-width: 1600px) {
+  .main { padding: 20px 12px; }
 }
 
 .viewer-header {
