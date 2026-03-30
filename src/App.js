@@ -948,7 +948,6 @@ ${content}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
-          <div className="result-outer">
           <div className="result-area" ref={resultAreaRef}>
 
             {hasPD && (
