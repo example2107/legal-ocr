@@ -316,10 +316,11 @@ a { color: var(--accent); }
 
 /* Узкие ноутбуки 1366px (HD) и небольшие экраны до 1500px */
 @media (min-width: 1200px) and (max-width: 1500px) {
-  .pd-panel { width: 190px; font-size: 12px; padding: 12px; }
+  .pd-panel { width: 240px; font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
-  .doc-card { width: 520px; flex: 0 0 520px; }
-  .viewer-panel { width: 340px; }
+  .doc-card { width: 580px; flex: 0 0 580px; }
+  .viewer-panel { width: 400px; min-width: 400px; }
+  .viewer-title { font-size: 12px; }
   .result-area { gap: 8px; padding: 0 8px; }
   .main { padding: 20px 12px; }
 }
