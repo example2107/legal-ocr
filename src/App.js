@@ -99,51 +99,7 @@ export default function App() {
   const viewerFileInputRef = useRef();
   const dragFileIdx = useRef(null);
 
-  // ── Resizable panels ──────────────────────────────────────────────────────
-  // Начальные ширины зависят от экрана
-  const [pdWidth, setPdWidth] = useState(() => {
-    const w = window.innerWidth;
-    if (w <= 1400) return 240;
-    if (w <= 1700) return 260;
-    return 280;
-  });
-  const [viewerWidth, setViewerWidth] = useState(() => {
-    const w = window.innerWidth;
-    if (w <= 1400) return 380;
-    if (w <= 1700) return 430;
-    return 500;
-  });
-  const pdPanelRef = useRef(null);
-  const viewerPanelRef = useRef(null);
 
-  const handleResizerMouseDown = (type) => (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startW = type === 'pd'
-      ? (pdPanelRef.current?.offsetWidth || pdWidth)
-      : (viewerPanelRef.current?.offsetWidth || viewerWidth);
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMove = (ev) => {
-      const dx = ev.clientX - startX;
-      if (type === 'pd') {
-        setPdWidth(Math.max(180, Math.min(460, startW + dx)));
-      } else {
-        setViewerWidth(Math.max(200, Math.min(750, startW - dx)));
-      }
-    };
-    const onUp = () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
@@ -948,10 +904,10 @@ ${content}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
-          <div className="result-area" ref={resultAreaRef}>
+          <div className="result-area">
 
             {hasPD && (
-              <aside className="pd-panel" ref={pdPanelRef} style={{ width: pdWidth, minWidth: pdWidth, maxWidth: pdWidth, flexShrink: 0 }}>
+              <aside className="pd-panel">
                 <div className="pd-panel-title">Персональные данные</div>
                 <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
 
@@ -1019,9 +975,6 @@ ${content}
               </aside>
             )}
 
-            {hasPD && (
-              <div className="resizer" onMouseDown={handleResizerMouseDown('pd')} title="Перетащите для изменения ширины" />
-            )}
 
             <div className="doc-card">
               <div className="doc-title-row">
@@ -1094,12 +1047,9 @@ ${content}
               />
             </div>
 
-            {showOriginal && originalImages.length > 0 && (
-              <div className="resizer" onMouseDown={handleResizerMouseDown('viewer')} title="Перетащите для изменения ширины" />
-            )}
 
             {showOriginal && originalImages.length > 0 && (
-              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} ref={viewerPanelRef} style={{ width: viewerWidth, minWidth: viewerWidth, maxWidth: viewerWidth, flexShrink: 0, flex: 'none' }}>
+              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")}>
                 <div className="viewer-header">
                   <span className="viewer-title">Оригинальный файл</span>
                   <div className="viewer-nav">
