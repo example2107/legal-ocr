@@ -101,7 +101,7 @@ export default function App() {
 
   // ── Resizable panels ──────────────────────────────────────────────────────
   const [pdWidth, setPdWidth] = React.useState(280);
-  const [viewerWidth, setViewerWidth] = React.useState(500);
+  const [viewerWidth, setViewerWidth] = React.useState(360);
 
   const startResize = React.useCallback((type) => (e) => {
     e.preventDefault();
@@ -1006,7 +1006,7 @@ ${content}
             )}
 
             {hasPD && (
-              <div className="panel-resizer" onMouseDown={startResize('pd')} />
+              <div className="panel-resizer" onMouseDown={startResize('pd')}><span className="panel-resizer-icon">⠿</span></div>
             )}
 
             <div className="doc-card">
@@ -1082,7 +1082,7 @@ ${content}
 
 
             {showOriginal && originalImages.length > 0 && (
-              <div className="panel-resizer" onMouseDown={startResize('viewer')} />
+              <div className="panel-resizer" onMouseDown={startResize('viewer')}><span className="panel-resizer-icon">⠿</span></div>
             )}
             {showOriginal && originalImages.length > 0 && (
               <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={{ width: viewerWidth, minWidth: viewerWidth, flexShrink: 0 }}>
