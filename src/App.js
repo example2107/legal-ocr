@@ -100,12 +100,12 @@ export default function App() {
   const dragFileIdx = useRef(null);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
-  const getDefaultPdWidth = () => window.innerWidth >= 1800 ? 300 : window.innerWidth >= 1400 ? 280 : 240;
+  const getDefaultPdWidth = () => window.innerWidth >= 1800 ? 300 : window.innerWidth >= 1400 ? 270 : 240;
   const getDefaultViewerWidth = () => {
     const vw = window.innerWidth;
     if (vw >= 1800) return 500;
-    if (vw >= 1400) return 420;
-    return 340;
+    if (vw >= 1400) return 440;
+    return 400;  // MacBook 14" (1512px) — достаточно, чтобы кнопка "Скрыть" не обрезалась
   };
   const [pdWidth, setPdWidth] = React.useState(getDefaultPdWidth);
   const [viewerWidth, setViewerWidth] = React.useState(getDefaultViewerWidth);
@@ -1049,7 +1049,7 @@ ${content}
             )}
 
             {hasPD && (
-              <div className="panel-resizer" onMouseDown={startResize('pd')}><span className="panel-resizer-icon">⠿</span></div>
+              <div className="panel-resizer" onMouseDown={startResize('pd')}><span className="panel-resizer-icon">‹<br/>›</span></div>
             )}
 
             <div className="doc-card">
@@ -1125,7 +1125,7 @@ ${content}
 
 
             {showOriginal && originalImages.length > 0 && (
-              <div className="panel-resizer" onMouseDown={startResize('viewer')}><span className="panel-resizer-icon">⠿</span></div>
+              <div className="panel-resizer" onMouseDown={startResize('viewer')}><span className="panel-resizer-icon">‹<br/>›</span></div>
             )}
             {showOriginal && originalImages.length > 0 && (
               <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={{ width: viewerWidth, flexShrink: 0 }}>
