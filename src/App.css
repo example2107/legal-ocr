@@ -33,6 +33,10 @@
   --font-body: 'Onest', system-ui, sans-serif;
   --font-doc: 'Literata', Georgia, serif;
   --tr: .18s ease;
+  /* Layout heights — used for sticky positioning */
+  --header-h: 60px;       /* .header height */
+  --titlerow-h: 49px;     /* .doc-title-row approximate height (single line) */
+  --toolbar-top: calc(var(--header-h) + var(--titlerow-h)); /* rich-toolbar sticky top */
 }
 
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -63,6 +67,7 @@ a { color: var(--accent); }
 
 
 .main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
+.main.main-result { padding: 20px 16px; }
 .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text3); border-top: 1px solid var(--border); background: var(--surface); }
 
 /* ============================
@@ -186,12 +191,22 @@ a { color: var(--accent); }
 /* ============================
    RESULT AREA
    ============================ */
-.result-area { display: flex; gap: 20px; align-items: flex-start; justify-content: center; width: 100%; padding: 0; box-sizing: border-box; }
+.result-area {
+  display: flex;
+  gap: 0;           /* gaps handled by panel-resizer width */
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  max-width: 2200px;
+  margin: 0 auto;
+  padding: 0;
+  box-sizing: border-box;
+}
 
 /* ============================
    PD PANEL
    ============================ */
-.pd-panel { width: 280px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); position: sticky; top: 80px; max-height: calc(100vh - 100px); overflow-y: auto; }
+.pd-panel { width: 280px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); position: sticky; top: calc(var(--header-h) + 20px); max-height: calc(100vh - var(--header-h) - 40px); overflow-y: auto; }
 .pd-panel-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .pd-hint { font-size: 11px; color: var(--text3); margin-bottom: 14px; line-height: 1.4; }
 .pd-group { margin-bottom: 16px; }
@@ -222,8 +237,9 @@ a { color: var(--accent); }
    DOCUMENT CARD
    ============================ */
 .doc-card {
-  flex: 0 0 800px;
-  width: 800px;
+  flex: 1 1 600px;
+  min-width: 320px;
+  max-width: 860px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -242,7 +258,7 @@ a { color: var(--accent); }
   background: var(--bg);
   flex-wrap: wrap;
   position: sticky;
-  top: 60px;
+  top: var(--header-h);
   z-index: 51;
   width: 100%;
   box-sizing: border-box;
@@ -280,7 +296,6 @@ a { color: var(--accent); }
 
 /* Viewer panel — inline column inside result-area, same height as editor */
 .viewer-panel {
-  width: 700px;
   flex-shrink: 0;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -289,8 +304,8 @@ a { color: var(--accent); }
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 80px;
-  max-height: calc(100vh - 100px);
+  top: calc(var(--header-h) + 20px);
+  max-height: calc(100vh - var(--header-h) - 40px);
   overflow: hidden;
   animation: viewerSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -333,24 +348,33 @@ a { color: var(--accent); }
 
 /* ── Базовый адаптивный layout ───────────────────────────────────────────── */
 
-/* < 1200px — вьюер скрыт */
-@media (max-width: 1199px) {
+/* < 1100px — вьюер скрыт */
+@media (max-width: 1099px) {
   .viewer-panel { display: none; }
   .btn-original { display: none !important; }
 }
 
-/* MacBook 14" и другие экраны 1200-1600px */
-@media (min-width: 1200px) and (max-width: 1600px) {
+/* 1100–1400px — компактный режим (MacBook 14" без вьюера, небольшие мониторы) */
+@media (min-width: 1100px) and (max-width: 1399px) {
   .main { padding: 20px 12px; }
-  /* Без вьюера — редактор по центру */
-  .result-area { gap: 10px; justify-content: center; }
-  /* С вьюером — все три блока точно влезают в 1512px */
-  .result-area.viewer-open { justify-content: flex-start; }
-  .pd-panel { width: 260px; min-width: 260px; flex-shrink: 0; font-size: 12px; padding: 12px; }
+  .result-area { gap: 0; }
+  .pd-panel { font-size: 12px; padding: 12px; }
   .pd-panel-title { font-size: 12px; }
-  .doc-card { width: 620px; flex: 0 0 620px; }
-  .result-area.viewer-open .viewer-panel { width: 588px; flex: 0 0 588px; }
-  .viewer-title { font-size: 12px; }
+  /* без вьюера — редактор по центру, даём расти */
+  .result-area:not(.viewer-open) .doc-card { max-width: 800px; }
+}
+
+/* ≥ 1400px — широкие экраны, даём редактору и вьюеру больше пространства */
+@media (min-width: 1400px) {
+  .main { padding: 28px 20px; }
+  .doc-card { max-width: 900px; }
+}
+
+/* ≥ 1800px — очень широкие экраны (27") */
+@media (min-width: 1800px) {
+  .main { padding: 32px 40px; }
+  .doc-card { max-width: 960px; }
+  .pd-panel { padding: 20px; }
 }
 
 .viewer-header {
@@ -575,8 +599,17 @@ a { color: var(--accent); }
    RESPONSIVE
    ============================ */
 @media (max-width: 900px) {
-  .result-area { flex-direction: column; }
-  .pd-panel { width: 100%; position: static; max-height: none; }
+  .result-area { flex-direction: column; align-items: stretch; }
+  .pd-panel { width: 100% !important; position: static; max-height: none; flex-shrink: 1; }
+  .doc-card { max-width: 100%; flex: 1 1 auto; }
+  .panel-resizer { display: none; }
+}
+
+/* Compact action buttons on medium screens */
+@media (min-width: 900px) and (max-width: 1250px) {
+  .doc-title-actions { gap: 4px; }
+  .btn-tool { padding: 6px 10px; font-size: 12px; }
+  .doc-title-input { font-size: 14px; }
 }
 
 @media (max-width: 600px) {

@@ -100,8 +100,15 @@ export default function App() {
   const dragFileIdx = useRef(null);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
-  const [pdWidth, setPdWidth] = React.useState(280);
-  const [viewerWidth, setViewerWidth] = React.useState(360);
+  const getDefaultPdWidth = () => window.innerWidth >= 1800 ? 300 : window.innerWidth >= 1400 ? 280 : 240;
+  const getDefaultViewerWidth = () => {
+    const vw = window.innerWidth;
+    if (vw >= 1800) return 500;
+    if (vw >= 1400) return 420;
+    return 340;
+  };
+  const [pdWidth, setPdWidth] = React.useState(getDefaultPdWidth);
+  const [viewerWidth, setViewerWidth] = React.useState(getDefaultViewerWidth);
 
   const startResize = React.useCallback((type) => (e) => {
     e.preventDefault();
@@ -111,10 +118,13 @@ export default function App() {
 
     const onMove = (ev) => {
       const dx = ev.clientX - startX;
+      const vw = window.innerWidth;
       if (type === 'pd') {
-        setPdWidth(w => Math.max(160, Math.min(400, startPd + dx)));
+        const maxPd = Math.min(400, Math.round(vw * 0.22));
+        setPdWidth(Math.max(160, Math.min(maxPd, startPd + dx)));
       } else {
-        setViewerWidth(w => Math.max(200, Math.min(700, startViewer - dx)));
+        const maxViewer = Math.min(700, Math.round(vw * 0.4));
+        setViewerWidth(Math.max(220, Math.min(maxViewer, startViewer - dx)));
       }
     };
     const onUp = () => {
@@ -133,6 +143,22 @@ export default function App() {
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
+  // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
+  const titleRowRef = useRef(null);
+
+  // Keep --titlerow-h CSS variable in sync with actual title-row height
+  // This fixes toolbar sticky top when title row wraps onto two lines
+  useEffect(() => {
+    const el = titleRowRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--titlerow-h', el.offsetHeight + 'px');
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Wheel вешаем через callback-ref на viewer-body — срабатывает когда элемент реально появился
   const setViewerBodyRef = useCallback((el) => {
@@ -159,6 +185,23 @@ export default function App() {
   }, []);
 
   useEffect(() => { setHistory(loadHistory()); }, []);
+
+  // Reset panel widths when window resizes significantly
+  useEffect(() => {
+    const onResize = () => {
+      setPdWidth(w => {
+        const def = getDefaultPdWidth();
+        // Only auto-reset if user hasn't manually dragged (i.e. value is close to a default)
+        return Math.abs(w - def) > 120 ? w : def;
+      });
+      setViewerWidth(w => {
+        const def = getDefaultViewerWidth();
+        return Math.abs(w - def) > 180 ? w : def;
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []); // eslint-disable-line
   const refreshHistory = () => setHistory(loadHistory());
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
@@ -773,7 +816,7 @@ ${content}
         </div>
       )}
 
-      <main className="main">
+      <main className={`main${view === VIEW_RESULT ? ' main-result' : ''}`}>
 
         {/* ════ HOME ════ */}
         {view === VIEW_HOME && (
@@ -937,7 +980,7 @@ ${content}
           <div className={"result-area" + (showOriginal && originalImages.length > 0 ? " viewer-open" : "")}>
 
             {hasPD && (
-              <aside className="pd-panel" style={{ width: pdWidth, minWidth: pdWidth, flexShrink: 0 }}>
+              <aside className="pd-panel" style={{ width: pdWidth, flexShrink: 0 }}>
                 <div className="pd-panel-title">Персональные данные</div>
                 <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
 
@@ -1010,7 +1053,7 @@ ${content}
             )}
 
             <div className="doc-card">
-              <div className="doc-title-row">
+              <div className="doc-title-row" ref={titleRowRef}>
                 <input
                   className="doc-title-input"
                   value={docTitle}
@@ -1085,7 +1128,7 @@ ${content}
               <div className="panel-resizer" onMouseDown={startResize('viewer')}><span className="panel-resizer-icon">⠿</span></div>
             )}
             {showOriginal && originalImages.length > 0 && (
-              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={{ width: viewerWidth, minWidth: viewerWidth, flexShrink: 0 }}>
+              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={{ width: viewerWidth, flexShrink: 0 }}>
                 <div className="viewer-header">
                   <span className="viewer-title">Оригинальный файл</span>
                   <div className="viewer-nav">

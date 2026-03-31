@@ -16,7 +16,7 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   position: sticky;
-  top: 109px;
+  top: var(--toolbar-top);
   z-index: 50;
   flex-shrink: 0;
   width: 100%;
@@ -227,7 +227,7 @@
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-  .rich-toolbar { top: 60px; padding: 4px 8px; gap: 1px; }
+  .rich-toolbar { top: calc(var(--header-h) + 72px); padding: 4px 8px; gap: 1px; }
   .rich-content { width: 100%; max-width: 100%; padding: 20px 16px; font-size: 18.67px; min-height: 350px; box-sizing: border-box; }
   .rich-btn { width: 28px; height: 28px; }
 }
