@@ -1355,7 +1355,10 @@ ${content}
                     draggable={false}
                   />
                   {viewerTip && (
-                    <div className="viewer-tooltip" style={{ left: viewerTip.x + 16, top: viewerTip.y + 16 }}>
+                    <div className="viewer-tooltip" style={{
+                      left: Math.min(viewerTip.x + 16, window.innerWidth - 336),
+                      top: viewerTip.y + 16,
+                    }}>
                       {zoomActive
                         ? '🔍 Колесико — зум · Зажать — переместить · Двойной клик — выход'
                         : '💡 Двойной клик — активировать зум и перетаскивание'}

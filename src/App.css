@@ -657,8 +657,10 @@ a { color: var(--accent); }
   color: #fff;
   font-size: 12px;
   padding: 6px 14px;
-  border-radius: 20px;
-  white-space: nowrap;
+  border-radius: 12px;
+  white-space: normal;
+  max-width: 320px;
+  line-height: 1.5;
   pointer-events: none;
   z-index: 9999;
   animation: tooltipFade 0.15s ease;
