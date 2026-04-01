@@ -147,6 +147,8 @@ export default function App() {
   const titleRowRef = useRef(null);
   // Navigation state: tracks current mark index per pd-id for ↑↓ cycling
   const pdNavIndexRef = useRef({});
+  // Reactive counter state: { [id]: { cur: number, total: number } }
+  const [pdNavState, setPdNavState] = useState({});
 
   // Navigate to prev/next mark in editor for a given PD id
   const navigateToPd = useCallback((id, direction, e) => {
@@ -163,6 +165,9 @@ export default function App() {
       next = cur <= 0 ? marks.length - 1 : cur - 1;
     }
     pdNavIndexRef.current[id] = next;
+
+    // Update reactive counter
+    setPdNavState(prev => ({ ...prev, [id]: { cur: next, total: marks.length } }));
 
     const target = marks[next];
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1047,6 +1052,7 @@ ${content}
                             <span className="pd-item-name">{p.fullName}</span>
                             <span className="pd-item-nav">
                               <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
+                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}` : ''}</span>
                               <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
                             </span>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
@@ -1074,6 +1080,7 @@ ${content}
                             <span className="pd-item-name">{p.fullName}</span>
                             <span className="pd-item-nav">
                               <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
+                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}` : ''}</span>
                               <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
                             </span>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
@@ -1100,6 +1107,7 @@ ${content}
                             <span className="pd-item-name">{item.value}</span>
                             <span className="pd-item-nav">
                               <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(item.id, 'up', e)}>↑</button>
+                              <span className="pd-nav-counter">{pdNavState[item.id] ? `${pdNavState[item.id].cur + 1}/${pdNavState[item.id].total}` : ''}</span>
                               <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
                             </span>
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>

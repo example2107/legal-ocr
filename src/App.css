@@ -323,6 +323,18 @@ a { color: var(--accent); }
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* Counter between arrows: shows "2/5" */
+.pd-nav-counter {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 20px;
+  text-align: center;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
 .pd-legend { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .pd-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); }
 
