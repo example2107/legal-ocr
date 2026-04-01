@@ -1055,7 +1055,7 @@ ${content}
         />
       )}
 
-
+      {showUnsaved && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-title">Несохранённые изменения</div>
