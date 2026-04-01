@@ -207,9 +207,11 @@ function annotLine(text, marks, anonymized) {
   if (last < text.length) out += applyBold(esc(text.slice(last)));
   // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
   // курсор не застревал внутри маркера
+  // Пробел перед <mark>: всегда, кроме открывающих знаков препинания ( « " ' [
+  // Пробел после </mark>: всегда, кроме закрывающих знаков препинания ) , . ! ? : ; » " …
   out = out
-    .replace(/([а-яёА-ЯЁa-zA-Z0-9])(<mark\s)/g, '$1 $2')              // пробел перед <mark> только если слово сливается
-    .replace(/(<\/mark>)([а-яёА-ЯЁa-zA-Z0-9])/g, '$1 $2');            // пробел после </mark> только если сливается со словом
+    .replace(/([^\s(\[«"'])(<mark\s)/g, '$1 $2')
+    .replace(/(<\/mark>)([^\s)\].,!?:;»"'\u2026\u2013\u2014<])/g, '$1 $2');
   return out;
 }
 
@@ -445,6 +447,49 @@ export function htmlToPlainText(html) {
 
 // ── Patch existing PD marks in DOM without rebuilding entire HTML ──────────────
 // This is the key fix: instead of replacing innerHTML, we surgically update
+// Знаки после которых НЕ ставим пробел перед маркером
+const NO_SPACE_BEFORE_MARK = /[\s(\[«"']/;
+// Знаки перед которыми НЕ ставим пробел после маркера
+const NO_SPACE_AFTER_MARK  = /^[\s)\].,!?:;»"'\u2026\u2013\u2014]/;
+
+function ensureSpaceAroundMark(mark) {
+  // Пробел ДО маркера
+  const prev = mark.previousSibling;
+  if (prev && prev.nodeType === 3) {
+    const txt = prev.textContent;
+    if (txt && !NO_SPACE_BEFORE_MARK.test(txt.slice(-1))) {
+      prev.textContent = txt + ' ';
+    }
+  }
+  // Пробел ПОСЛЕ маркера
+  const next = mark.nextSibling;
+  if (next && next.nodeType === 3) {
+    const txt = next.textContent;
+    if (txt && !NO_SPACE_AFTER_MARK.test(txt)) {
+      next.textContent = ' ' + txt;
+    }
+  }
+}
+
+function removeSpaceAroundMark(mark) {
+  // Убираем пробел ДО маркера если мы его добавили
+  const prev = mark.previousSibling;
+  if (prev && prev.nodeType === 3) {
+    const txt = prev.textContent;
+    if (txt && txt.endsWith(' ') && txt.length > 1 && !NO_SPACE_BEFORE_MARK.test(txt.slice(-2, -1))) {
+      prev.textContent = txt.slice(0, -1);
+    }
+  }
+  // Убираем пробел ПОСЛЕ маркера если мы его добавили
+  const next = mark.nextSibling;
+  if (next && next.nodeType === 3) {
+    const txt = next.textContent;
+    if (txt && txt.startsWith(' ') && !NO_SPACE_AFTER_MARK.test(txt.slice(1, 2))) {
+      next.textContent = txt.slice(1);
+    }
+  }
+}
+
 // only the <mark data-pd-id="..."> elements that changed.
 export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
   if (!editorEl) return;
@@ -455,26 +500,12 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = letter || replacement || '?';
       mark.classList.add('anon');
       mark.title = 'Нажмите, чтобы показать';
-      // Add space after mark only if next char is a letter/digit (prevents style bleed when typing)
-      const next = mark.nextSibling;
-      if (next && next.nodeType === 3) {
-        const txt = next.textContent;
-        if (txt && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(txt)) {
-          next.textContent = ' ' + txt;
-        }
-      }
+      ensureSpaceAroundMark(mark);
     } else if (!isAnon && wasAnon) {
       mark.textContent = mark.dataset.original || mark.textContent;
       mark.classList.remove('anon');
       mark.title = 'Нажмите, чтобы обезличить';
-      // Remove space that was added during anonymization (only if next char was a letter)
-      const nextNode = mark.nextSibling;
-      if (nextNode && nextNode.nodeType === 3) {
-        const txt = nextNode.textContent;
-        if (txt && txt.startsWith(' ') && /^\s[а-яёА-ЯЁa-zA-Z0-9]/.test(txt)) {
-          nextNode.textContent = txt.slice(1);
-        }
-      }
+      ensureSpaceAroundMark(mark);
     }
   });
 }
