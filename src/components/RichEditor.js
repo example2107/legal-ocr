@@ -160,6 +160,10 @@ function annotLine(text, marks, anonymized) {
     mark: m,
   }));
 
+  // Сортируем по длине исходного mention — более специфичные (длинные) идут первыми
+  // Это важно: «Бокова В.Р.» должен быть в regex раньше чем «Бокова»
+  patternEntries.sort((a, b) => b.mark.txt.length - a.mark.txt.length);
+
   const patterns = [
     '⚠️\\[(НЕТОЧНО: [^\\]]*|НЕЧИТАЕМО)\\]',
     ...patternEntries.map(e => e.pattern),
