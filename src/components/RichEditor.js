@@ -198,8 +198,8 @@ function annotLine(text, marks, anonymized) {
   // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
   // курсор не застревал внутри маркера
   out = out
-    .replace(/([^\s>])(<mark\s)/g, '$1 $2')              // пробел перед <mark> если его нет
-    .replace(/(<\/mark>)([^\s<.,;:!?)»"\]])/g, '$1 $2'); // пробел после </mark> если его нет (не перед знаками препинания)
+    .replace(/([^\s>])(<mark\s)/g, '$1 $2')              // пробел перед <mark> всегда
+    .replace(/(<\/mark>)([^\s<])/g, '$1 $2');             // пробел после </mark> всегда (включая знаки препинания)
   return out;
 }
 
@@ -445,11 +445,11 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = letter || replacement || '?';
       mark.classList.add('anon');
       mark.title = 'Нажмите, чтобы показать';
-      // Add space after mark if next text starts with a letter (not punctuation)
+      // Add space after mark unconditionally
       const next = mark.nextSibling;
       if (next && next.nodeType === 3) {
         const txt = next.textContent;
-        if (txt && /^[а-яёА-ЯЁa-zA-Z]/.test(txt)) {
+        if (txt && !txt.startsWith(' ')) {
           next.textContent = ' ' + txt;
         }
       }
@@ -461,7 +461,7 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       const next = mark.nextSibling;
       if (next && next.nodeType === 3) {
         const txt = next.textContent;
-        if (txt && txt.startsWith(' ') && /^[а-яёА-ЯЁa-zA-Z]/.test(txt.slice(1))) {
+        if (txt && txt.startsWith(' ')) {
           next.textContent = txt.slice(1);
         }
       }
