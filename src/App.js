@@ -145,6 +145,32 @@ export default function App() {
   const editorDomRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
   const titleRowRef = useRef(null);
+  // Navigation state: tracks current mark index per pd-id for ↑↓ cycling
+  const pdNavIndexRef = useRef({});
+
+  // Navigate to prev/next mark in editor for a given PD id
+  const navigateToPd = useCallback((id, direction, e) => {
+    e.stopPropagation(); // don't trigger handlePdClick on the parent item
+    if (!editorDomRef.current) return;
+    const marks = Array.from(editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`));
+    if (marks.length === 0) return;
+
+    const cur = pdNavIndexRef.current[id] ?? -1;
+    let next;
+    if (direction === 'down') {
+      next = cur >= marks.length - 1 ? 0 : cur + 1;
+    } else {
+      next = cur <= 0 ? marks.length - 1 : cur - 1;
+    }
+    pdNavIndexRef.current[id] = next;
+
+    const target = marks[next];
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Flash highlight
+    target.classList.add('pd-flash');
+    setTimeout(() => target.classList.remove('pd-flash'), 700);
+  }, []);
 
   // Keep --titlerow-h CSS variable in sync with actual title-row height
   // This fixes toolbar sticky top when title row wraps onto two lines
@@ -745,7 +771,28 @@ ${content}
   const profPersons = personalData.persons?.filter(p => p.category === 'professional') || [];
   const otherPD = personalData.otherPD || [];
   const pdTypeGroups = otherPD.reduce((acc, it) => { (acc[it.type] = acc[it.type] || []).push(it); return acc; }, {});
-  const pdTypeLabels = { address: 'Адреса', phone: 'Телефоны', passport: 'Паспортные данные', inn: 'ИНН', snils: 'СНИЛС', card: 'Карты/счета', email: 'Email', dob: 'Даты рождения', other: 'Прочее' };
+  const pdTypeLabels = {
+    address: 'Адреса',
+    phone: 'Телефоны',
+    passport: 'Паспорт РФ',
+    zagranpassport: 'Загранпаспорт',
+    inn: 'ИНН',
+    snils: 'СНИЛС',
+    card: 'Карты/счета',
+    email: 'Email',
+    dob: 'Даты рождения',
+    birthplace: 'Место рождения',
+    social_id: 'Аккаунты',
+    vehicle_plate: 'Госномера ТС',
+    vehicle_vin: 'VIN-номера',
+    driver_license: 'Вод. удостоверения',
+    military_id: 'Военные билеты',
+    oms_policy: 'Полисы ОМС',
+    birth_certificate: 'Св-ва о рождении',
+    imei: 'IMEI устройств',
+    org_link: 'Организации/ИП',
+    other: 'Прочее',
+  };
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -998,6 +1045,10 @@ ${content}
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{p.fullName}</span>
+                            <span className="pd-item-nav">
+                              <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
+                              <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
+                            </span>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
@@ -1021,6 +1072,10 @@ ${content}
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{p.fullName}</span>
+                            <span className="pd-item-nav">
+                              <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
+                              <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
+                            </span>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
@@ -1043,6 +1098,10 @@ ${content}
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{item.value}</span>
+                            <span className="pd-item-nav">
+                              <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(item.id, 'up', e)}>↑</button>
+                              <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
+                            </span>
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
                           </span>
                           <span className="pd-item-role">→ {item.replacement}</span>

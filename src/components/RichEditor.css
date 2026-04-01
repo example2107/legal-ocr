@@ -166,6 +166,19 @@
   opacity: 1;
 }
 
+/* ── PD flash navigation highlight ── */
+@keyframes pdFlash {
+  0%   { outline: 3px solid transparent; outline-offset: 3px; }
+  20%  { outline: 3px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 5px var(--accent-light); }
+  60%  { outline: 3px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 5px var(--accent-light); }
+  100% { outline: 3px solid transparent; outline-offset: 3px; box-shadow: none; }
+}
+.rich-content mark.pd.pd-flash {
+  animation: pdFlash 0.7s ease-out forwards;
+  position: relative;
+  z-index: 1;
+}
+
 /* ── PD marks ── */
 .rich-content mark.pd {
   padding: 1px 5px;

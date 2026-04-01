@@ -290,6 +290,39 @@ a { color: var(--accent); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Navigation arrows group — sits between name and status */
+.pd-item-nav {
+  display: none;          /* hidden by default, shown on hover */
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.pd-item:hover .pd-item-nav {
+  display: flex;
+}
+.pd-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  font-family: var(--font-body);
+}
+.pd-nav-btn:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .pd-legend { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .pd-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); }
 
