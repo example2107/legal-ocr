@@ -694,8 +694,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
     // При новом документе сбрасываем стек
     undoStack.current = [html || ''];
     undoIndex.current = 0;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html]);
+  }, [html]); // html — единственная внешняя зависимость, refs не нужны в deps
 
   const pushUndoSnapshot = useCallback((immediate = false) => {
     if (isPushingUndo.current) return;
