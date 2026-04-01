@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
-import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, patchPdMarks, wrapRangeWithMark, initPdMarkOriginals } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
@@ -26,7 +26,87 @@ const VIEW_HOME = 'home';
 const VIEW_PROCESSING = 'processing';
 const VIEW_RESULT = 'result';
 
-export default function App() {
+// ── Selection Popover ─────────────────────────────────────────────────────────
+function SelectionPopover({ rect, text, personalData, anonymized, onAssign, onClose }) {
+  const popRef = React.useRef(null);
+  const [expanded, setExpanded] = React.useState(false);
+
+  // Close on click outside
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (popRef.current && !popRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  // Position: above selection, centered, clamped to viewport
+  const style = React.useMemo(() => {
+    const popW = 260;
+    const left = Math.min(
+      Math.max(8, rect.left + rect.width / 2 - popW / 2),
+      window.innerWidth - popW - 8
+    );
+    const top = rect.top + window.scrollY - 8; // will be moved up by transform
+    return { position: 'absolute', top, left, width: popW };
+  }, [rect]);
+
+  const { persons = [], otherPD = [] } = personalData;
+  const allItems = [
+    ...persons.map(p => ({
+      id: p.id,
+      label: p.fullName,
+      sub: p.role || '',
+      letter: p.letter,
+      cat: p.category === 'private' ? 'priv' : 'prof',
+    })),
+    ...otherPD.map(it => ({
+      id: it.id,
+      label: it.value,
+      sub: it.replacement,
+      letter: null,
+      cat: 'oth',
+    })),
+  ];
+
+  // Show first 4 items collapsed, all when expanded
+  const COLLAPSE_LIMIT = 4;
+  const visible = expanded ? allItems : allItems.slice(0, COLLAPSE_LIMIT);
+  const hasMore = allItems.length > COLLAPSE_LIMIT;
+
+  return (
+    <div ref={popRef} className="sel-popover" style={style} onMouseDown={e => e.stopPropagation()}>
+      <div className="sel-popover-header">
+        <span className="sel-popover-text">«{text.length > 30 ? text.slice(0, 30) + '…' : text}»</span>
+        <button className="sel-popover-close" onClick={onClose}>✕</button>
+      </div>
+      <div className="sel-popover-hint">Добавить к персональным данным:</div>
+      <div className="sel-popover-list">
+        {visible.map(item => (
+          <button
+            key={item.id}
+            className={`sel-popover-item sel-popover-item--${item.cat}`}
+            onClick={() => onAssign(item.id)}
+          >
+            {item.letter && <span className="sel-popover-letter">{item.letter}</span>}
+            <span className="sel-popover-item-body">
+              <span className="sel-popover-item-label">{item.label}</span>
+              {item.sub && <span className="sel-popover-item-sub">{item.sub}</span>}
+            </span>
+            {anonymized[item.id] && <span className="sel-popover-anon">🔒</span>}
+          </button>
+        ))}
+        {hasMore && !expanded && (
+          <button className="sel-popover-more" onClick={() => setExpanded(true)}>
+            Ещё {allItems.length - COLLAPSE_LIMIT}…
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
   const [view, setView] = useState(VIEW_HOME);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -174,6 +254,8 @@ export default function App() {
   // Reactive counter state: { [id]: { cur: number, total: number } }
   // cur === -1 means "not navigated yet / idle" → show just total
   const [pdNavState, setPdNavState] = useState({});
+  // Selection popover — показывается при выделении текста в редакторе
+  const [selectionPopover, setSelectionPopover] = useState(null); // { range, rect, text } | null
   // Idle reset timers: after 10s of inactivity, reset cur to -1 (display-only)
   const pdNavTimerRef = useRef({});
 
@@ -537,7 +619,40 @@ export default function App() {
   };
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
+  const handleAssignToPd = useCallback((id) => {
+    if (!selectionPopover?.range) return;
+
+    const person = personalData.persons?.find(p => p.id === id);
+    const otherItem = personalData.otherPD?.find(it => it.id === id);
+    const isAnon = !!anonymized[id];
+    const cat = person
+      ? (person.category === 'private' ? 'priv' : 'prof')
+      : 'oth';
+    const display = person?.letter || otherItem?.replacement || '?';
+
+    const markEl = wrapRangeWithMark(selectionPopover.range, id, cat, isAnon, display);
+    if (markEl) {
+      // Сохраняем снимок после вставки (immediate)
+      editorDomRef.current?._pushUndo?.();
+      // Re-init originals so de-anonymize works for the new mark
+      initPdMarkOriginals(editorDomRef.current);
+      // Sync html state
+      if (editorDomRef.current) {
+        setEditorHtml(editorDomRef.current.innerHTML);
+      }
+      // Reset nav counter so it picks up the new mark
+      setPdNavState(prev => ({ ...prev, [id]: undefined }));
+    }
+
+    // Clear selection and popover
+    window.getSelection()?.removeAllRanges();
+    setSelectionPopover(null);
+  }, [selectionPopover, personalData, anonymized]);
+
   const handlePdClick = useCallback((id) => {
+    // Сохраняем снимок ДО изменения (immediate — не объединять с набором текста)
+    editorDomRef.current?._pushUndo?.();
+
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
       const isAnon = next[id];
@@ -561,6 +676,9 @@ export default function App() {
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
+    // Сохраняем снимок ДО пакетного изменения
+    editorDomRef.current?._pushUndo?.();
+
     setAnonymized(prev => {
       const { persons = [], otherPD = [] } = personalData;
       const newAnon = { ...prev };
@@ -924,7 +1042,19 @@ ${content}
         <div className="save-toast">✓ Документ сохранён</div>
       )}
 
-      {showUnsaved && (
+      {/* ── SELECTION POPOVER ── */}
+      {selectionPopover && (
+        <SelectionPopover
+          rect={selectionPopover.rect}
+          text={selectionPopover.text}
+          personalData={personalData}
+          anonymized={anonymized}
+          onAssign={handleAssignToPd}
+          onClose={() => setSelectionPopover(null)}
+        />
+      )}
+
+
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-title">Несохранённые изменения</div>
@@ -1267,6 +1397,7 @@ ${content}
                 html={editorHtml}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
+                onSelectionChange={setSelectionPopover}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />

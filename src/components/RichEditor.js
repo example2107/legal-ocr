@@ -493,6 +493,39 @@ export function initPdMarkOriginals(editorEl) {
   });
 }
 
+// ── Wrap a saved Range with a PD mark ─────────────────────────────────────────
+// Called from App.js when user picks a PD item from the selection popover.
+// range      — a saved Range object (cloned before selection is lost)
+// id, cat    — PD id and css category ('priv'|'prof'|'oth')
+// isAnon     — current anonymization state
+// display    — text to show if isAnon (letter or replacement), else original text
+export function wrapRangeWithMark(range, id, cat, isAnon, display) {
+  if (!range) return null;
+
+  // surroundContents fails when the range crosses element boundaries —
+  // e.g. selection starts inside a <strong> and ends outside it.
+  // extractContents + insertNode is safe in all cases.
+  let markEl;
+  try {
+    markEl = document.createElement('mark');
+    markEl.className = `pd ${cat}${isAnon ? ' anon' : ''}`;
+    markEl.dataset.pdId = id;
+    markEl.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+
+    const extracted = range.extractContents();
+    // extracted is a DocumentFragment — get its plain text as the original value
+    const originalText = extracted.textContent;
+    markEl.dataset.original = originalText;
+    markEl.textContent = isAnon ? display : originalText;
+
+    range.insertNode(markEl);
+  } catch (e) {
+    console.warn('wrapRangeWithMark failed:', e);
+    return null;
+  }
+  return markEl;
+}
+
 // ── RichEditor component ───────────────────────────────────────────────────────
 // ── Context menu for uncertain marks ─────────────────────────────────────────
 function UncertainContextMenu({ x, y, onRemove, onApplySuggestion, suggestion, onClose }) {
@@ -534,7 +567,7 @@ function UncertainContextMenu({ x, y, onRemove, onApplySuggestion, suggestion, o
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -559,8 +592,9 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     if (current !== lastHtml.current) {
       lastHtml.current = current;
       onHtmlChange?.(current);
+      pushUndoSnapshot(false); // дебаунс 500мс для набора текста
     }
-  }, [onHtmlChange, editorRef]);
+  }, [onHtmlChange, editorRef, pushUndoSnapshot]);
 
   const exec = useCallback((cmd, value = null) => {
     const el = editorRef.current;
@@ -619,12 +653,120 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     setCtxMenu(null);
   }, [ctxMenu, notifyChange]);
 
+  const handleMouseUp = useCallback((e) => {
+    if (!onSelectionChange) return;
+    // Small timeout so browser has time to update selection after click
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+        onSelectionChange(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const text = sel.toString().trim();
+      if (!text) { onSelectionChange(null); return; }
+
+      // Don't show popover if selection is entirely inside an existing PD mark
+      const container = range.commonAncestorContainer;
+      const el = container.nodeType === 3 ? container.parentElement : container;
+      if (el.closest('mark[data-pd-id]')) { onSelectionChange(null); return; }
+
+      // Clone range before it gets lost
+      const cloned = range.cloneRange();
+      const rect = range.getBoundingClientRect();
+      onSelectionChange({ range: cloned, rect, text });
+    }, 0);
+  }, [onSelectionChange]);
+
+  // ── Custom undo stack ──────────────────────────────────────────────────────
+  // Браузерный undo не знает о patchPdMarks и wrapRangeWithMark (DOM-операции).
+  // Храним свои снимки innerHTML. Дебаунс 500мс группирует набор текста.
+  const UNDO_LIMIT = 200;
+  const undoStack = useRef([]);   // массив строк innerHTML
+  const undoIndex = useRef(-1);   // текущая позиция в стеке
+  const debounceTimer = useRef(null);
+  const isPushingUndo = useRef(false); // флаг чтобы не пушить при восстановлении
+
+  // Инициализируем стек при загрузке нового документа
+  useEffect(() => {
+    if (!editorRef.current) return;
+    if (html !== lastHtml.current) return; // только если уже обновили innerHTML
+    // При новом документе сбрасываем стек
+    undoStack.current = [html || ''];
+    undoIndex.current = 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [html]);
+
+  const pushUndoSnapshot = useCallback((immediate = false) => {
+    if (isPushingUndo.current) return;
+    if (!editorRef.current) return;
+
+    const doSnapshot = () => {
+      const current = editorRef.current?.innerHTML || '';
+      // Не пушим если контент не изменился относительно последнего снимка
+      const top = undoStack.current[undoIndex.current];
+      if (current === top) return;
+
+      // Обрезаем всё что «после» текущей позиции (redo-ветка)
+      undoStack.current = undoStack.current.slice(0, undoIndex.current + 1);
+      undoStack.current.push(current);
+
+      // Ограничиваем размер стека
+      if (undoStack.current.length > UNDO_LIMIT) {
+        undoStack.current.shift();
+      }
+      undoIndex.current = undoStack.current.length - 1;
+    };
+
+    if (immediate) {
+      clearTimeout(debounceTimer.current);
+      doSnapshot();
+    } else {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = setTimeout(doSnapshot, 500);
+    }
+  }, [editorRef]);
+
+  // Публичный метод — вызывается из App.js после patchPdMarks / wrapRangeWithMark
+  // через ref на RichEditor. Immediate=true чтобы не объединять с набором текста.
+  const pushUndoImmediate = useCallback(() => {
+    pushUndoSnapshot(true);
+  }, [pushUndoSnapshot]);
+
+  // Expose через ref чтобы App.js мог вызывать
+  useEffect(() => {
+    if (externalRef && typeof externalRef === 'object') {
+      externalRef._pushUndo = pushUndoImmediate;
+    }
+  }, [externalRef, pushUndoImmediate]);
+
+  const handleUndo = useCallback(() => {
+    if (undoIndex.current <= 0) return; // нечего отменять
+    isPushingUndo.current = true;
+    clearTimeout(debounceTimer.current);
+    undoIndex.current -= 1;
+    const snapshot = undoStack.current[undoIndex.current];
+    if (editorRef.current) {
+      editorRef.current.innerHTML = snapshot;
+      lastHtml.current = snapshot;
+      onHtmlChange?.(snapshot);
+      initPdMarkOriginals(editorRef.current);
+    }
+    isPushingUndo.current = false;
+  }, [editorRef, onHtmlChange]);
+
   const handleKeyDown = useCallback((e) => {
+    // Перехватываем Ctrl/Cmd+Z — используем свой стек
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      handleUndo();
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       exec(e.shiftKey ? 'outdent' : 'indent');
     }
-  }, [exec]);
+  }, [exec, handleUndo]);
 
   // Выносим курсор за пределы <mark class="pd"> при вводе текста
   const escapeFromPdMark = useCallback(() => {
@@ -685,6 +827,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         onKeyDown={handleKeyDown}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        onMouseUp={handleMouseUp}
       />
       {ctxMenu && (
         <UncertainContextMenu
