@@ -457,14 +457,8 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = mark.dataset.original || mark.textContent;
       mark.classList.remove('anon');
       mark.title = 'Нажмите, чтобы обезличить';
-      // Remove extra space that was added during anonymization
-      const next = mark.nextSibling;
-      if (next && next.nodeType === 3) {
-        const txt = next.textContent;
-        if (txt && txt.startsWith(' ')) {
-          next.textContent = txt.slice(1);
-        }
-      }
+      // Space after mark is kept intentionally — it acts as a formatting barrier
+      // preventing cursor from inheriting mark styles when typing next to it
     }
   });
 }
