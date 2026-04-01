@@ -150,6 +150,19 @@ export default function App() {
   // Reactive counter state: { [id]: { cur: number, total: number } }
   const [pdNavState, setPdNavState] = useState({});
 
+  // On hover: initialise counter total from DOM (without changing cur position)
+  const initNavCounter = useCallback((id) => {
+    if (!editorDomRef.current) return;
+    const total = editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`).length;
+    if (total === 0) return;
+    setPdNavState(prev => {
+      // If already navigated — keep cur, just ensure total is up to date
+      const existing = prev[id];
+      if (existing && existing.total === total) return prev;
+      return { ...prev, [id]: { cur: existing?.cur ?? -1, total } };
+    });
+  }, []);
+
   // Navigate to prev/next mark in editor for a given PD id
   const navigateToPd = useCallback((id, direction, e) => {
     e.stopPropagation(); // don't trigger handlePdClick on the parent item
@@ -170,11 +183,30 @@ export default function App() {
     setPdNavState(prev => ({ ...prev, [id]: { cur: next, total: marks.length } }));
 
     const target = marks[next];
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    // Flash highlight
-    target.classList.add('pd-flash');
-    setTimeout(() => target.classList.remove('pd-flash'), 700);
+    // Check if target is already visible — if so, flash immediately
+    const rect = target.getBoundingClientRect();
+    const alreadyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+
+    if (alreadyVisible) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.add('pd-flash');
+      setTimeout(() => target.classList.remove('pd-flash'), 700);
+    } else {
+      // Flash only after element enters viewport (scroll finished)
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const observer = new IntersectionObserver((entries, obs) => {
+        const entry = entries[0];
+        if (entry.isIntersecting) {
+          obs.disconnect();
+          target.classList.add('pd-flash');
+          setTimeout(() => target.classList.remove('pd-flash'), 700);
+        }
+      }, { threshold: 0.5 }); // fire when at least half of mark is visible
+      observer.observe(target);
+      // Safety fallback: disconnect after 2s in case scroll never finishes
+      setTimeout(() => observer.disconnect(), 2000);
+    }
   }, []);
 
   // Keep --titlerow-h CSS variable in sync with actual title-row height
@@ -1045,14 +1077,14 @@ ${content}
                       </button>
                     </div>
                     {privatePersons.map(p => (
-                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)}>
+                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
                         <span className="pd-item-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{p.fullName}</span>
                             <span className="pd-item-nav">
                               <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
-                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}` : ''}</span>
+                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? '–' : pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}` : ''}</span>
                               <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
                             </span>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
@@ -1073,14 +1105,14 @@ ${content}
                       </button>
                     </div>
                     {profPersons.map(p => (
-                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)}>
+                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
                         <span className="pd-item-letter prof-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{p.fullName}</span>
                             <span className="pd-item-nav">
                               <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
-                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}` : ''}</span>
+                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? '–' : pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}` : ''}</span>
                               <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
                             </span>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
@@ -1101,13 +1133,13 @@ ${content}
                       </button>
                     </div>
                     {items.map(item => (
-                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)}>
+                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)} onMouseEnter={() => initNavCounter(item.id)}>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{item.value}</span>
                             <span className="pd-item-nav">
                               <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(item.id, 'up', e)}>↑</button>
-                              <span className="pd-nav-counter">{pdNavState[item.id] ? `${pdNavState[item.id].cur + 1}/${pdNavState[item.id].total}` : ''}</span>
+                              <span className="pd-nav-counter">{pdNavState[item.id] ? `${pdNavState[item.id].cur === -1 ? '–' : pdNavState[item.id].cur + 1}/${pdNavState[item.id].total}` : ''}</span>
                               <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
                             </span>
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
