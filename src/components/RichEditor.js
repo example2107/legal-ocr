@@ -198,8 +198,8 @@ function annotLine(text, marks, anonymized) {
   // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
   // курсор не застревал внутри маркера
   out = out
-    .replace(/([^\s>])(<mark\s)/g, '$1 $2')              // пробел перед <mark> всегда
-    .replace(/(<\/mark>)([^\s<])/g, '$1 $2');             // пробел после </mark> всегда (включая знаки препинания)
+    .replace(/([а-яёА-ЯЁa-zA-Z0-9])(<mark\s)/g, '$1 $2')              // пробел перед <mark> только если слово сливается
+    .replace(/(<\/mark>)([а-яёА-ЯЁa-zA-Z0-9])/g, '$1 $2');            // пробел после </mark> только если сливается со словом
   return out;
 }
 
@@ -445,11 +445,11 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = letter || replacement || '?';
       mark.classList.add('anon');
       mark.title = 'Нажмите, чтобы показать';
-      // Add space after mark unconditionally
+      // Add space after mark only if next char is a letter/digit (prevents style bleed when typing)
       const next = mark.nextSibling;
       if (next && next.nodeType === 3) {
         const txt = next.textContent;
-        if (txt && !txt.startsWith(' ')) {
+        if (txt && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(txt)) {
           next.textContent = ' ' + txt;
         }
       }
@@ -457,8 +457,14 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = mark.dataset.original || mark.textContent;
       mark.classList.remove('anon');
       mark.title = 'Нажмите, чтобы обезличить';
-      // Space after mark is kept intentionally — it acts as a formatting barrier
-      // preventing cursor from inheriting mark styles when typing next to it
+      // Remove space that was added during anonymization (only if next char was a letter)
+      const nextNode = mark.nextSibling;
+      if (nextNode && nextNode.nodeType === 3) {
+        const txt = nextNode.textContent;
+        if (txt && txt.startsWith(' ') && /^\s[а-яёА-ЯЁa-zA-Z0-9]/.test(txt)) {
+          nextNode.textContent = txt.slice(1);
+        }
+      }
     }
   });
 }
