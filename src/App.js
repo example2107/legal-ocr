@@ -995,9 +995,13 @@ ${content}
                     {privatePersons.map(p => (
                       <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)}>
                         <span className="pd-item-letter">{p.letter}</span>
-                        <span className="pd-item-name">{p.fullName}</span>
-                        <span className="pd-item-role">{p.role}</span>
-                        <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
+                        <span className="pd-item-body">
+                          <span className="pd-item-row1">
+                            <span className="pd-item-name">{p.fullName}</span>
+                            <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
+                          </span>
+                          {p.role && <span className="pd-item-role">{p.role}</span>}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1014,9 +1018,13 @@ ${content}
                     {profPersons.map(p => (
                       <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)}>
                         <span className="pd-item-letter prof-letter">{p.letter}</span>
-                        <span className="pd-item-name">{p.fullName}</span>
-                        <span className="pd-item-role">{p.role}</span>
-                        <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
+                        <span className="pd-item-body">
+                          <span className="pd-item-row1">
+                            <span className="pd-item-name">{p.fullName}</span>
+                            <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
+                          </span>
+                          {p.role && <span className="pd-item-role">{p.role}</span>}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1031,10 +1039,14 @@ ${content}
                       </button>
                     </div>
                     {items.map(item => (
-                      <div key={item.id} className={`pd-item ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)}>
-                        <span className="pd-item-name">{item.value}</span>
-                        <span className="pd-item-role">→ {item.replacement}</span>
-                        <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
+                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)}>
+                        <span className="pd-item-body">
+                          <span className="pd-item-row1">
+                            <span className="pd-item-name">{item.value}</span>
+                            <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
+                          </span>
+                          <span className="pd-item-role">→ {item.replacement}</span>
+                        </span>
                       </div>
                     ))}
                   </div>
