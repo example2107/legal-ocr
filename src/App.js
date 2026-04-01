@@ -145,6 +145,28 @@ export default function App() {
   const editorDomRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
   const titleRowRef = useRef(null);
+  // Callback-ref for pd-panel — prevents wheel events from bleeding to page scroll
+  const pdPanelRef = useRef(null);
+  const setPdPanelRef = useCallback((el) => {
+    if (pdPanelRef.current) {
+      pdPanelRef.current.removeEventListener('wheel', pdPanelRef._wheelHandler);
+    }
+    pdPanelRef.current = el;
+    if (!el) return;
+    const handler = (e) => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const atTop    = scrollTop === 0;
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+      const scrollingDown = e.deltaY > 0;
+      const scrollingUp   = e.deltaY < 0;
+      // Block propagation only when panel can still scroll in that direction
+      if ((scrollingDown && !atBottom) || (scrollingUp && !atTop)) {
+        e.stopPropagation();
+      }
+    };
+    pdPanelRef._wheelHandler = handler;
+    el.addEventListener('wheel', handler, { passive: true });
+  }, []);
   // Navigation state: tracks current mark index per pd-id for ↑↓ cycling
   const pdNavIndexRef = useRef({});
   // Reactive counter state: { [id]: { cur: number, total: number } }
@@ -1078,7 +1100,7 @@ ${content}
           <div className={"result-area" + (showOriginal && originalImages.length > 0 ? " viewer-open" : "")}>
 
             {hasPD && (
-              <aside className="pd-panel" style={{ width: pdWidth, flexShrink: 0 }}>
+              <aside className="pd-panel" ref={setPdPanelRef} style={{ width: pdWidth, flexShrink: 0 }}>
                 <div className="pd-panel-title">Персональные данные</div>
                 <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
 

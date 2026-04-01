@@ -45,59 +45,8 @@ button { font-family: var(--font-body); cursor: pointer; border: none; backgroun
 input, textarea { font-family: var(--font-body); }
 a { color: var(--accent); }
 /* ── Scrollbars ── */
-/* Global default — subtle but visible */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--border2);
-  border-radius: 4px;
-  border: 2px solid transparent;        /* creates padding around thumb */
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text3);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-corner { background: transparent; }
 
 /* PD panel — scrollbar on LEFT side (away from resizer), same style as editor */
-.pd-panel::-webkit-scrollbar { width: 8px; }
-.pd-panel::-webkit-scrollbar-track {
-  background: var(--bg2);
-  border-radius: 4px;
-  margin: 4px 0;
-}
-.pd-panel::-webkit-scrollbar-thumb {
-  background: var(--border2);
-  border-radius: 4px;
-  border: 2px solid var(--bg2);
-  background-clip: padding-box;
-}
-.pd-panel::-webkit-scrollbar-thumb:hover {
-  background: var(--text2);
-  border: 2px solid var(--bg2);
-  background-clip: padding-box;
-}
-
-/* Page scrollbar (editor lives in page scroll) — same style as pd-panel */
-html::-webkit-scrollbar { width: 8px; }
-html::-webkit-scrollbar-track {
-  background: var(--bg2);
-  border-radius: 4px;
-  margin: 4px 0;
-}
-html::-webkit-scrollbar-thumb {
-  background: var(--border2);
-  border-radius: 4px;
-  border: 2px solid var(--bg2);
-  background-clip: padding-box;
-}
-html::-webkit-scrollbar-thumb:hover {
-  background: var(--text2);
-  border: 2px solid var(--bg2);
-  background-clip: padding-box;
-}
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 
 /* ============================
