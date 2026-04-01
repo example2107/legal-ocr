@@ -208,8 +208,8 @@ function annotLine(text, marks, anonymized) {
   // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
   // курсор не застревал внутри маркера
   out = out
-    .replace(/([а-яёА-ЯЁa-zA-Z0-9])(<mark\s)/g, '$1 $2')              // пробел перед <mark> только если слово сливается
-    .replace(/(<\/mark>)([а-яёА-ЯЁa-zA-Z0-9])/g, '$1 $2');            // пробел после </mark> только если сливается со словом
+    .replace(/([^\s>])(<mark\s)/g, '$1 $2')              // пробел перед <mark> если любой не-пробельный символ сливается
+    .replace(/(<\/mark>)([а-яёА-ЯЁa-zA-Z0-9])/g, '$1 $2'); // пробел после </mark> только если буква/цифра (знаки препинания — норма)
   return out;
 }
 
@@ -455,25 +455,29 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = letter || replacement || '?';
       mark.classList.add('anon');
       mark.title = 'Нажмите, чтобы показать';
-      // Add space after mark only if next char is a letter/digit (prevents style bleed when typing)
+      // Пробел перед маркером
+      const prev = mark.previousSibling;
+      if (prev && prev.nodeType === 3 && /\S$/.test(prev.textContent)) {
+        prev.textContent = prev.textContent + ' ';
+      }
+      // Пробел после маркера — только если следом буква/цифра (знаки препинания — норма)
       const next = mark.nextSibling;
-      if (next && next.nodeType === 3) {
-        const txt = next.textContent;
-        if (txt && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(txt)) {
-          next.textContent = ' ' + txt;
-        }
+      if (next && next.nodeType === 3 && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(next.textContent)) {
+        next.textContent = ' ' + next.textContent;
       }
     } else if (!isAnon && wasAnon) {
       mark.textContent = mark.dataset.original || mark.textContent;
       mark.classList.remove('anon');
       mark.title = 'Нажмите, чтобы обезличить';
-      // Remove space that was added during anonymization (only if next char was a letter)
+      // Гарантируем пробел после — только если следом буква/цифра (знаки препинания — норма)
       const nextNode = mark.nextSibling;
-      if (nextNode && nextNode.nodeType === 3) {
-        const txt = nextNode.textContent;
-        if (txt && txt.startsWith(' ') && /^\s[а-яёА-ЯЁa-zA-Z0-9]/.test(txt)) {
-          nextNode.textContent = txt.slice(1);
-        }
+      if (nextNode && nextNode.nodeType === 3 && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(nextNode.textContent)) {
+        nextNode.textContent = ' ' + nextNode.textContent;
+      }
+      // Гарантируем пробел перед
+      const prevNode = mark.previousSibling;
+      if (prevNode && prevNode.nodeType === 3 && /\S$/.test(prevNode.textContent)) {
+        prevNode.textContent = prevNode.textContent + ' ';
       }
     }
   });
