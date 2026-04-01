@@ -154,16 +154,20 @@ export default function App() {
     pdPanelRef.current = el;
     if (!el) return;
     const handler = (e) => {
-      const { scrollHeight, clientHeight } = el;
+      const { scrollTop, scrollHeight, clientHeight } = el;
       const isScrollable = scrollHeight > clientHeight;
-      // If panel is scrollable — always consume the event, never let it reach the page
-      // If panel fits entirely — let wheel pass through to page scroll naturally
-      if (isScrollable) {
-        e.stopPropagation();
-      }
+      // Panel fits entirely → let page scroll normally
+      if (!isScrollable) return;
+      // Panel is scrollable → prevent page scroll entirely while cursor is inside.
+      // We need preventDefault (not just stopPropagation) because browsers handle
+      // scroll-chaining at compositor level, ignoring stopPropagation.
+      // Manually scroll the panel ourselves to compensate.
+      e.preventDefault();
+      el.scrollTop += e.deltaY;
     };
     pdPanelRef._wheelHandler = handler;
-    el.addEventListener('wheel', handler, { passive: true });
+    // passive: false is required to allow preventDefault()
+    el.addEventListener('wheel', handler, { passive: false });
   }, []);
   // Navigation state: tracks current mark index per pd-id for ↑↓ cycling
   const pdNavIndexRef = useRef({});
