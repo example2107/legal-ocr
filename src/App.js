@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
-import { RichEditor, buildAnnotatedHtml, patchPdMarks, wrapRangeWithMark, initPdMarkOriginals } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
@@ -25,76 +25,6 @@ function assignLetters(personalData) {
 const VIEW_HOME = 'home';
 const VIEW_PROCESSING = 'processing';
 const VIEW_RESULT = 'result';
-
-// ── Selection Popover ─────────────────────────────────────────────────────────
-function SelectionPopover({ rect, text, personalData, anonymized, onAssign, onClose }) {
-  const popRef = React.useRef(null);
-  const [expanded, setExpanded] = React.useState(false);
-
-  React.useEffect(() => {
-    const handler = (e) => {
-      if (popRef.current && !popRef.current.contains(e.target)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  const style = React.useMemo(() => {
-    const popW = 260;
-    const left = Math.min(
-      Math.max(8, rect.left + rect.width / 2 - popW / 2),
-      window.innerWidth - popW - 8
-    );
-    const top = rect.top + window.scrollY - 8;
-    return { position: 'absolute', top, left, width: popW };
-  }, [rect]);
-
-  const { persons = [], otherPD = [] } = personalData;
-  const allItems = [
-    ...persons.map(p => ({
-      id: p.id, label: p.fullName, sub: p.role || '',
-      letter: p.letter, cat: p.category === 'private' ? 'priv' : 'prof',
-    })),
-    ...otherPD.map(it => ({
-      id: it.id, label: it.value, sub: it.replacement,
-      letter: null, cat: 'oth',
-    })),
-  ];
-  const COLLAPSE_LIMIT = 4;
-  const visible = expanded ? allItems : allItems.slice(0, COLLAPSE_LIMIT);
-  const hasMore = allItems.length > COLLAPSE_LIMIT;
-
-  return (
-    <div ref={popRef} className="sel-popover" style={style} onMouseDown={e => e.stopPropagation()}>
-      <div className="sel-popover-header">
-        <span className="sel-popover-text">«{text.length > 30 ? text.slice(0, 30) + '…' : text}»</span>
-        <button className="sel-popover-close" onClick={onClose}>✕</button>
-      </div>
-      <div className="sel-popover-hint">Добавить к персональным данным:</div>
-      <div className="sel-popover-list">
-        {visible.map(item => (
-          <button
-            key={item.id}
-            className={`sel-popover-item sel-popover-item--${item.cat}`}
-            onClick={() => onAssign(item.id)}
-          >
-            {item.letter && <span className="sel-popover-letter">{item.letter}</span>}
-            <span className="sel-popover-item-body">
-              <span className="sel-popover-item-label">{item.label}</span>
-              {item.sub && <span className="sel-popover-item-sub">{item.sub}</span>}
-            </span>
-            {anonymized[item.id] && <span className="sel-popover-anon">🔒</span>}
-          </button>
-        ))}
-        {hasMore && !expanded && (
-          <button className="sel-popover-more" onClick={() => setExpanded(true)}>
-            Ещё {allItems.length - COLLAPSE_LIMIT}…
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const [view, setView] = useState(VIEW_HOME);
@@ -244,7 +174,6 @@ export default function App() {
   // Reactive counter state: { [id]: { cur: number, total: number } }
   // cur === -1 means "not navigated yet / idle" → show just total
   const [pdNavState, setPdNavState] = useState({});
-  const [selectionPopover, setSelectionPopover] = useState(null);
   // Idle reset timers: after 10s of inactivity, reset cur to -1 (display-only)
   const pdNavTimerRef = useRef({});
 
@@ -609,24 +538,29 @@ export default function App() {
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
   const handlePdClick = useCallback((id) => {
-    editorDomRef.current?._pushUndo?.();
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
       const isAnon = next[id];
+
+      // Find what letter/replacement to use
       const person = personalData.persons?.find(p => p.id === id);
       const otherItem = personalData.otherPD?.find(it => it.id === id);
       const letter = person?.letter;
       const replacement = otherItem?.replacement;
+
+      // Patch DOM without rebuilding — preserves all user edits
       patchPdMarks(editorDomRef.current, id, isAnon, letter, replacement);
+
+      // Sync state for save/export
       if (editorDomRef.current) {
         setEditorHtml(editorDomRef.current.innerHTML);
       }
+
       return next;
     });
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
-    editorDomRef.current?._pushUndo?.();
     setAnonymized(prev => {
       const { persons = [], otherPD = [] } = personalData;
       const newAnon = { ...prev };
@@ -661,24 +595,6 @@ export default function App() {
       return newAnon;
     });
   }, [personalData]);
-
-  const handleAssignToPd = useCallback((id) => {
-    if (!selectionPopover?.range) return;
-    const person = personalData.persons?.find(p => p.id === id);
-    const otherItem = personalData.otherPD?.find(it => it.id === id);
-    const isAnon = !!anonymized[id];
-    const cat = person ? (person.category === 'private' ? 'priv' : 'prof') : 'oth';
-    const display = person?.letter || otherItem?.replacement || '?';
-    const markEl = wrapRangeWithMark(selectionPopover.range, id, cat, isAnon, display);
-    if (markEl) {
-      editorDomRef.current?._pushUndo?.();
-      initPdMarkOriginals(editorDomRef.current);
-      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
-      setPdNavState(prev => ({ ...prev, [id]: undefined }));
-    }
-    window.getSelection()?.removeAllRanges();
-    setSelectionPopover(null);
-  }, [selectionPopover, personalData, anonymized]);
 
   // After editor renders with new html, store originals for de-anonymize
   const handleEditorHtmlChange = useCallback((html) => {
@@ -1006,18 +922,6 @@ ${content}
       {/* ── SAVE TOAST ── */}
       {savedMsg && (
         <div className="save-toast">✓ Документ сохранён</div>
-      )}
-
-      {/* ── SELECTION POPOVER ── */}
-      {selectionPopover && (
-        <SelectionPopover
-          rect={selectionPopover.rect}
-          text={selectionPopover.text}
-          personalData={personalData}
-          anonymized={anonymized}
-          onAssign={handleAssignToPd}
-          onClose={() => setSelectionPopover(null)}
-        />
       )}
 
       {showUnsaved && (
@@ -1363,7 +1267,6 @@ ${content}
                 html={editorHtml}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
-                onSelectionChange={setSelectionPopover}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
