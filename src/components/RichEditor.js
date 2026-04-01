@@ -455,12 +455,12 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = letter || replacement || '?';
       mark.classList.add('anon');
       mark.title = 'Нажмите, чтобы показать';
-      // Пробел перед маркером
+      // Пробел перед маркером (любой не-пробельный символ)
       const prev = mark.previousSibling;
       if (prev && prev.nodeType === 3 && /\S$/.test(prev.textContent)) {
         prev.textContent = prev.textContent + ' ';
       }
-      // Пробел после маркера — только если следом буква/цифра (знаки препинания — норма)
+      // Пробел после маркера — только если следом буква/цифра
       const next = mark.nextSibling;
       if (next && next.nodeType === 3 && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(next.textContent)) {
         next.textContent = ' ' + next.textContent;
@@ -469,7 +469,7 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = mark.dataset.original || mark.textContent;
       mark.classList.remove('anon');
       mark.title = 'Нажмите, чтобы обезличить';
-      // Гарантируем пробел после — только если следом буква/цифра (знаки препинания — норма)
+      // Гарантируем пробел после — только если буква/цифра
       const nextNode = mark.nextSibling;
       if (nextNode && nextNode.nodeType === 3 && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(nextNode.textContent)) {
         nextNode.textContent = ' ' + nextNode.textContent;
@@ -494,30 +494,18 @@ export function initPdMarkOriginals(editorEl) {
 }
 
 // ── Wrap a saved Range with a PD mark ─────────────────────────────────────────
-// Called from App.js when user picks a PD item from the selection popover.
-// range      — a saved Range object (cloned before selection is lost)
-// id, cat    — PD id and css category ('priv'|'prof'|'oth')
-// isAnon     — current anonymization state
-// display    — text to show if isAnon (letter or replacement), else original text
 export function wrapRangeWithMark(range, id, cat, isAnon, display) {
   if (!range) return null;
-
-  // surroundContents fails when the range crosses element boundaries —
-  // e.g. selection starts inside a <strong> and ends outside it.
-  // extractContents + insertNode is safe in all cases.
   let markEl;
   try {
     markEl = document.createElement('mark');
     markEl.className = `pd ${cat}${isAnon ? ' anon' : ''}`;
     markEl.dataset.pdId = id;
     markEl.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
-
     const extracted = range.extractContents();
-    // extracted is a DocumentFragment — get its plain text as the original value
     const originalText = extracted.textContent;
     markEl.dataset.original = originalText;
     markEl.textContent = isAnon ? display : originalText;
-
     range.insertNode(markEl);
   } catch (e) {
     console.warn('wrapRangeWithMark failed:', e);
@@ -594,7 +582,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
       onHtmlChange?.(current);
       pushUndoSnapshot(false); // дебаунс 500мс для набора текста
     }
-  }, [onHtmlChange, editorRef, pushUndoSnapshot]);
+  }, [onHtmlChange, editorRef, pushUndoSnapshot]); // pushUndoSnapshot defined below via ref — safe
 
   const exec = useCallback((cmd, value = null) => {
     const el = editorRef.current;
@@ -653,45 +641,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
     setCtxMenu(null);
   }, [ctxMenu, notifyChange]);
 
-  const handleMouseUp = useCallback((e) => {
-    if (!onSelectionChange) return;
-    // Small timeout so browser has time to update selection after click
-    setTimeout(() => {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-        onSelectionChange(null);
-        return;
-      }
-      const range = sel.getRangeAt(0);
-      const text = sel.toString().trim();
-      if (!text) { onSelectionChange(null); return; }
-
-      // Don't show popover if selection is entirely inside an existing PD mark
-      const container = range.commonAncestorContainer;
-      const el = container.nodeType === 3 ? container.parentElement : container;
-      if (el.closest('mark[data-pd-id]')) { onSelectionChange(null); return; }
-
-      // Clone range before it gets lost
-      const cloned = range.cloneRange();
-      const rect = range.getBoundingClientRect();
-      onSelectionChange({ range: cloned, rect, text });
-    }, 0);
-  }, [onSelectionChange]);
-
   // ── Custom undo stack ──────────────────────────────────────────────────────
-  // Браузерный undo не знает о patchPdMarks и wrapRangeWithMark (DOM-операции).
-  // Храним свои снимки innerHTML. Дебаунс 500мс группирует набор текста.
   const UNDO_LIMIT = 200;
-  const undoStack = useRef([]);   // массив строк innerHTML
-  const undoIndex = useRef(-1);   // текущая позиция в стеке
+  const undoStack = useRef([]);
+  const undoIndex = useRef(-1);
   const debounceTimer = useRef(null);
-  const isPushingUndo = useRef(false); // флаг чтобы не пушить при восстановлении
+  const isPushingUndo = useRef(false);
 
   // Инициализируем стек при загрузке нового документа
   useEffect(() => {
     if (!editorRef.current) return;
-    if (html !== lastHtml.current) return; // только если уже обновили innerHTML
-    // При новом документе сбрасываем стек
+    if (html !== lastHtml.current) return;
     undoStack.current = [html || ''];
     undoIndex.current = 0;
   }, [html]); // html — единственная внешняя зависимость, refs не нужны в deps
@@ -699,24 +659,15 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
   const pushUndoSnapshot = useCallback((immediate = false) => {
     if (isPushingUndo.current) return;
     if (!editorRef.current) return;
-
     const doSnapshot = () => {
       const current = editorRef.current?.innerHTML || '';
-      // Не пушим если контент не изменился относительно последнего снимка
       const top = undoStack.current[undoIndex.current];
       if (current === top) return;
-
-      // Обрезаем всё что «после» текущей позиции (redo-ветка)
       undoStack.current = undoStack.current.slice(0, undoIndex.current + 1);
       undoStack.current.push(current);
-
-      // Ограничиваем размер стека
-      if (undoStack.current.length > UNDO_LIMIT) {
-        undoStack.current.shift();
-      }
+      if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
       undoIndex.current = undoStack.current.length - 1;
     };
-
     if (immediate) {
       clearTimeout(debounceTimer.current);
       doSnapshot();
@@ -726,13 +677,11 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
     }
   }, [editorRef]);
 
-  // Публичный метод — вызывается из App.js после patchPdMarks / wrapRangeWithMark
-  // через ref на RichEditor. Immediate=true чтобы не объединять с набором текста.
   const pushUndoImmediate = useCallback(() => {
     pushUndoSnapshot(true);
   }, [pushUndoSnapshot]);
 
-  // Expose через ref чтобы App.js мог вызывать
+  // Expose via ref so App.js can call before patchPdMarks / wrapRangeWithMark
   useEffect(() => {
     if (externalRef && typeof externalRef === 'object') {
       externalRef._pushUndo = pushUndoImmediate;
@@ -740,7 +689,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
   }, [externalRef, pushUndoImmediate]);
 
   const handleUndo = useCallback(() => {
-    if (undoIndex.current <= 0) return; // нечего отменять
+    if (undoIndex.current <= 0) return;
     isPushingUndo.current = true;
     clearTimeout(debounceTimer.current);
     undoIndex.current -= 1;
@@ -754,8 +703,27 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
     isPushingUndo.current = false;
   }, [editorRef, onHtmlChange]);
 
+  const handleMouseUp = useCallback(() => {
+    if (!onSelectionChange) return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+        onSelectionChange(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const text = sel.toString().trim();
+      if (!text) { onSelectionChange(null); return; }
+      const container = range.commonAncestorContainer;
+      const el = container.nodeType === 3 ? container.parentElement : container;
+      if (el.closest('mark[data-pd-id]')) { onSelectionChange(null); return; }
+      const cloned = range.cloneRange();
+      const rect = range.getBoundingClientRect();
+      onSelectionChange({ range: cloned, rect, text });
+    }, 0);
+  }, [onSelectionChange]);
+
   const handleKeyDown = useCallback((e) => {
-    // Перехватываем Ctrl/Cmd+Z — используем свой стек
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
       handleUndo();
