@@ -160,7 +160,7 @@ function annotLine(text, marks, anonymized) {
   let out = '', last = 0, match;
   while ((match = re.exec(text)) !== null) {
     if (match.index > last) out += applyBold(esc(text.slice(last, match.index)));
-    const mt = match[0];
+    const mt = match[0].replace(/\s+$/, ''); // trim trailing space that may be captured by initialsAfter
     if (mt.startsWith('⚠️[')) {
       const inner = mt.slice(3, -1);
       const isUnread = inner === 'НЕЧИТАЕМО';
@@ -192,7 +192,7 @@ function annotLine(text, marks, anonymized) {
         out += applyBold(esc(mt));
       }
     }
-    last = match.index + mt.length;
+    last = match.index + match[0].length; // advance by full match including any trailing space
   }
   if (last < text.length) out += applyBold(esc(text.slice(last)));
   // Гарантируем пробел до и после каждого <mark> чтобы при редактировании

@@ -1356,12 +1356,12 @@ ${content}
                   />
                   {viewerTip && (
                     <div className="viewer-tooltip" style={{
-                      left: Math.min(viewerTip.x + 16, window.innerWidth - 336),
+                      left: Math.min(viewerTip.x + 16, window.innerWidth - 276),
                       top: viewerTip.y + 16,
                     }}>
                       {zoomActive
-                        ? '🔍 Колесико — зум · Зажать — переместить · Двойной клик — выход'
-                        : '💡 Двойной клик — активировать зум и перетаскивание'}
+                        ? <><span>🖱 Колесико — зум</span><span>✊ Зажать и тянуть — переместить</span><span>🔍 Двойной клик — выйти из зума</span></>
+                        : <span>🔍 Двойной клик — включить зум и перетаскивание</span>}
                     </div>
                   )}
                 </div>

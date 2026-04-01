@@ -653,17 +653,27 @@ a { color: var(--accent); }
 /* Viewer tooltip — fixed, появляется у курсора */
 .viewer-tooltip {
   position: fixed;
-  background: rgba(0,0,0,0.72);
+  background: rgba(0,0,0,0.78);
   color: #fff;
   font-size: 12px;
-  padding: 6px 14px;
-  border-radius: 12px;
+  padding: 8px 14px;
+  border-radius: 10px;
   white-space: normal;
-  max-width: 320px;
-  line-height: 1.5;
+  max-width: 260px;
   pointer-events: none;
   z-index: 9999;
   animation: tooltipFade 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.viewer-tooltip span {
+  display: block;
+  line-height: 1.4;
+}
+.viewer-tooltip span + span {
+  padding-top: 4px;
+  border-top: 1px solid rgba(255,255,255,0.15);
 }
 @keyframes tooltipFade {
   from { opacity: 0; transform: translateY(4px); }
