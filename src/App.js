@@ -107,6 +107,7 @@ function SelectionPopover({ rect, text, personalData, anonymized, onAssign, onCl
 }
 
 
+export default function App() {
   const [view, setView] = useState(VIEW_HOME);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
