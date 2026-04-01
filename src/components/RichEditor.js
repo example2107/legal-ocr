@@ -208,8 +208,8 @@ function annotLine(text, marks, anonymized) {
   // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
   // курсор не застревал внутри маркера
   out = out
-    .replace(/([^\s>])(<mark\s)/g, '$1 $2')              // пробел перед <mark> если любой не-пробельный символ сливается
-    .replace(/(<\/mark>)([а-яёА-ЯЁa-zA-Z0-9])/g, '$1 $2'); // пробел после </mark> только если буква/цифра (знаки препинания — норма)
+    .replace(/([^\s>])(<mark\s)/g, '$1 $2')
+    .replace(/(<\/mark>)([а-яёА-ЯЁa-zA-Z0-9])/g, '$1 $2');
   return out;
 }
 
@@ -455,12 +455,10 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = letter || replacement || '?';
       mark.classList.add('anon');
       mark.title = 'Нажмите, чтобы показать';
-      // Пробел перед маркером (любой не-пробельный символ)
       const prev = mark.previousSibling;
       if (prev && prev.nodeType === 3 && /\S$/.test(prev.textContent)) {
         prev.textContent = prev.textContent + ' ';
       }
-      // Пробел после маркера — только если следом буква/цифра
       const next = mark.nextSibling;
       if (next && next.nodeType === 3 && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(next.textContent)) {
         next.textContent = ' ' + next.textContent;
@@ -469,12 +467,10 @@ export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
       mark.textContent = mark.dataset.original || mark.textContent;
       mark.classList.remove('anon');
       mark.title = 'Нажмите, чтобы обезличить';
-      // Гарантируем пробел после — только если буква/цифра
       const nextNode = mark.nextSibling;
       if (nextNode && nextNode.nodeType === 3 && /^[а-яёА-ЯЁa-zA-Z0-9]/.test(nextNode.textContent)) {
         nextNode.textContent = ' ' + nextNode.textContent;
       }
-      // Гарантируем пробел перед
       const prevNode = mark.previousSibling;
       if (prevNode && prevNode.nodeType === 3 && /\S$/.test(prevNode.textContent)) {
         prevNode.textContent = prevNode.textContent + ' ';
@@ -565,24 +561,86 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
   // Only set innerHTML when html prop changes from OUTSIDE (new doc, not user typing)
   useEffect(() => {
     if (!editorRef.current) return;
-    // Only update DOM if content truly differs (avoids cursor jump on every keystroke)
     if (html !== lastHtml.current) {
       editorRef.current.innerHTML = html || '';
       lastHtml.current = html || '';
-      // Store originals for de-anonymization
       initPdMarkOriginals(editorRef.current);
     }
   }, [html, editorRef]);
 
+  // ── Custom undo stack ──────────────────────────────────────────────────────
+  // Объявляем ДО notifyChange — иначе notifyChange не увидит pushUndoSnapshot
+  const UNDO_LIMIT = 200;
+  const undoStack = useRef([]);
+  const undoIndex = useRef(-1);
+  const debounceTimer = useRef(null);
+  const isPushingUndo = useRef(false);
+
+  // Сбрасываем стек при загрузке нового документа
+  useEffect(() => {
+    if (!editorRef.current) return;
+    if (html !== lastHtml.current) return;
+    undoStack.current = [html || ''];
+    undoIndex.current = 0;
+  }, [html]); // html — единственная внешняя зависимость
+
+  const pushUndoSnapshot = useCallback((immediate = false) => {
+    if (isPushingUndo.current) return;
+    if (!editorRef.current) return;
+    const doSnapshot = () => {
+      const current = editorRef.current?.innerHTML || '';
+      const top = undoStack.current[undoIndex.current];
+      if (current === top) return;
+      undoStack.current = undoStack.current.slice(0, undoIndex.current + 1);
+      undoStack.current.push(current);
+      if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
+      undoIndex.current = undoStack.current.length - 1;
+    };
+    if (immediate) {
+      clearTimeout(debounceTimer.current);
+      doSnapshot();
+    } else {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = setTimeout(doSnapshot, 500);
+    }
+  }, [editorRef]);
+
+  const pushUndoImmediate = useCallback(() => {
+    pushUndoSnapshot(true);
+  }, [pushUndoSnapshot]);
+
+  // Expose via ref so App.js can call before patchPdMarks / wrapRangeWithMark
+  useEffect(() => {
+    if (externalRef && typeof externalRef === 'object') {
+      externalRef._pushUndo = pushUndoImmediate;
+    }
+  }, [externalRef, pushUndoImmediate]);
+
+  const handleUndo = useCallback(() => {
+    if (undoIndex.current <= 0) return;
+    isPushingUndo.current = true;
+    clearTimeout(debounceTimer.current);
+    undoIndex.current -= 1;
+    const snapshot = undoStack.current[undoIndex.current];
+    if (editorRef.current) {
+      editorRef.current.innerHTML = snapshot;
+      lastHtml.current = snapshot;
+      onHtmlChange?.(snapshot);
+      initPdMarkOriginals(editorRef.current);
+    }
+    isPushingUndo.current = false;
+  }, [editorRef, onHtmlChange]);
+
+  // ── notifyChange — объявляется ПОСЛЕ pushUndoSnapshot ─────────────────────
   const notifyChange = useCallback(() => {
     if (!editorRef.current) return;
     const current = editorRef.current.innerHTML;
     if (current !== lastHtml.current) {
       lastHtml.current = current;
       onHtmlChange?.(current);
-      pushUndoSnapshot(false); // дебаунс 500мс для набора текста
+      pushUndoSnapshot(false); // дебаунс 500мс
     }
-  }, [onHtmlChange, editorRef, pushUndoSnapshot]); // pushUndoSnapshot defined below via ref — safe
+  }, [onHtmlChange, editorRef, pushUndoSnapshot]);
 
   const exec = useCallback((cmd, value = null) => {
     const el = editorRef.current;
@@ -641,67 +699,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
     setCtxMenu(null);
   }, [ctxMenu, notifyChange]);
 
-  // ── Custom undo stack ──────────────────────────────────────────────────────
-  const UNDO_LIMIT = 200;
-  const undoStack = useRef([]);
-  const undoIndex = useRef(-1);
-  const debounceTimer = useRef(null);
-  const isPushingUndo = useRef(false);
-
-  // Инициализируем стек при загрузке нового документа
-  useEffect(() => {
-    if (!editorRef.current) return;
-    if (html !== lastHtml.current) return;
-    undoStack.current = [html || ''];
-    undoIndex.current = 0;
-  }, [html]); // html — единственная внешняя зависимость, refs не нужны в deps
-
-  const pushUndoSnapshot = useCallback((immediate = false) => {
-    if (isPushingUndo.current) return;
-    if (!editorRef.current) return;
-    const doSnapshot = () => {
-      const current = editorRef.current?.innerHTML || '';
-      const top = undoStack.current[undoIndex.current];
-      if (current === top) return;
-      undoStack.current = undoStack.current.slice(0, undoIndex.current + 1);
-      undoStack.current.push(current);
-      if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
-      undoIndex.current = undoStack.current.length - 1;
-    };
-    if (immediate) {
-      clearTimeout(debounceTimer.current);
-      doSnapshot();
-    } else {
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(doSnapshot, 500);
+  const handleKeyDown = useCallback((e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      handleUndo();
+      return;
     }
-  }, [editorRef]);
-
-  const pushUndoImmediate = useCallback(() => {
-    pushUndoSnapshot(true);
-  }, [pushUndoSnapshot]);
-
-  // Expose via ref so App.js can call before patchPdMarks / wrapRangeWithMark
-  useEffect(() => {
-    if (externalRef && typeof externalRef === 'object') {
-      externalRef._pushUndo = pushUndoImmediate;
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      exec(e.shiftKey ? 'outdent' : 'indent');
     }
-  }, [externalRef, pushUndoImmediate]);
-
-  const handleUndo = useCallback(() => {
-    if (undoIndex.current <= 0) return;
-    isPushingUndo.current = true;
-    clearTimeout(debounceTimer.current);
-    undoIndex.current -= 1;
-    const snapshot = undoStack.current[undoIndex.current];
-    if (editorRef.current) {
-      editorRef.current.innerHTML = snapshot;
-      lastHtml.current = snapshot;
-      onHtmlChange?.(snapshot);
-      initPdMarkOriginals(editorRef.current);
-    }
-    isPushingUndo.current = false;
-  }, [editorRef, onHtmlChange]);
+  }, [exec, handleUndo]);
 
   const handleMouseUp = useCallback(() => {
     if (!onSelectionChange) return;
@@ -722,18 +730,6 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onSelectionChange, e
       onSelectionChange({ range: cloned, rect, text });
     }, 0);
   }, [onSelectionChange]);
-
-  const handleKeyDown = useCallback((e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      handleUndo();
-      return;
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      exec(e.shiftKey ? 'outdent' : 'indent');
-    }
-  }, [exec, handleUndo]);
 
   // Выносим курсор за пределы <mark class="pd"> при вводе текста
   const escapeFromPdMark = useCallback(() => {
