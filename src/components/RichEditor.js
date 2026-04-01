@@ -115,11 +115,21 @@ function buildPersonPattern(mention) {
   // Инициалы перед: заглавная + точка (одна или две пары) + пробел
   const initialsBefore = '(?:[А-ЯЁ]\\.[А-ЯЁ]\\.?\\s+|[А-ЯЁ]\\.\\s+)?';
 
+  // Make first letter case-insensitive to handle OCR lowercase errors
+  const caseInsensitiveFirst = (word) => {
+    if (!word) return word;
+    const first = word[0];
+    // For Cyrillic: build [АаБб...] pair for first letter
+    const upper = first.toUpperCase();
+    const lower = first.toLowerCase();
+    const prefix = upper !== lower ? '[' + escRe(upper) + escRe(lower) + ']' : escRe(first);
+    return prefix + escRe(word.slice(1));
+  };
   const wordToPattern = (word) => {
     if (/[А-яЁё]/.test(word.slice(-1)) && word.length > 4) {
-      return escRe(word.slice(0, -2)) + '[А-яЁё]{0,5}';
+      return caseInsensitiveFirst(word.slice(0, -2)) + '[А-яЁё]{0,5}';
     }
-    return escRe(word);
+    return caseInsensitiveFirst(word);
   };
 
   const words = mention.split(/\s+/);
