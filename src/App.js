@@ -154,13 +154,11 @@ export default function App() {
     pdPanelRef.current = el;
     if (!el) return;
     const handler = (e) => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      const atTop    = scrollTop === 0;
-      const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
-      const scrollingDown = e.deltaY > 0;
-      const scrollingUp   = e.deltaY < 0;
-      // Block propagation only when panel can still scroll in that direction
-      if ((scrollingDown && !atBottom) || (scrollingUp && !atTop)) {
+      const { scrollHeight, clientHeight } = el;
+      const isScrollable = scrollHeight > clientHeight;
+      // If panel is scrollable — always consume the event, never let it reach the page
+      // If panel fits entirely — let wheel pass through to page scroll naturally
+      if (isScrollable) {
         e.stopPropagation();
       }
     };
