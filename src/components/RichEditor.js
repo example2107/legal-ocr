@@ -340,52 +340,62 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
   // Инициалы после фамилий обрабатываются через buildPersonPattern в annotLine —
   // паттерн захватывает «Фамилия И.О.» и «Фамилия И.» как единое совпадение.
 
-  // Post-process 3: склеиваем строки которые OCR разбил по переносам PDF
-  // Если строка не заканчивается на знак препинания — она продолжается на следующей строке
-  // Склеиваем через пробел чтобы получить полные абзацы и корректный justify
+  // Post-process 3: склеиваем строки которые OCR разбил по переносам внутри абзаца.
+  //
+  // Главный признак НОВОГО АБЗАЦА (не склеиваем):
+  //   1. Между строками есть пустая строка
+  //   2. Текущая строка начинается с отступа (пробелы/таб) — красная строка
+  //   3. Текущая строка — специальная (заголовок, маркер страницы и т.д.)
+  //
+  // Во всех остальных случаях — это перенос строки внутри абзаца, склеиваем.
+  // Эта логика надёжнее чем угадывать по знакам препинания.
+
+  const isSpecialLine = (t) => !t ||
+    t.startsWith('## ') ||
+    t.startsWith('### ') ||
+    t === '---' ||
+    /^\[PAGE:\d+\]$/.test(t) ||
+    /^\[CENTER\]/.test(t) ||
+    /^\[LEFTRIGHT:/.test(t) ||
+    /^\[RIGHT-BLOCK\]/.test(t) ||
+    /^\[INDENT\]/.test(t) ||
+    /^\*\*(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ)[:\s*]/.test(t);
+
   const lines = processText.split('\n');
   const mergedLines = [];
+  let prevWasEmpty = false;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-    // Специальные строки — не склеиваем
-    const isSpecial = !trimmed ||
-      trimmed.startsWith('## ') ||
-      trimmed.startsWith('### ') ||
-      trimmed === '---' ||
-      /^\[PAGE:\d+\]$/.test(trimmed) ||
-      /^\[CENTER\]/.test(trimmed) ||
-      /^\[LEFTRIGHT:/.test(trimmed) ||
-      /^\[RIGHT-BLOCK\]/.test(trimmed) ||
-      /^\[INDENT\]/.test(trimmed) ||
-      /^\*\*(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ)[:\s*]/.test(trimmed);
 
-    if (isSpecial) {
-      mergedLines.push(line);
+    // Пустая строка — запоминаем, не добавляем в результат (склейщик сам управляет переносами)
+    if (!trimmed) {
+      prevWasEmpty = true;
+      mergedLines.push(line); // сохраняем пустую строку как разделитель абзацев
       continue;
     }
 
-    // Если предыдущая строка не заканчивается на знак препинания — склеиваем
-    if (mergedLines.length > 0) {
-      const prev = mergedLines[mergedLines.length - 1];
-      const prevTrimmed = prev.trim();
-      const prevIsSpecial = !prevTrimmed ||
-        prevTrimmed.startsWith('## ') ||
-        prevTrimmed.startsWith('### ') ||
-        prevTrimmed === '---' ||
-        /^\[PAGE:\d+\]$/.test(prevTrimmed) ||
-        /^\[CENTER\]/.test(prevTrimmed) ||
-        /^\[LEFTRIGHT:/.test(prevTrimmed) ||
-        /^\[RIGHT-BLOCK\]/.test(prevTrimmed) ||
-        /^\[INDENT\]/.test(prevTrimmed);
+    const startsWithIndent = /^[ 	]{2,}/.test(line); // 2+ пробела или таб = красная строка
+    const isSpecial = isSpecialLine(trimmed);
 
-      // Склеиваем если предыдущая строка не заканчивается на . ! ? : ; » " и не спецстрока
-      if (!prevIsSpecial && prevTrimmed && !/[.!?:;»"\]]$/.test(prevTrimmed)) {
-        mergedLines[mergedLines.length - 1] = prev.trimEnd() + ' ' + trimmed;
+    // Признаки нового абзаца — не склеиваем с предыдущей строкой
+    const isNewParagraph = prevWasEmpty || startsWithIndent || isSpecial;
+
+    if (!isNewParagraph && mergedLines.length > 0) {
+      // Ищем последнюю непустую строку для склейки
+      let lastIdx = mergedLines.length - 1;
+      while (lastIdx >= 0 && !mergedLines[lastIdx].trim()) lastIdx--;
+
+      if (lastIdx >= 0 && !isSpecialLine(mergedLines[lastIdx].trim())) {
+        mergedLines[lastIdx] = mergedLines[lastIdx].trimEnd() + ' ' + trimmed;
+        prevWasEmpty = false;
         continue;
       }
     }
+
     mergedLines.push(line);
+    prevWasEmpty = false;
   }
   const mergedText = mergedLines.join('\n');
 
