@@ -180,9 +180,7 @@ export default function App() {
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
 
-  // Keep sync refs updated whenever state changes
-  useEffect(() => { personalDataRef.current = personalData; }, [personalData]);
-  useEffect(() => { anonymizedRef.current = anonymized; }, [anonymized]);
+
   // Timer ref for deferred PD cleanup after editing
   const pdCleanupTimerRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
@@ -598,25 +596,17 @@ export default function App() {
     commitUndo(snapshotNow());
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
+      anonymizedRef.current = next; // sync immediately
       const isAnon = next[id];
 
-      // Find what letter/replacement to use
       const person = personalData.persons?.find(p => p.id === id);
       const otherItem = personalData.otherPD?.find(it => it.id === id);
-      const letter = person?.letter;
-      const replacement = otherItem?.replacement;
+      patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
 
-      // Patch DOM without rebuilding — preserves all user edits
-      patchPdMarks(editorDomRef.current, id, isAnon, letter, replacement);
-
-      // Sync state for save/export
-      if (editorDomRef.current) {
-        setEditorHtml(editorDomRef.current.innerHTML);
-      }
-
+      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
       return next;
     });
-  }, [personalData]);
+  }, [personalData, commitUndo, snapshotNow]);
 
   const anonymizeAllByCategory = useCallback((category) => {
     setAnonymized(prev => {
@@ -712,19 +702,19 @@ export default function App() {
   const handleRemovePdMark = useCallback((id) => {
     commitUndo(snapshotNow());
     setPersonalData(prev => {
-      // Count remaining marks for this id in the editor DOM
       const remaining = editorDomRef.current
         ? editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`).length
         : 0;
-      if (remaining > 0) return prev; // other marks still exist, just leave state as-is
-      // No marks left — remove entry from panel
-      return {
+      if (remaining > 0) return prev;
+      const next = {
         ...prev,
         persons: prev.persons.filter(p => p.id !== id),
         otherPD: prev.otherPD.filter(p => p.id !== id),
       };
+      personalDataRef.current = next; // sync immediately
+      return next;
     });
-  }, []);
+  }, [commitUndo, snapshotNow]);
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
@@ -751,9 +741,10 @@ export default function App() {
           markEl.classList.add('anon');
         }
       }
-      return prev; // state unchanged, only DOM updated
+      personalDataRef.current = prev; // ref stays current even though state unchanged
+      return prev;
     });
-  }, [anonymized]);
+  }, [anonymized, commitUndo, snapshotNow]);
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
@@ -802,9 +793,11 @@ export default function App() {
         }
       }
 
-      return { ...prev, persons: newPersons, otherPD: newOtherPD };
+      const next = { ...prev, persons: newPersons, otherPD: newOtherPD };
+      personalDataRef.current = next; // sync immediately
+      return next;
     });
-  }, [anonymized]);
+  }, [anonymized, commitUndo, snapshotNow]);
 
   // ── Export ────────────────────────────────────────────────────────────────────
 
