@@ -634,18 +634,15 @@ export default function App() {
 
   const handlePdClick = useCallback((id) => {
     pushSnap(snap()); cancelTextSnap();
-    // Compute next anon and update ref SYNCHRONOUSLY before setAnonymized
-    // so rapid successive clicks each capture the correct "before" state
+    // Compute and apply everything SYNCHRONOUSLY so the next snap() always sees correct state
     const nextAnon = { ...anonRef.current, [id]: !anonRef.current[id] };
     anonRef.current = nextAnon;
-    setAnonymized(() => {
-      const isAnon = nextAnon[id];
-      const person = personalData.persons?.find(p => p.id === id);
-      const otherItem = personalData.otherPD?.find(it => it.id === id);
-      patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
-      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
-      return nextAnon;
-    });
+    const isAnon = nextAnon[id];
+    const person = personalData.persons?.find(p => p.id === id);
+    const otherItem = personalData.otherPD?.find(it => it.id === id);
+    patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
+    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+    setAnonymized(() => nextAnon);
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
