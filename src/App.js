@@ -143,6 +143,8 @@ export default function App() {
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
+  // Timer ref for deferred PD cleanup after editing
+  const pdCleanupTimerRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
   const titleRowRef = useRef(null);
   // Callback-ref for pd-panel — prevents wheel events from bleeding to page scroll
@@ -599,6 +601,48 @@ export default function App() {
   // After editor renders with new html, store originals for de-anonymize
   const handleEditorHtmlChange = useCallback((html) => {
     setEditorHtml(html);
+
+    // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
+    if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
+    pdCleanupTimerRef.current = setTimeout(() => {
+      if (!editorDomRef.current) return;
+      setPersonalData(prev => {
+        const dom = editorDomRef.current;
+
+        // Count marks per id
+        const markCounts = {};
+        dom.querySelectorAll("mark[data-pd-id]").forEach(el => {
+          const id = el.dataset.pdId;
+          markCounts[id] = (markCounts[id] || 0) + 1;
+        });
+
+        // Remove entries with 0 remaining marks in the editor
+        const persons = prev.persons.filter(p => markCounts[p.id] > 0);
+        const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0);
+
+        if (persons.length === prev.persons.length && otherPD.length === prev.otherPD.length) {
+          return prev; // nothing changed, skip re-render
+        }
+        return { ...prev, persons, otherPD };
+      });
+    }, 1000);
+  }, []);
+
+  // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
+  const handleRemovePdMark = useCallback((id) => {
+    setPersonalData(prev => {
+      // Count remaining marks for this id in the editor DOM
+      const remaining = editorDomRef.current
+        ? editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`).length
+        : 0;
+      if (remaining > 0) return prev; // other marks still exist, just leave state as-is
+      // No marks left — remove entry from panel
+      return {
+        ...prev,
+        persons: prev.persons.filter(p => p.id !== id),
+        otherPD: prev.otherPD.filter(p => p.id !== id),
+      };
+    });
   }, []);
 
   // ── Export ────────────────────────────────────────────────────────────────────
@@ -1267,6 +1311,7 @@ ${content}
                 html={editorHtml}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
+                onRemovePdMark={handleRemovePdMark}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />

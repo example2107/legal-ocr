@@ -536,7 +536,7 @@ export function initPdMarkOriginals(editorEl) {
 
 // ── RichEditor component ───────────────────────────────────────────────────────
 // ── Context menu for uncertain marks ─────────────────────────────────────────
-function UncertainContextMenu({ x, y, onRemove, onApplySuggestion, suggestion, onClose }) {
+function UncertainContextMenu({ x, y, type, onRemove, onApplySuggestion, suggestion, onClose }) {
   const menuRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -563,19 +563,27 @@ function UncertainContextMenu({ x, y, onRemove, onApplySuggestion, suggestion, o
       style={{ position: 'fixed', top: y + 4, left: x, zIndex: 9999 }}
       onMouseDown={e => e.stopPropagation()}
     >
-      {suggestion && (
-        <div className="uncertain-menu-item uncertain-menu-suggestion" onClick={onApplySuggestion}>
-          ✏️ Заменить на: <strong>{suggestion}</strong>
+      {type === 'pd' ? (
+        <div className="uncertain-menu-item" onClick={onRemove}>
+          ✕ Не является ПД
         </div>
+      ) : (
+        <>
+          {suggestion && (
+            <div className="uncertain-menu-item uncertain-menu-suggestion" onClick={onApplySuggestion}>
+              ✏️ Заменить на: <strong>{suggestion}</strong>
+            </div>
+          )}
+          <div className="uncertain-menu-item" onClick={onRemove}>
+            ✓ Исправлено — снять выделение
+          </div>
+        </>
       )}
-      <div className="uncertain-menu-item" onClick={onRemove}>
-        ✓ Исправлено — снять выделение
-      </div>
     </div>
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -632,10 +640,14 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
   }, [onPdClick]);
 
   const handleContextMenu = useCallback((e) => {
-    const mark = e.target.closest('mark.uncertain');
-    if (mark) {
+    const uncertainMark = e.target.closest('mark.uncertain');
+    const pdMark = e.target.closest('mark[data-pd-id]');
+    if (uncertainMark) {
       e.preventDefault();
-      setCtxMenu({ x: e.clientX, y: e.clientY, mark });
+      setCtxMenu({ x: e.clientX, y: e.clientY, mark: uncertainMark, type: 'uncertain' });
+    } else if (pdMark) {
+      e.preventDefault();
+      setCtxMenu({ x: e.clientX, y: e.clientY, mark: pdMark, type: 'pd' });
     }
   }, []);
 
@@ -659,6 +671,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
     notifyChange();
     setCtxMenu(null);
   }, [ctxMenu, notifyChange]);
+
+  const removePdMark = useCallback(() => {
+    if (!ctxMenu?.mark) return;
+    const mark = ctxMenu.mark;
+    const id = mark.dataset.pdId;
+    const text = document.createTextNode(mark.textContent);
+    mark.parentNode.replaceChild(text, mark);
+    notifyChange();
+    setCtxMenu(null);
+    onRemovePdMark?.(id);
+  }, [ctxMenu, notifyChange, onRemovePdMark]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
@@ -731,8 +754,9 @@ export function RichEditor({ html, onHtmlChange, onPdClick, editorRef: externalR
         <UncertainContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
+          type={ctxMenu.type}
           suggestion={ctxMenu.mark?.dataset?.suggestion || ''}
-          onRemove={removeUncertainMark}
+          onRemove={ctxMenu.type === 'pd' ? removePdMark : removeUncertainMark}
           onApplySuggestion={applyUncertainSuggestion}
           onClose={() => setCtxMenu(null)}
         />
