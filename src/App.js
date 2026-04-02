@@ -94,6 +94,10 @@ export default function App() {
   const [anonymized, setAnonymized] = useState({});
   const [lastSavedState, setLastSavedState] = useState(null);
 
+  // ── Sync refs — always hold latest state values synchronously ─────────────────
+  const personalDataRef = useRef({ persons: [], otherPD: [] });
+  const anonymizedRef = useRef({});
+
   // ── Undo history ──────────────────────────────────────────────────────────────
   const undoStackRef = useRef([]); // [{html, personalData, anonymized}, ...]
   const undoIndexRef = useRef(-1); // pointer into stack
@@ -101,14 +105,12 @@ export default function App() {
 
   const MAX_UNDO = 100;
 
-  // Push a snapshot onto the undo stack (called before every meaningful action)
-  const pushUndo = useCallback((htmlOverride) => {
-    const html = htmlOverride ?? editorDomRef.current?.innerHTML ?? '';
-    // Read latest state synchronously from refs isn't possible for useState,
-    // so we store a snapshot object; personalData and anonymized are passed in
-    // by callers who have the latest values
-    return { html }; // partial — callers merge in pd/anon
-  }, []);
+  // Simple snapshot from current refs — always up to date
+  const snapshotNow = useCallback(() => ({
+    html: editorDomRef.current?.innerHTML ?? '',
+    personalData: personalDataRef.current,
+    anonymized: anonymizedRef.current,
+  }), []);
 
   const commitUndo = useCallback((snapshot) => {
     const stack = undoStackRef.current;
@@ -177,6 +179,10 @@ export default function App() {
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
+
+  // Keep sync refs updated whenever state changes
+  useEffect(() => { personalDataRef.current = personalData; }, [personalData]);
+  useEffect(() => { anonymizedRef.current = anonymized; }, [anonymized]);
   // Timer ref for deferred PD cleanup after editing
   const pdCleanupTimerRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
@@ -475,6 +481,8 @@ export default function App() {
       // Init undo stack with initial state
       undoStackRef.current = [{ html, personalData: pd, anonymized: initialAnon }];
       undoIndexRef.current = 0;
+      personalDataRef.current = pd;
+      anonymizedRef.current = initialAnon;
       setShowLongDocWarning(result.text.length > 50000);
 
       stopProgressCreep();
@@ -505,6 +513,8 @@ export default function App() {
     const loadedHtml = entry.editedHtml || html;
     undoStackRef.current = [{ html: loadedHtml, personalData: pd, anonymized: anon }];
     undoIndexRef.current = 0;
+    personalDataRef.current = pd;
+    anonymizedRef.current = anon;
     setView(VIEW_RESULT);
   };
 
@@ -585,15 +595,7 @@ export default function App() {
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
   const handlePdClick = useCallback((id) => {
-    // Snapshot before toggle
-    const html = editorDomRef.current?.innerHTML ?? '';
-    setPersonalData(pd => {
-      setAnonymized(anon => {
-        commitUndo({ html, personalData: pd, anonymized: anon });
-        return anon;
-      });
-      return pd;
-    });
+    commitUndo(snapshotNow());
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
       const isAnon = next[id];
@@ -677,14 +679,7 @@ export default function App() {
     // Debounced undo snapshot for plain text edits
     if (undoTextTimerRef.current) clearTimeout(undoTextTimerRef.current);
     undoTextTimerRef.current = setTimeout(() => {
-      // We only have html here; read pd/anon from latest React state via functional update
-      setPersonalData(pd => {
-        setAnonymized(anon => {
-          commitUndo({ html, personalData: pd, anonymized: anon });
-          return anon;
-        });
-        return pd;
-      });
+      commitUndo(snapshotNow());
     }, 500);
 
     // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
@@ -715,14 +710,7 @@ export default function App() {
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
-    const html = editorDomRef.current?.innerHTML ?? '';
-    setPersonalData(pd => {
-      setAnonymized(anon => {
-        commitUndo({ html, personalData: pd, anonymized: anon });
-        return anon;
-      });
-      return pd;
-    });
+    commitUndo(snapshotNow());
     setPersonalData(prev => {
       // Count remaining marks for this id in the editor DOM
       const remaining = editorDomRef.current
@@ -740,14 +728,7 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    const html = editorDomRef.current?.innerHTML ?? '';
-    setPersonalData(pd => {
-      setAnonymized(anon => {
-        commitUndo({ html, personalData: pd, anonymized: anon });
-        return anon;
-      });
-      return pd;
-    });
+    commitUndo(snapshotNow());
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -776,14 +757,7 @@ export default function App() {
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    const html = editorDomRef.current?.innerHTML ?? '';
-    setPersonalData(pd => {
-      setAnonymized(anon => {
-        commitUndo({ html, personalData: pd, anonymized: anon });
-        return anon;
-      });
-      return pd;
-    });
+    commitUndo(snapshotNow());
     setPersonalData(prev => {
       const newId = `manual_${Date.now()}`;
       let newPersons = prev.persons;
@@ -1503,15 +1477,7 @@ ${content}
                 onAddPdMark={handleAddPdMark}
                 existingPD={personalData}
                 onUndo={performUndo}
-                onBeforeUncertainAction={(html) => {
-                  setPersonalData(pd => {
-                    setAnonymized(anon => {
-                      commitUndo({ html, personalData: pd, anonymized: anon });
-                      return anon;
-                    });
-                    return pd;
-                  });
-                }}
+                onBeforeUncertainAction={() => commitUndo(snapshotNow())}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
