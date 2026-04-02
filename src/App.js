@@ -115,12 +115,12 @@ export default function App() {
   const commitUndo = useCallback((snapshot) => {
     const stack = undoStackRef.current;
     const idx = undoIndexRef.current;
-    // Discard any redo entries above current index
     const newStack = stack.slice(0, idx + 1);
     newStack.push(snapshot);
     if (newStack.length > MAX_UNDO) newStack.shift();
     undoStackRef.current = newStack;
     undoIndexRef.current = newStack.length - 1;
+    console.log('[UNDO] commitUndo — stack size:', newStack.length, 'html snippet:', snapshot.html?.slice(0,60), 'persons:', snapshot.personalData?.persons?.length, 'anon keys:', Object.keys(snapshot.anonymized||{}).length);
   }, []);
 
   const [history, setHistory] = useState([]);
@@ -648,11 +648,12 @@ export default function App() {
   const performUndo = useCallback(() => {
     const stack = undoStackRef.current;
     const idx = undoIndexRef.current;
-    if (idx <= 0) return; // nothing to undo
+    console.log('[UNDO] performUndo called — idx:', idx, 'stack size:', stack.length);
+    if (idx <= 0) { console.log('[UNDO] nothing to undo'); return; }
     const prev = stack[idx - 1];
     undoIndexRef.current = idx - 1;
+    console.log('[UNDO] restoring to:', prev.html?.slice(0,60), 'persons:', prev.personalData?.persons?.length);
 
-    // Restore HTML into editor DOM directly (skip React re-render to avoid cursor jump)
     if (editorDomRef.current) {
       editorDomRef.current.innerHTML = prev.html;
       initPdMarkOriginals(editorDomRef.current);
