@@ -174,7 +174,6 @@ export default function App() {
   // Undo stack
   const undoStackRef  = useRef([]); // array of {html, pd, anon}
   const undoIndexRef  = useRef(-1);
-  const undoTimerRef  = useRef(null); // debounce for plain-text changes
   const MAX_UNDO = 80;
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
   const titleRowRef = useRef(null);
@@ -606,10 +605,6 @@ export default function App() {
     undoIndexRef.current = next.length - 1;
   };
 
-  // Cancel pending debounced text snapshot (call after any PD action to prevent double-push)
-  const cancelTextSnap = () => {
-    if (undoTimerRef.current) { clearTimeout(undoTimerRef.current); undoTimerRef.current = null; }
-  };
 
   // Restore a snapshot — write DOM directly, update React state
   const applySnap = (s) => {
@@ -633,7 +628,7 @@ export default function App() {
   };
 
   const handlePdClick = useCallback((id) => {
-    pushSnap(snap()); cancelTextSnap();
+    pushSnap(snap());
     // Compute and apply everything SYNCHRONOUSLY so the next snap() always sees correct state
     const nextAnon = { ...anonRef.current, [id]: !anonRef.current[id] };
     anonRef.current = nextAnon;
@@ -646,7 +641,7 @@ export default function App() {
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
-    pushSnap(snap()); cancelTextSnap();
+    pushSnap(snap());
     const { persons = [], otherPD = [] } = personalData;
     const newAnon = { ...anonRef.current };
     let items;
@@ -673,11 +668,8 @@ export default function App() {
   const handleEditorHtmlChange = useCallback((html) => {
     setEditorHtml(html);
 
-    // Debounced undo snapshot for plain text edits (800ms after typing stops)
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    undoTimerRef.current = setTimeout(() => {
-      pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
-    }, 800);
+    // Snapshot every text change immediately (debounce removed — text edits are rare)
+    pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
 
     // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
     if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
@@ -709,7 +701,7 @@ export default function App() {
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
-    cancelTextSnap();
+   
     if (pdCleanupTimerRef.current) { clearTimeout(pdCleanupTimerRef.current); pdCleanupTimerRef.current = null; }
     setPersonalData(prev => {
       const remaining = editorDomRef.current
@@ -728,7 +720,7 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    cancelTextSnap();
+   
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -758,7 +750,7 @@ export default function App() {
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    cancelTextSnap(); // snapshot already taken via onBeforeAction in RichEditor
+    // snapshot already taken via onBeforeAction in RichEditor
     setPersonalData(prev => {
       const newId = `manual_${Date.now()}`;
       let newPersons = prev.persons;
@@ -1481,7 +1473,7 @@ ${content}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
                 existingPD={personalData}
-                onBeforeAction={() => { pushSnap(snap()); cancelTextSnap(); }}
+                onBeforeAction={() => { pushSnap(snap()); }}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
