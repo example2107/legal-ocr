@@ -928,12 +928,129 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     onAddPdMark?.(pdData, selectedText, mark);
   }, [ctxMenu, notifyChange, onAddPdMark]);
 
+  // Удаляем маркер целиком при Delete/Backspace
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       exec(e.shiftKey ? 'outdent' : 'indent');
+      return;
     }
-  }, [exec]);
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+
+      if (!range.collapsed) {
+        // Есть выделение — оно уже расширено до границ маркеров (см. handleSelectionChange)
+        // Позволяем браузеру удалить, но после проверяем осиротевшие маркеры
+        return;
+      }
+
+      // Курсор без выделения — проверяем соседний маркер
+      let mark = null;
+      if (e.key === 'Backspace') {
+        // Ищем маркер непосредственно перед курсором
+        const node = range.startContainer;
+        const offset = range.startOffset;
+        if (node.nodeType === 3 && offset === 0) {
+          const prev = node.previousSibling;
+          if (prev?.matches?.('mark[data-pd-id]')) mark = prev;
+        } else if (node.nodeType === 1) {
+          const prev = node.childNodes[offset - 1];
+          if (prev?.matches?.('mark[data-pd-id]')) mark = prev;
+        }
+      } else {
+        // Delete — ищем маркер непосредственно после курсора
+        const node = range.startContainer;
+        const offset = range.startOffset;
+        if (node.nodeType === 3 && offset === node.textContent.length) {
+          const next = node.nextSibling;
+          if (next?.matches?.('mark[data-pd-id]')) mark = next;
+        } else if (node.nodeType === 1) {
+          const next = node.childNodes[offset];
+          if (next?.matches?.('mark[data-pd-id]')) mark = next;
+        }
+      }
+
+      if (mark) {
+        e.preventDefault();
+        const id = mark.dataset.pdId;
+        mark.parentNode.removeChild(mark);
+        notifyChange();
+        onRemovePdMark?.(id);
+      }
+    }
+  }, [exec, notifyChange, onRemovePdMark]);
+
+  // Перескакиваем курсор через маркер при навигации стрелками
+  // и расширяем выделение до полных границ маркера при частичном захвате
+  const handleSelectionChange = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+
+    if (range.collapsed) {
+      // Курсор внутри маркера — выносим наружу
+      const node = range.startContainer;
+      const mark = node.nodeType === 3
+        ? node.parentElement?.closest('mark[data-pd-id]')
+        : node.closest?.('mark[data-pd-id]');
+      if (!mark) return;
+
+      // Определяем направление по положению курсора внутри маркера
+      const markRange = document.createRange();
+      markRange.selectNode(mark);
+      const posInMark = range.startOffset;
+      const markTextLen = mark.textContent.length;
+      const goAfter = posInMark >= markTextLen / 2;
+
+      const newRange = document.createRange();
+      if (goAfter) newRange.setStartAfter(mark);
+      else newRange.setStartBefore(mark);
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    } else {
+      // Есть выделение — расширяем до полных границ любого захваченного маркера
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      let newStart = range.startContainer;
+      let newStartOffset = range.startOffset;
+      let newEnd = range.endContainer;
+      let newEndOffset = range.endOffset;
+      let changed = false;
+
+      // Проверяем начало выделения — не попало ли внутрь маркера
+      const startMark = (newStart.nodeType === 3
+        ? newStart.parentElement
+        : newStart)?.closest('mark[data-pd-id]');
+      if (startMark) {
+        newStart = startMark.parentNode;
+        newStartOffset = Array.from(startMark.parentNode.childNodes).indexOf(startMark);
+        changed = true;
+      }
+
+      // Проверяем конец выделения
+      const endMark = (newEnd.nodeType === 3
+        ? newEnd.parentElement
+        : newEnd)?.closest('mark[data-pd-id]');
+      if (endMark) {
+        newEnd = endMark.parentNode;
+        newEndOffset = Array.from(endMark.parentNode.childNodes).indexOf(endMark) + 1;
+        changed = true;
+      }
+
+      if (changed) {
+        const newRange = document.createRange();
+        newRange.setStart(newStart, newStartOffset);
+        newRange.setEnd(newEnd, newEndOffset);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
+    }
+  }, [editorRef]);
 
   // Выносим курсор за пределы <mark class="pd"> при вводе текста
   const escapeFromPdMark = useCallback(() => {
@@ -941,18 +1058,31 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
     const node = range.startContainer;
-    // Ищем ближайший mark.pd вокруг курсора
     const mark = node.nodeType === 3
       ? node.parentElement?.closest('mark.pd')
       : node.closest?.('mark.pd');
     if (!mark) return;
-    // Курсор внутри mark — выносим его сразу после mark
     const newRange = document.createRange();
     newRange.setStartAfter(mark);
     newRange.collapse(true);
     sel.removeAllRanges();
     sel.addRange(newRange);
   }, []);
+
+  // Подписываемся на selectionchange только когда редактор в фокусе
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const onFocus = () => document.addEventListener('selectionchange', handleSelectionChange);
+    const onBlur  = () => document.removeEventListener('selectionchange', handleSelectionChange);
+    editor.addEventListener('focus', onFocus);
+    editor.addEventListener('blur',  onBlur);
+    return () => {
+      editor.removeEventListener('focus', onFocus);
+      editor.removeEventListener('blur',  onBlur);
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, [editorRef, handleSelectionChange]);
 
   return (
     <div className="rich-editor-wrap">
