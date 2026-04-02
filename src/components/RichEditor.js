@@ -775,7 +775,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, onUndo, onBeforeUncertainAction, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -857,17 +857,15 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
   const removeUncertainMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
-    onBeforeUncertainAction?.(editorRef.current?.innerHTML ?? '');
     const mark = ctxMenu.mark;
     const text = document.createTextNode(mark.textContent);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange, onBeforeUncertainAction, editorRef]);
+  }, [ctxMenu, notifyChange]);
 
   const applyUncertainSuggestion = useCallback(() => {
     if (!ctxMenu?.mark) return;
-    onBeforeUncertainAction?.(editorRef.current?.innerHTML ?? '');
     const mark = ctxMenu.mark;
     const suggestion = mark.dataset.suggestion;
     if (!suggestion) return;
@@ -941,8 +939,6 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
       exec(e.shiftKey ? 'outdent' : 'indent');
       return;
     }
-
-
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       const sel = window.getSelection();

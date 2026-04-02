@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
-import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
@@ -94,35 +94,6 @@ export default function App() {
   const [anonymized, setAnonymized] = useState({});
   const [lastSavedState, setLastSavedState] = useState(null);
 
-  // ── Sync refs — always hold latest state values synchronously ─────────────────
-  const personalDataRef = useRef({ persons: [], otherPD: [] });
-  const anonymizedRef = useRef({});
-
-  // ── Undo history ──────────────────────────────────────────────────────────────
-  const undoStackRef = useRef([]); // [{html, personalData, anonymized}, ...]
-  const undoIndexRef = useRef(-1); // pointer into stack
-  const undoTextTimerRef = useRef(null); // debounce timer for text changes
-
-  const MAX_UNDO = 100;
-
-  // Simple snapshot from current refs — always up to date
-  const snapshotNow = useCallback(() => ({
-    html: editorDomRef.current?.innerHTML ?? '',
-    personalData: personalDataRef.current,
-    anonymized: anonymizedRef.current,
-  }), []);
-
-  const commitUndo = useCallback((snapshot) => {
-    const stack = undoStackRef.current;
-    const idx = undoIndexRef.current;
-    const newStack = stack.slice(0, idx + 1);
-    newStack.push(snapshot);
-    if (newStack.length > MAX_UNDO) newStack.shift();
-    undoStackRef.current = newStack;
-    undoIndexRef.current = newStack.length - 1;
-    console.log('[UNDO] commitUndo — stack size:', newStack.length, 'html snippet:', snapshot.html?.slice(0,60), 'persons:', snapshot.personalData?.persons?.length, 'anon keys:', Object.keys(snapshot.anonymized||{}).length);
-  }, []);
-
   const [history, setHistory] = useState([]);
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
@@ -179,8 +150,6 @@ export default function App() {
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
-
-
   // Timer ref for deferred PD cleanup after editing
   const pdCleanupTimerRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
@@ -373,6 +342,7 @@ export default function App() {
     setOriginalPage(0);
     setZoomActive(false);
     setZoomScale(1);
+    setZoomOffset({ x: 0, y: 0 });
     setOriginalFileName('');
     setError(null);
     setProgress(null);
@@ -475,11 +445,6 @@ export default function App() {
       setPersonalData(pd);
       setAnonymized(initialAnon);
       setLastSavedState(null);
-      // Init undo stack with initial state
-      undoStackRef.current = [{ html, personalData: pd, anonymized: initialAnon }];
-      undoIndexRef.current = 0;
-      personalDataRef.current = pd;
-      anonymizedRef.current = initialAnon;
       setShowLongDocWarning(result.text.length > 50000);
 
       stopProgressCreep();
@@ -506,12 +471,6 @@ export default function App() {
     setPersonalData(pd);
     setAnonymized(anon);
     setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html: entry.editedHtml || html }));
-    // Init undo stack with loaded state
-    const loadedHtml = entry.editedHtml || html;
-    undoStackRef.current = [{ html: loadedHtml, personalData: pd, anonymized: anon }];
-    undoIndexRef.current = 0;
-    personalDataRef.current = pd;
-    anonymizedRef.current = anon;
     setView(VIEW_RESULT);
   };
 
@@ -592,20 +551,27 @@ export default function App() {
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
   const handlePdClick = useCallback((id) => {
-    commitUndo(snapshotNow());
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
-      anonymizedRef.current = next; // sync immediately
       const isAnon = next[id];
 
+      // Find what letter/replacement to use
       const person = personalData.persons?.find(p => p.id === id);
       const otherItem = personalData.otherPD?.find(it => it.id === id);
-      patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
+      const letter = person?.letter;
+      const replacement = otherItem?.replacement;
 
-      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+      // Patch DOM without rebuilding — preserves all user edits
+      patchPdMarks(editorDomRef.current, id, isAnon, letter, replacement);
+
+      // Sync state for save/export
+      if (editorDomRef.current) {
+        setEditorHtml(editorDomRef.current.innerHTML);
+      }
+
       return next;
     });
-  }, [personalData, commitUndo, snapshotNow]);
+  }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
     setAnonymized(prev => {
@@ -643,51 +609,9 @@ export default function App() {
     });
   }, [personalData]);
 
-  // ── Undo: perform ────────────────────────────────────────────────────────────
-  const performUndo = useCallback(() => {
-    const stack = undoStackRef.current;
-    const idx = undoIndexRef.current;
-    console.log('[UNDO] performUndo called — idx:', idx, 'stack size:', stack.length);
-    if (idx <= 0) { console.log('[UNDO] nothing to undo'); return; }
-    const prev = stack[idx - 1];
-    undoIndexRef.current = idx - 1;
-    console.log('[UNDO] restoring to:', prev.html?.slice(0,60), 'persons:', prev.personalData?.persons?.length);
-
-    if (editorDomRef.current) {
-      editorDomRef.current.innerHTML = prev.html;
-      initPdMarkOriginals(editorDomRef.current);
-    }
-    setEditorHtml(prev.html);
-    setPersonalData(prev.personalData);
-    setAnonymized(prev.anonymized);
-  }, []);
-
-  // Global Ctrl-Z handler — catches undo even when editor has lost focus
-  useEffect(() => {
-    const handler = (e) => {
-      console.log('[UNDO] keydown:', e.key, 'ctrl:', e.ctrlKey, 'meta:', e.metaKey);
-      if (!(e.ctrlKey || e.metaKey) || e.key !== 'z' || e.shiftKey) return;
-      const tag = document.activeElement?.tagName;
-      console.log('[UNDO] Ctrl-Z — activeElement tag:', tag, 'view:', view);
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-      e.preventDefault();
-      e.stopPropagation();
-      console.log('[UNDO] global Ctrl-Z fired, calling performUndo');
-      performUndo();
-    };
-    document.addEventListener('keydown', handler, true);
-    return () => document.removeEventListener('keydown', handler, true);
-  }, [view, performUndo]);
-
   // After editor renders with new html, store originals for de-anonymize
   const handleEditorHtmlChange = useCallback((html) => {
     setEditorHtml(html);
-
-    // Debounced undo snapshot for plain text edits
-    if (undoTextTimerRef.current) clearTimeout(undoTextTimerRef.current);
-    undoTextTimerRef.current = setTimeout(() => {
-      commitUndo(snapshotNow());
-    }, 500);
 
     // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
     if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
@@ -713,29 +637,27 @@ export default function App() {
         return { ...prev, persons, otherPD };
       });
     }, 1000);
-  }, [commitUndo]);
+  }, []);
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
-    commitUndo(snapshotNow());
     setPersonalData(prev => {
+      // Count remaining marks for this id in the editor DOM
       const remaining = editorDomRef.current
         ? editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`).length
         : 0;
-      if (remaining > 0) return prev;
-      const next = {
+      if (remaining > 0) return prev; // other marks still exist, just leave state as-is
+      // No marks left — remove entry from panel
+      return {
         ...prev,
         persons: prev.persons.filter(p => p.id !== id),
         otherPD: prev.otherPD.filter(p => p.id !== id),
       };
-      personalDataRef.current = next; // sync immediately
-      return next;
     });
-  }, [commitUndo, snapshotNow]);
+  }, []);
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    commitUndo(snapshotNow());
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -758,14 +680,12 @@ export default function App() {
           markEl.classList.add('anon');
         }
       }
-      personalDataRef.current = prev; // ref stays current even though state unchanged
-      return prev;
+      return prev; // state unchanged, only DOM updated
     });
-  }, [anonymized, commitUndo, snapshotNow]);
+  }, [anonymized]);
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    commitUndo(snapshotNow());
     setPersonalData(prev => {
       const newId = `manual_${Date.now()}`;
       let newPersons = prev.persons;
@@ -810,11 +730,9 @@ export default function App() {
         }
       }
 
-      const next = { ...prev, persons: newPersons, otherPD: newOtherPD };
-      personalDataRef.current = next; // sync immediately
-      return next;
+      return { ...prev, persons: newPersons, otherPD: newOtherPD };
     });
-  }, [anonymized, commitUndo, snapshotNow]);
+  }, [anonymized]);
 
   // ── Export ────────────────────────────────────────────────────────────────────
 
@@ -1486,8 +1404,6 @@ ${content}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
                 existingPD={personalData}
-                onUndo={performUndo}
-                onBeforeUncertainAction={() => commitUndo(snapshotNow())}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
