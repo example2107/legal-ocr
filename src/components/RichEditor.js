@@ -775,7 +775,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, onUndo, onBeforeUncertainAction, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -857,15 +857,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
   const removeUncertainMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
+    onBeforeUncertainAction?.(editorRef.current?.innerHTML ?? '');
     const mark = ctxMenu.mark;
     const text = document.createTextNode(mark.textContent);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange]);
+  }, [ctxMenu, notifyChange, onBeforeUncertainAction, editorRef]);
 
   const applyUncertainSuggestion = useCallback(() => {
     if (!ctxMenu?.mark) return;
+    onBeforeUncertainAction?.(editorRef.current?.innerHTML ?? '');
     const mark = ctxMenu.mark;
     const suggestion = mark.dataset.suggestion;
     if (!suggestion) return;
@@ -937,6 +939,13 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     if (e.key === 'Tab') {
       e.preventDefault();
       exec(e.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
+
+    // Ctrl-Z / Cmd-Z — наша единая история undo
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      onUndo?.();
       return;
     }
 
