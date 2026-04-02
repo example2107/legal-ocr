@@ -606,6 +606,11 @@ export default function App() {
     undoIndexRef.current = next.length - 1;
   };
 
+  // Cancel pending debounced text snapshot (call after any PD action to prevent double-push)
+  const cancelTextSnap = () => {
+    if (undoTimerRef.current) { clearTimeout(undoTimerRef.current); undoTimerRef.current = null; }
+  };
+
   // Restore a snapshot — write DOM directly, update React state
   const applySnap = (s) => {
     if (editorDomRef.current) {
@@ -628,7 +633,7 @@ export default function App() {
   };
 
   const handlePdClick = useCallback((id) => {
-    pushSnap(snap()); // snapshot BEFORE the toggle
+    pushSnap(snap()); cancelTextSnap(); // snapshot BEFORE, cancel any pending text snap
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
       anonRef.current = next; // keep ref in sync
@@ -644,7 +649,7 @@ export default function App() {
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
-    pushSnap(snap());
+    pushSnap(snap()); cancelTextSnap();
     setAnonymized(prev => {
       const { persons = [], otherPD = [] } = personalData;
       const newAnon = { ...prev };
@@ -718,7 +723,8 @@ export default function App() {
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
-    pushSnap(snap());
+    cancelTextSnap();
+    if (pdCleanupTimerRef.current) { clearTimeout(pdCleanupTimerRef.current); pdCleanupTimerRef.current = null; }
     setPersonalData(prev => {
       const remaining = editorDomRef.current
         ? editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`).length
@@ -736,7 +742,7 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    pushSnap(snap());
+    cancelTextSnap(); // snapshot already taken via onBeforeAction in RichEditor
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -765,7 +771,7 @@ export default function App() {
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    pushSnap(snap());
+    cancelTextSnap(); // snapshot already taken via onBeforeAction in RichEditor
     setPersonalData(prev => {
       const newId = `manual_${Date.now()}`;
       let newPersons = prev.persons;
@@ -1486,7 +1492,7 @@ ${content}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
                 existingPD={personalData}
-                onBeforeAction={() => pushSnap(snap())}
+                onBeforeAction={() => { pushSnap(snap()); cancelTextSnap(); }}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
