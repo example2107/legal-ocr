@@ -373,7 +373,6 @@ export default function App() {
     setOriginalPage(0);
     setZoomActive(false);
     setZoomScale(1);
-    setZoomOffset({ x: 0, y: 0 });
     setOriginalFileName('');
     setError(null);
     setProgress(null);
@@ -662,6 +661,23 @@ export default function App() {
     setPersonalData(prev.personalData);
     setAnonymized(prev.anonymized);
   }, []);
+
+  // Global Ctrl-Z handler — catches undo even when editor has lost focus
+  useEffect(() => {
+    if (view !== VIEW_RESULT) return;
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        // Only intercept if focus is inside the result view, not in an input/select
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+        e.preventDefault();
+        console.log('[UNDO] global Ctrl-Z fired');
+        performUndo();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [view, performUndo]);
 
   // After editor renders with new html, store originals for de-anonymize
   const handleEditorHtmlChange = useCallback((html) => {

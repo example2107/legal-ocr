@@ -942,13 +942,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
       return;
     }
 
-    // Ctrl-Z / Cmd-Z — наша единая история undo
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      console.log('[UNDO] Ctrl-Z pressed, onUndo:', typeof onUndo);
-      onUndo?.();
-      return;
-    }
+
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       const sel = window.getSelection();
