@@ -151,26 +151,29 @@ export default function App() {
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
 
-  // Global Ctrl-Z — works regardless of which element has focus
+  // Global Ctrl-Z / Ctrl-Shift-Z / Ctrl-Y — works regardless of which element has focus
   useEffect(() => {
     const handler = (e) => {
-      if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.code !== 'KeyZ') || e.shiftKey) return;
-      // Don't intercept when typing in a text field / form
+      if (!e.ctrlKey && !e.metaKey) return;
+      const isUndo = (e.key === 'z' || e.code === 'KeyZ') && !e.shiftKey;
+      const isRedo = ((e.key === 'z' || e.code === 'KeyZ') && e.shiftKey)
+                  || (e.key === 'y' || e.code === 'KeyY');
+      if (!isUndo && !isRedo) return;
       const tag = document.activeElement?.tagName ?? '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-      // Only active in result view
       if (undoStackRef.current.length === 0) return;
       e.preventDefault();
-      performUndo();
+      if (isUndo) performUndo(); else performRedo();
     };
     document.addEventListener('keydown', handler, true);
     return () => document.removeEventListener('keydown', handler, true);
-  }); // no deps — intentionally runs every render so performUndo closure is always fresh
+  }); // no deps — intentionally runs every render so closures are always fresh
   // Timer ref for deferred PD cleanup after editing
   const pdCleanupTimerRef = useRef(null);
   // Sync refs — always hold latest values so snapshot is always accurate
   const pdRef   = useRef({ persons: [], otherPD: [] });
   const anonRef = useRef({});
+  const skipNextHtmlSnapRef = useRef(false); // set by attach/add mark to suppress notifyChange snap
   // Undo stack
   const undoStackRef  = useRef([]); // array of {html, pd, anon}
   const undoIndexRef  = useRef(-1);
@@ -606,14 +609,14 @@ export default function App() {
   };
 
 
-  // Replace top stack entry (use after pd/anon state updates that follow a DOM snap)
+
+  // Restore a snapshot — write DOM directly, update React state
   const replaceTopSnap = (s) => {
     const stack = undoStackRef.current;
     const idx = undoIndexRef.current;
     if (idx >= 0) stack[idx] = s;
   };
 
-  // Restore a snapshot — write DOM directly, update React state
   const applySnap = (s) => {
     if (editorDomRef.current) {
       editorDomRef.current.innerHTML = s.html;
@@ -632,6 +635,14 @@ export default function App() {
     if (idx <= 0) return;
     undoIndexRef.current = idx - 1;
     applySnap(undoStackRef.current[idx - 1]);
+  };
+
+  const performRedo = () => {
+    const stack = undoStackRef.current;
+    const idx = undoIndexRef.current;
+    if (idx >= stack.length - 1) return;
+    undoIndexRef.current = idx + 1;
+    applySnap(stack[idx + 1]);
   };
 
   const handlePdClick = useCallback((id) => {
@@ -676,7 +687,12 @@ export default function App() {
     setEditorHtml(html);
 
     // Snapshot every text change immediately (debounce removed — text edits are rare)
-    pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
+    // Skip if attach/add mark action is about to push the correct snap itself
+    if (skipNextHtmlSnapRef.current) {
+      skipNextHtmlSnapRef.current = false;
+    } else {
+      pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
+    }
 
     // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
     if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
@@ -728,7 +744,9 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    // Fix DOM synchronously BEFORE reading innerHTML — updater would be lazy
+    // notifyChange in RichEditor already fired with pd-priv class — skip that snap
+    skipNextHtmlSnapRef.current = true;
+    // Fix DOM class synchronously
     const person = personalData.persons.find(p => p.id === id);
     const other = personalData.otherPD.find(p => p.id === id);
     if (markEl) {
@@ -739,6 +757,7 @@ export default function App() {
         markEl.dataset.original = person?.fullName || other?.value || markEl.textContent;
       }
       markEl.className = `pd ${cat}`;
+      markEl.contentEditable = 'false';
       markEl.dataset.pdId = id;
       const isAnon = anonymized[id];
       if (isAnon && person) {
@@ -749,16 +768,17 @@ export default function App() {
         markEl.classList.add('anon');
       }
     }
-    // Now HTML has correct class — snapshot and sync
+    // DOM is now correct — push snap with correct class
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
-    replaceTopSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
-    // pd doesn't change here, no setPersonalData needed
+    pushSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
   }, [personalData, anonymized]);
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    // Compute new state and fix DOM synchronously BEFORE reading innerHTML
+    // notifyChange in RichEditor fired with __new__ id and wrong class — skip that snap
+    skipNextHtmlSnapRef.current = true;
+    // Compute new pd state and fix DOM synchronously BEFORE reading innerHTML
     const newId = `manual_${Date.now()}`;
     let newPersons = pdRef.current.persons;
     let newOtherPD = pdRef.current.otherPD;
@@ -776,7 +796,8 @@ export default function App() {
       }];
       if (markEl) {
         const cat = pdData.category === 'professional' ? 'prof' : 'priv';
-        markEl.className = `pd ${cat}`; // correct class BEFORE innerHTML read
+        markEl.className = `pd ${cat}`;
+        markEl.contentEditable = 'false';
         markEl.dataset.pdId = newId;
         if (!markEl.dataset.original) markEl.dataset.original = selectedText;
       }
@@ -786,7 +807,8 @@ export default function App() {
         id: newId, type: pdData.type, value: selectedText, replacement: `[${typeLabel}]`,
       }];
       if (markEl) {
-        markEl.className = 'pd oth'; // correct class BEFORE innerHTML read
+        markEl.className = 'pd oth';
+        markEl.contentEditable = 'false';
         markEl.dataset.pdId = newId;
         markEl.dataset.original = selectedText;
       }
@@ -796,10 +818,10 @@ export default function App() {
     pdRef.current = nextPd;
     setPersonalData(() => nextPd);
 
-    // NOW read html — DOM has correct class and real id
+    // DOM has correct class and real id — push snap
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
-    replaceTopSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
+    pushSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
   }, [anonymized]);
 
   // ── Export ────────────────────────────────────────────────────────────────────
