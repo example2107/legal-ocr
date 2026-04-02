@@ -7,6 +7,13 @@ import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/h
 import './App.css';
 
 const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ'.split('').map(l => l + '.');
+const OTHER_PD_TYPES_MAP = {
+  address: 'адрес', phone: 'телефон', passport: 'паспорт', zagranpassport: 'загранпаспорт',
+  inn: 'ИНН', snils: 'СНИЛС', card: 'карта', email: 'email', dob: 'дата рождения',
+  birthplace: 'место рождения', vehicle_plate: 'номер авто', vehicle_vin: 'VIN',
+  driver_license: 'вод. удостоверение', military_id: 'военный билет', oms_policy: 'полис ОМС',
+  birth_certificate: 'свид. о рождении', imei: 'IMEI', other: 'ПД',
+};
 const makeProfletter = (n) => `[ФИО ${n}]`;
 
 function assignLetters(personalData) {
@@ -644,6 +651,76 @@ export default function App() {
       };
     });
   }, []);
+
+  // Called from RichEditor when user attaches selection to existing PD
+  const handleAttachPdMark = useCallback((id, markEl) => {
+    // Find the pd entry to determine correct css class
+    setPersonalData(prev => {
+      const person = prev.persons.find(p => p.id === id);
+      const other = prev.otherPD.find(p => p.id === id);
+      if (markEl) {
+        const cat = person
+          ? (person.category === 'professional' ? 'professional' : 'private')
+          : 'other';
+        markEl.className = `pd ${cat}`;
+        markEl.dataset.pdId = id;
+        const isAnon = anonymized[id];
+        if (isAnon && person) {
+          markEl.textContent = person.letter;
+          markEl.classList.add('anon');
+        } else if (isAnon && other) {
+          markEl.textContent = other.replacement || '[ПД]';
+          markEl.classList.add('anon');
+        }
+      }
+      return prev; // state unchanged, only DOM updated
+    });
+  }, [anonymized]);
+
+  // Called from RichEditor when user adds a brand new PD entry
+  const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
+    setPersonalData(prev => {
+      const newId = `manual_${Date.now()}`;
+      let newPersons = prev.persons;
+      let newOtherPD = prev.otherPD;
+
+      if (pdData.category === 'private' || pdData.category === 'professional') {
+        const privateCount = prev.persons.filter(p => p.category === 'private').length;
+        const profCount = prev.persons.filter(p => p.category === 'professional').length;
+        const letter = pdData.category === 'private'
+          ? (ALPHA_PRIVATE[privateCount] !== undefined ? ALPHA_PRIVATE[privateCount] : `Л-${privateCount + 1}`)
+          : `[ФИО ${profCount + 1}]`;
+        const newPerson = {
+          id: newId,
+          fullName: pdData.fullName,
+          role: pdData.role || '',
+          category: pdData.category,
+          letter,
+          mentions: [pdData.fullName, selectedText].filter(Boolean),
+        };
+        newPersons = [...prev.persons, newPerson];
+        if (markEl) {
+          markEl.className = `pd ${pdData.category === 'professional' ? 'professional' : 'private'}`;
+          markEl.dataset.pdId = newId;
+        }
+      } else {
+        const typeLabel = OTHER_PD_TYPES_MAP[pdData.type] || pdData.type;
+        const newOther = {
+          id: newId,
+          type: pdData.type,
+          value: selectedText,
+          replacement: `[${typeLabel}]`,
+        };
+        newOtherPD = [...prev.otherPD, newOther];
+        if (markEl) {
+          markEl.className = 'pd other';
+          markEl.dataset.pdId = newId;
+        }
+      }
+
+      return { ...prev, persons: newPersons, otherPD: newOtherPD };
+    });
+  }, [anonymized]);
 
   // ── Export ────────────────────────────────────────────────────────────────────
 
@@ -1312,6 +1389,9 @@ ${content}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
                 onRemovePdMark={handleRemovePdMark}
+                onAttachPdMark={handleAttachPdMark}
+                onAddPdMark={handleAddPdMark}
+                existingPD={personalData}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />

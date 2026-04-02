@@ -536,16 +536,151 @@ export function initPdMarkOriginals(editorEl) {
 
 // ── RichEditor component ───────────────────────────────────────────────────────
 // ── Context menu for uncertain marks ─────────────────────────────────────────
-function UncertainContextMenu({ x, y, type, onRemove, onApplySuggestion, suggestion, onClose }) {
-  const menuRef = React.useRef(null);
+// ── Компонент формы добавления нового ПД ────────────────────────────────────
+const OTHER_PD_TYPES = [
+  { value: 'address', label: 'Адрес' },
+  { value: 'phone', label: 'Телефон' },
+  { value: 'passport', label: 'Паспорт' },
+  { value: 'zagranpassport', label: 'Загранпаспорт' },
+  { value: 'inn', label: 'ИНН' },
+  { value: 'snils', label: 'СНИЛС' },
+  { value: 'card', label: 'Банковская карта' },
+  { value: 'email', label: 'Email' },
+  { value: 'dob', label: 'Дата рождения' },
+  { value: 'birthplace', label: 'Место рождения' },
+  { value: 'vehicle_plate', label: 'Номер авто' },
+  { value: 'vehicle_vin', label: 'VIN' },
+  { value: 'driver_license', label: 'Водительское удостоверение' },
+  { value: 'military_id', label: 'Военный билет' },
+  { value: 'oms_policy', label: 'Полис ОМС' },
+  { value: 'birth_certificate', label: 'Свидетельство о рождении' },
+  { value: 'imei', label: 'IMEI' },
+  { value: 'other', label: 'Другое' },
+];
+
+function AddPdForm({ x, y, onAdd, onClose }) {
+  const [category, setCategory] = React.useState('private');
+  const [fullName, setFullName] = React.useState('');
+  const [role, setRole] = React.useState('');
+  const [otherType, setOtherType] = React.useState('address');
+  const [otherCustom, setOtherCustom] = React.useState('');
+  const formRef = React.useRef(null);
 
   React.useEffect(() => {
-    const handler = () => onClose();
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    const handler = (e) => {
+      if (formRef.current && !formRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  // Корректируем позицию если меню выходит за край экрана
+  React.useEffect(() => {
+    const el = formRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 8)
+      el.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight - 8)
+      el.style.top = Math.max(8, y - rect.height - 8) + 'px';
+  });
+
+  const handleSubmit = () => {
+    if (category === 'private' || category === 'professional') {
+      if (!fullName.trim()) return;
+      onAdd({ category, fullName: fullName.trim(), role: role.trim() });
+    } else {
+      const type = otherType === 'other' ? (otherCustom.trim() || 'other') : otherType;
+      onAdd({ category: 'other', type });
+    }
+    onClose();
+  };
+
+  return (
+    <div
+      ref={formRef}
+      className="ctx-menu"
+      style={{ position: 'fixed', top: y + 4, left: x, zIndex: 9999, width: 240 }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      <div className="ctx-menu-title">Добавить ПД</div>
+      <div className="ctx-form-body">
+        <div className="ctx-form-row">
+          <label className="ctx-form-label">Тип</label>
+          <select className="ctx-form-select" value={category} onChange={e => setCategory(e.target.value)}>
+            <option value="private">Частное лицо</option>
+            <option value="professional">Профучастник</option>
+            <option value="other">Другое</option>
+          </select>
+        </div>
+        {(category === 'private' || category === 'professional') && (
+          <>
+            <div className="ctx-form-row">
+              <label className="ctx-form-label">Фамилия и инициалы</label>
+              <input
+                className="ctx-form-input"
+                placeholder="Иванов И.И."
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                autoFocus
+              />
+            </div>
+            <div className="ctx-form-row">
+              <label className="ctx-form-label">Роль</label>
+              <input
+                className="ctx-form-input"
+                placeholder="свидетель, заявитель…"
+                value={role}
+                onChange={e => setRole(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+              />
+            </div>
+          </>
+        )}
+        {category === 'other' && (
+          <>
+            <div className="ctx-form-row">
+              <label className="ctx-form-label">Вид данных</label>
+              <select className="ctx-form-select" value={otherType} onChange={e => setOtherType(e.target.value)}>
+                {OTHER_PD_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            {otherType === 'other' && (
+              <div className="ctx-form-row">
+                <label className="ctx-form-label">Описание</label>
+                <input
+                  className="ctx-form-input"
+                  placeholder="Укажите тип данных"
+                  value={otherCustom}
+                  onChange={e => setOtherCustom(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                  autoFocus
+                />
+              </div>
+            )}
+          </>
+        )}
+        <button className="ctx-form-btn" onClick={handleSubmit}>Добавить</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Контекстное меню редактора ───────────────────────────────────────────────
+function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
+  const menuRef = React.useRef(null);
+  const [showAddForm, setShowAddForm] = React.useState(false);
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
   React.useEffect(() => {
     const el = menuRef.current;
     if (!el) return;
@@ -554,28 +689,83 @@ function UncertainContextMenu({ x, y, type, onRemove, onApplySuggestion, suggest
       el.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
     if (rect.bottom > window.innerHeight - 8)
       el.style.top = Math.max(8, y - rect.height - 8) + 'px';
-  }, [x, y]);
+  });
+
+  if (showAddForm) {
+    return <AddPdForm x={x} y={y} onAdd={onAddNewPd} onClose={onClose} />;
+  }
+
+  const privatePersons = existingPD?.persons?.filter(p => p.category === 'private') || [];
+  const profPersons = existingPD?.persons?.filter(p => p.category === 'professional') || [];
+  const otherItems = existingPD?.otherPD || [];
+  const hasExisting = privatePersons.length > 0 || profPersons.length > 0 || otherItems.length > 0;
 
   return (
     <div
       ref={menuRef}
-      className="uncertain-menu"
+      className="ctx-menu"
       style={{ position: 'fixed', top: y + 4, left: x, zIndex: 9999 }}
       onMouseDown={e => e.stopPropagation()}
     >
-      {type === 'pd' ? (
-        <div className="uncertain-menu-item" onClick={onRemove}>
-          ✕ Не является ПД
+      {type === 'pd' && (
+        <div className="ctx-menu-item ctx-menu-item-danger" onClick={onRemovePd}>
+          Не является ПД
         </div>
-      ) : (
+      )}
+      {type === 'uncertain' && (
         <>
           {suggestion && (
-            <div className="uncertain-menu-item uncertain-menu-suggestion" onClick={onApplySuggestion}>
+            <div className="ctx-menu-item ctx-menu-item-accent" onClick={onApplySuggestion}>
               ✏️ Заменить на: <strong>{suggestion}</strong>
             </div>
           )}
-          <div className="uncertain-menu-item" onClick={onRemove}>
-            ✓ Исправлено — снять выделение
+          <div className="ctx-menu-item" onClick={onRemoveUncertain}>
+            Исправлено — снять выделение
+          </div>
+        </>
+      )}
+      {type === 'selection' && (
+        <>
+          {hasExisting && (
+            <>
+              <div className="ctx-menu-section-title">Привязать к существующему</div>
+              {privatePersons.length > 0 && (
+                <>
+                  <div className="ctx-menu-group-label">Частные лица</div>
+                  {privatePersons.map(p => (
+                    <div key={p.id} className="ctx-menu-item ctx-menu-item-pd" onClick={() => { onAttachPd(p.id); onClose(); }}>
+                      <span className="ctx-menu-pd-letter">{p.letter}</span>
+                      <span className="ctx-menu-pd-name">{p.fullName}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {profPersons.length > 0 && (
+                <>
+                  <div className="ctx-menu-group-label">Профучастники</div>
+                  {profPersons.map(p => (
+                    <div key={p.id} className="ctx-menu-item ctx-menu-item-pd" onClick={() => { onAttachPd(p.id); onClose(); }}>
+                      <span className="ctx-menu-pd-letter ctx-menu-pd-letter-prof">{p.letter}</span>
+                      <span className="ctx-menu-pd-name">{p.fullName}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {otherItems.length > 0 && (
+                <>
+                  <div className="ctx-menu-group-label">Другие ПД</div>
+                  {otherItems.map(p => (
+                    <div key={p.id} className="ctx-menu-item ctx-menu-item-pd" onClick={() => { onAttachPd(p.id); onClose(); }}>
+                      <span className="ctx-menu-pd-name">{p.value || p.type}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div className="ctx-menu-divider" />
+            </>
+          )}
+          <div className="ctx-menu-item" onClick={() => setShowAddForm(true)}>
+            + Добавить новое ПД
           </div>
         </>
       )}
@@ -583,7 +773,7 @@ function UncertainContextMenu({ x, y, type, onRemove, onApplySuggestion, suggest
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -648,6 +838,18 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, edit
     } else if (pdMark) {
       e.preventDefault();
       setCtxMenu({ x: e.clientX, y: e.clientY, mark: pdMark, type: 'pd' });
+    } else {
+      // Check for plain text selection (no marks inside)
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        const fragment = range.cloneContents();
+        // Reject if selection contains any mark tags
+        if (!fragment.querySelector('mark')) {
+          e.preventDefault();
+          setCtxMenu({ x: e.clientX, y: e.clientY, type: 'selection', range: range.cloneRange() });
+        }
+      }
     }
   }, []);
 
@@ -682,6 +884,45 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, edit
     setCtxMenu(null);
     onRemovePdMark?.(id);
   }, [ctxMenu, notifyChange, onRemovePdMark]);
+
+  const attachPdMark = useCallback((id) => {
+    if (!ctxMenu?.range) return;
+    const range = ctxMenu.range;
+    // Wrap selected range in a mark with given pd id
+    const mark = document.createElement('mark');
+    mark.className = 'pd private'; // will be corrected by caller if needed
+    mark.dataset.pdId = id;
+    try {
+      range.surroundContents(mark);
+    } catch {
+      // surroundContents fails if range partially overlaps nodes — extract+wrap instead
+      const fragment = range.extractContents();
+      mark.appendChild(fragment);
+      range.insertNode(mark);
+    }
+    notifyChange();
+    setCtxMenu(null);
+    onAttachPdMark?.(id, mark);
+  }, [ctxMenu, notifyChange, onAttachPdMark]);
+
+  const addNewPdMark = useCallback((pdData) => {
+    if (!ctxMenu?.range) return;
+    const range = ctxMenu.range;
+    const selectedText = range.toString().trim();
+    const mark = document.createElement('mark');
+    mark.className = 'pd ' + (pdData.category === 'professional' ? 'professional' : pdData.category === 'other' ? 'other' : 'private');
+    mark.dataset.pdId = '__new__'; // temp id, will be replaced by App.js
+    try {
+      range.surroundContents(mark);
+    } catch {
+      const fragment = range.extractContents();
+      mark.appendChild(fragment);
+      range.insertNode(mark);
+    }
+    notifyChange();
+    setCtxMenu(null);
+    onAddPdMark?.(pdData, selectedText, mark);
+  }, [ctxMenu, notifyChange, onAddPdMark]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
@@ -751,13 +992,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, edit
         onContextMenu={handleContextMenu}
       />
       {ctxMenu && (
-        <UncertainContextMenu
+        <EditorContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
           type={ctxMenu.type}
           suggestion={ctxMenu.mark?.dataset?.suggestion || ''}
-          onRemove={ctxMenu.type === 'pd' ? removePdMark : removeUncertainMark}
+          existingPD={existingPD}
+          onRemovePd={removePdMark}
+          onRemoveUncertain={removeUncertainMark}
           onApplySuggestion={applyUncertainSuggestion}
+          onAttachPd={attachPdMark}
+          onAddNewPd={addNewPdMark}
           onClose={() => setCtxMenu(null)}
         />
       )}

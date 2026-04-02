@@ -212,31 +212,134 @@
 .rich-content .lr-row span:last-child { text-align: right; }
 
 /* ── Uncertain context menu ── */
-.uncertain-menu {
+/* ── Контекстное меню редактора ── */
+.ctx-menu {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  box-shadow: 0 4px 16px rgba(0,0,0,.14);
+  box-shadow: 0 4px 20px rgba(0,0,0,.12), 0 1px 4px rgba(0,0,0,.08);
   overflow: hidden;
-  min-width: 200px;
-  animation: toastIn .12s ease;
+  min-width: 180px;
+  animation: toastIn .1s ease;
 }
-.uncertain-menu-item {
-  padding: 10px 16px;
-  font-size: 13px;
-  font-family: var(--font-body);
-  color: var(--green);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--tr);
-}
-.uncertain-menu-item:hover { background: var(--green-light); }
-.uncertain-menu-suggestion {
-  color: var(--accent);
+.ctx-menu-title {
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
   border-bottom: 1px solid var(--border);
 }
-.uncertain-menu-suggestion:hover { background: var(--accent-light); }
-.uncertain-menu-suggestion strong { font-weight: 700; }
+.ctx-menu-section-title {
+  padding: 7px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.ctx-menu-group-label {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  color: var(--text3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ctx-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--text2);
+  font-weight: 450;
+  cursor: pointer;
+  transition: background var(--tr);
+  white-space: nowrap;
+}
+.ctx-menu-item:hover { background: var(--bg2); color: var(--text); }
+.ctx-menu-item-danger { color: var(--red); }
+.ctx-menu-item-danger:hover { background: var(--red-light); color: var(--red); }
+.ctx-menu-item-accent { color: var(--accent); }
+.ctx-menu-item-accent:hover { background: var(--accent-light); color: var(--accent); }
+.ctx-menu-item-pd { padding: 5px 12px; }
+.ctx-menu-pd-letter {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pd-private);
+  background: var(--pd-private-light);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+.ctx-menu-pd-letter-prof {
+  color: var(--pd-prof);
+  background: var(--pd-prof-light);
+}
+.ctx-menu-pd-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* ── Форма добавления ПД ── */
+.ctx-form-body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.ctx-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ctx-form-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ctx-form-input,
+.ctx-form-select {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+  transition: border-color var(--tr);
+}
+.ctx-form-input:focus,
+.ctx-form-select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+.ctx-form-btn {
+  margin-top: 2px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  color: #fff;
+  background: var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  transition: background var(--tr);
+  align-self: flex-end;
+}
+.ctx-form-btn:hover { background: var(--accent2); }
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
