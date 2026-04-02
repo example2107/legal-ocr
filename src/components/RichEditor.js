@@ -928,11 +928,53 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     onAddPdMark?.(pdData, selectedText, mark);
   }, [ctxMenu, notifyChange, onAddPdMark]);
 
+  // Вспомогательная функция: узел/смещение → маркер, если курсор упирается в него
+  const markAtCursor = (node, offset, direction) => {
+    if (node.nodeType === 3) {
+      // Текстовый узел
+      if (direction === 'forward' && offset === node.textContent.length)
+        return node.nextSibling?.matches?.('mark[data-pd-id]') ? node.nextSibling : null;
+      if (direction === 'backward' && offset === 0)
+        return node.previousSibling?.matches?.('mark[data-pd-id]') ? node.previousSibling : null;
+    } else {
+      if (direction === 'forward')
+        return node.childNodes[offset]?.matches?.('mark[data-pd-id]') ? node.childNodes[offset] : null;
+      if (direction === 'backward')
+        return node.childNodes[offset - 1]?.matches?.('mark[data-pd-id]') ? node.childNodes[offset - 1] : null;
+    }
+    return null;
+  };
+
   // Удаляем маркер целиком при Delete/Backspace
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       exec(e.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
+
+    // Стрелки — перепрыгиваем маркер целиком
+    if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+
+      if (range.collapsed) {
+        const dir = e.key === 'ArrowRight' ? 'forward' : 'backward';
+        const mark = markAtCursor(range.startContainer, range.startOffset, dir);
+        if (mark) {
+          e.preventDefault();
+          const newRange = document.createRange();
+          if (dir === 'forward') newRange.setStartAfter(mark);
+          else newRange.setStartBefore(mark);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+      } else {
+        // Есть выделение — при нажатии стрелки схлопываем к нужному краю
+        // (стандартное поведение браузера, не мешаем)
+      }
       return;
     }
 
@@ -983,35 +1025,13 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     }
   }, [exec, notifyChange, onRemovePdMark]);
 
-  // Перескакиваем курсор через маркер при навигации стрелками
-  // и расширяем выделение до полных границ маркера при частичном захвате
+  // Расширяем выделение до полных границ маркера при частичном захвате
   const handleSelectionChange = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
 
-    if (range.collapsed) {
-      // Курсор внутри маркера — выносим наружу
-      const node = range.startContainer;
-      const mark = node.nodeType === 3
-        ? node.parentElement?.closest('mark[data-pd-id]')
-        : node.closest?.('mark[data-pd-id]');
-      if (!mark) return;
-
-      // Определяем направление по положению курсора внутри маркера
-      const markRange = document.createRange();
-      markRange.selectNode(mark);
-      const posInMark = range.startOffset;
-      const markTextLen = mark.textContent.length;
-      const goAfter = posInMark >= markTextLen / 2;
-
-      const newRange = document.createRange();
-      if (goAfter) newRange.setStartAfter(mark);
-      else newRange.setStartBefore(mark);
-      newRange.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-    } else {
+    if (!range.collapsed) {
       // Есть выделение — расширяем до полных границ любого захваченного маркера
       const editor = editorRef.current;
       if (!editor) return;
