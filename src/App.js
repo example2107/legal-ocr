@@ -316,8 +316,12 @@ export default function App() {
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
   const isDirty = () => {
-    if (!lastSavedState) return !!editorDomRef.current?.innerHTML;
-    return JSON.stringify(anonymized) !== lastSavedState;
+    const currentHtml = editorDomRef.current?.innerHTML || '';
+    if (!lastSavedState) return !!currentHtml;
+    const saved = JSON.parse(lastSavedState);
+    if (JSON.stringify(anonymized) !== saved.anonymized) return true;
+    if (currentHtml !== saved.html) return true;
+    return false;
   };
 
   // ── Navigation ────────────────────────────────────────────────────────────────
@@ -466,7 +470,7 @@ export default function App() {
     setEditorHtml(entry.editedHtml || html);
     setPersonalData(pd);
     setAnonymized(anon);
-    setLastSavedState(JSON.stringify(anon));
+    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html: entry.editedHtml || html }));
     setView(VIEW_RESULT);
   };
 
@@ -539,7 +543,7 @@ export default function App() {
       anonymized,
       source: files[0]?.name?.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
     });
-    setLastSavedState(JSON.stringify(anonymized));
+    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anonymized), html: currentHtml }));
     refreshHistory();
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
