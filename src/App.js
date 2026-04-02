@@ -664,19 +664,19 @@ export default function App() {
 
   // Global Ctrl-Z handler — catches undo even when editor has lost focus
   useEffect(() => {
-    if (view !== VIEW_RESULT) return;
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        // Only intercept if focus is inside the result view, not in an input/select
-        const tag = document.activeElement?.tagName;
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-        e.preventDefault();
-        console.log('[UNDO] global Ctrl-Z fired');
-        performUndo();
-      }
+      console.log('[UNDO] keydown:', e.key, 'ctrl:', e.ctrlKey, 'meta:', e.metaKey);
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 'z' || e.shiftKey) return;
+      const tag = document.activeElement?.tagName;
+      console.log('[UNDO] Ctrl-Z — activeElement tag:', tag, 'view:', view);
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('[UNDO] global Ctrl-Z fired, calling performUndo');
+      performUndo();
     };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
   }, [view, performUndo]);
 
   // After editor renders with new html, store originals for de-anonymize
