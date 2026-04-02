@@ -728,89 +728,78 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    setPersonalData(prev => {
-      const person = prev.persons.find(p => p.id === id);
-      const other = prev.otherPD.find(p => p.id === id);
-      if (markEl) {
-        const cat = person
-          ? (person.category === 'professional' ? 'prof' : 'priv')
-          : 'oth';
-        if (!markEl.dataset.original) {
-          markEl.dataset.original = person?.fullName || other?.value || markEl.textContent;
-        }
-        markEl.className = `pd ${cat}`;
-        markEl.dataset.pdId = id;
-        const isAnon = anonymized[id];
-        if (isAnon && person) {
-          markEl.textContent = person.letter;
-          markEl.classList.add('anon');
-        } else if (isAnon && other) {
-          markEl.textContent = other.replacement || '[ПД]';
-          markEl.classList.add('anon');
-        }
+    // Fix DOM synchronously BEFORE reading innerHTML — updater would be lazy
+    const person = personalData.persons.find(p => p.id === id);
+    const other = personalData.otherPD.find(p => p.id === id);
+    if (markEl) {
+      const cat = person
+        ? (person.category === 'professional' ? 'prof' : 'priv')
+        : 'oth';
+      if (!markEl.dataset.original) {
+        markEl.dataset.original = person?.fullName || other?.value || markEl.textContent;
       }
-      return prev;
-    });
-    // Sync html and update top snap to reflect DOM changes made by markEl updates
+      markEl.className = `pd ${cat}`;
+      markEl.dataset.pdId = id;
+      const isAnon = anonymized[id];
+      if (isAnon && person) {
+        markEl.textContent = person.letter;
+        markEl.classList.add('anon');
+      } else if (isAnon && other) {
+        markEl.textContent = other.replacement || '[ПД]';
+        markEl.classList.add('anon');
+      }
+    }
+    // Now HTML has correct class — snapshot and sync
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
     replaceTopSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
-  }, [anonymized]);
+    // pd doesn't change here, no setPersonalData needed
+  }, [personalData, anonymized]);
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    setPersonalData(prev => {
-      const newId = `manual_${Date.now()}`;
-      let newPersons = prev.persons;
-      let newOtherPD = prev.otherPD;
+    // Compute new state and fix DOM synchronously BEFORE reading innerHTML
+    const newId = `manual_${Date.now()}`;
+    let newPersons = pdRef.current.persons;
+    let newOtherPD = pdRef.current.otherPD;
 
-      if (pdData.category === 'private' || pdData.category === 'professional') {
-        const privateCount = prev.persons.filter(p => p.category === 'private').length;
-        const profCount = prev.persons.filter(p => p.category === 'professional').length;
-        const letter = pdData.category === 'private'
-          ? (ALPHA_PRIVATE[privateCount] !== undefined ? ALPHA_PRIVATE[privateCount] : `Л-${privateCount + 1}`)
-          : `[ФИО ${profCount + 1}]`;
-        const newPerson = {
-          id: newId,
-          fullName: pdData.fullName,
-          role: pdData.role || '',
-          category: pdData.category,
-          letter,
-          mentions: [pdData.fullName, selectedText].filter(Boolean),
-        };
-        newPersons = [...prev.persons, newPerson];
-        if (markEl) {
-          const cat = pdData.category === 'professional' ? 'prof' : 'priv';
-          markEl.className = `pd ${cat}`;
-          markEl.dataset.pdId = newId;
-          // Keep data-original as the selected text (what was in the document),
-          // NOT fullName — so show/hide restores what was actually written
-          if (!markEl.dataset.original) markEl.dataset.original = selectedText;
-        }
-      } else {
-        const typeLabel = OTHER_PD_TYPES_MAP[pdData.type] || pdData.type;
-        const newOther = {
-          id: newId,
-          type: pdData.type,
-          value: selectedText,
-          replacement: `[${typeLabel}]`,
-        };
-        newOtherPD = [...prev.otherPD, newOther];
-        if (markEl) {
-          markEl.className = 'pd oth';
-          markEl.dataset.pdId = newId;
-          markEl.dataset.original = selectedText;
-        }
+    if (pdData.category === 'private' || pdData.category === 'professional') {
+      const privateCount = pdRef.current.persons.filter(p => p.category === 'private').length;
+      const profCount = pdRef.current.persons.filter(p => p.category === 'professional').length;
+      const letter = pdData.category === 'private'
+        ? (ALPHA_PRIVATE[privateCount] !== undefined ? ALPHA_PRIVATE[privateCount] : `Л-${privateCount + 1}`)
+        : `[ФИО ${profCount + 1}]`;
+      newPersons = [...pdRef.current.persons, {
+        id: newId, fullName: pdData.fullName, role: pdData.role || '',
+        category: pdData.category, letter,
+        mentions: [pdData.fullName, selectedText].filter(Boolean),
+      }];
+      if (markEl) {
+        const cat = pdData.category === 'professional' ? 'prof' : 'priv';
+        markEl.className = `pd ${cat}`; // correct class BEFORE innerHTML read
+        markEl.dataset.pdId = newId;
+        if (!markEl.dataset.original) markEl.dataset.original = selectedText;
       }
+    } else {
+      const typeLabel = OTHER_PD_TYPES_MAP[pdData.type] || pdData.type;
+      newOtherPD = [...pdRef.current.otherPD, {
+        id: newId, type: pdData.type, value: selectedText, replacement: `[${typeLabel}]`,
+      }];
+      if (markEl) {
+        markEl.className = 'pd oth'; // correct class BEFORE innerHTML read
+        markEl.dataset.pdId = newId;
+        markEl.dataset.original = selectedText;
+      }
+    }
 
-      const next = { ...prev, persons: newPersons, otherPD: newOtherPD };
-      pdRef.current = next;
-      return next;
-    });
-    // Sync html and update top snap (mark id changed from __new__ to real id)
+    const nextPd = { persons: newPersons, otherPD: newOtherPD };
+    pdRef.current = nextPd;
+    setPersonalData(() => nextPd);
+
+    // NOW read html — DOM has correct class and real id
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
-    replaceTopSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
+    replaceTopSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
   }, [anonymized]);
 
   // ── Export ────────────────────────────────────────────────────────────────────
