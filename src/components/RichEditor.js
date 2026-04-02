@@ -888,14 +888,14 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
   const attachPdMark = useCallback((id) => {
     if (!ctxMenu?.range) return;
     const range = ctxMenu.range;
-    // Wrap selected range in a mark with given pd id
+    const selectedText = range.toString().trim();
     const mark = document.createElement('mark');
-    mark.className = 'pd private'; // will be corrected by caller if needed
+    mark.className = 'pd priv'; // corrected to proper class by App.js callback
     mark.dataset.pdId = id;
+    mark.dataset.original = selectedText; // saved now; App.js may override with fullName
     try {
       range.surroundContents(mark);
     } catch {
-      // surroundContents fails if range partially overlaps nodes — extract+wrap instead
       const fragment = range.extractContents();
       mark.appendChild(fragment);
       range.insertNode(mark);
@@ -910,8 +910,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     const range = ctxMenu.range;
     const selectedText = range.toString().trim();
     const mark = document.createElement('mark');
-    mark.className = 'pd ' + (pdData.category === 'professional' ? 'professional' : pdData.category === 'other' ? 'other' : 'private');
-    mark.dataset.pdId = '__new__'; // temp id, will be replaced by App.js
+    const cat = pdData.category === 'professional' ? 'prof' : pdData.category === 'other' ? 'oth' : 'priv';
+    mark.className = `pd ${cat}`;
+    mark.dataset.pdId = '__new__'; // replaced by App.js callback
+    mark.dataset.original = selectedText; // App.js will override with fullName for persons
     try {
       range.surroundContents(mark);
     } catch {

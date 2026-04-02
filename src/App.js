@@ -654,14 +654,17 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    // Find the pd entry to determine correct css class
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
       if (markEl) {
         const cat = person
-          ? (person.category === 'professional' ? 'professional' : 'private')
-          : 'other';
+          ? (person.category === 'professional' ? 'prof' : 'priv')
+          : 'oth';
+        // Save original text before any possible replacement
+        if (!markEl.dataset.original) {
+          markEl.dataset.original = person?.fullName || other?.value || markEl.textContent;
+        }
         markEl.className = `pd ${cat}`;
         markEl.dataset.pdId = id;
         const isAnon = anonymized[id];
@@ -700,8 +703,10 @@ export default function App() {
         };
         newPersons = [...prev.persons, newPerson];
         if (markEl) {
-          markEl.className = `pd ${pdData.category === 'professional' ? 'professional' : 'private'}`;
+          const cat = pdData.category === 'professional' ? 'prof' : 'priv';
+          markEl.className = `pd ${cat}`;
           markEl.dataset.pdId = newId;
+          markEl.dataset.original = pdData.fullName;
         }
       } else {
         const typeLabel = OTHER_PD_TYPES_MAP[pdData.type] || pdData.type;
@@ -713,8 +718,9 @@ export default function App() {
         };
         newOtherPD = [...prev.otherPD, newOther];
         if (markEl) {
-          markEl.className = 'pd other';
+          markEl.className = 'pd oth';
           markEl.dataset.pdId = newId;
+          markEl.dataset.original = selectedText;
         }
       }
 

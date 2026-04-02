@@ -217,9 +217,9 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  box-shadow: 0 4px 20px rgba(0,0,0,.12), 0 1px 4px rgba(0,0,0,.08);
+  box-shadow: 0 6px 24px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
   overflow: hidden;
-  min-width: 180px;
+  min-width: 160px;
   animation: toastIn .1s ease;
 }
 .ctx-menu-title {
@@ -266,8 +266,16 @@
   white-space: nowrap;
 }
 .ctx-menu-item:hover { background: var(--bg2); color: var(--text); }
-.ctx-menu-item-danger { color: var(--red); }
-.ctx-menu-item-danger:hover { background: var(--red-light); color: var(--red); }
+.ctx-menu-item-danger {
+  color: var(--text2);
+  font-size: 12px;
+  padding: 8px 14px;
+  letter-spacing: .01em;
+}
+.ctx-menu-item-danger:hover {
+  background: var(--red-light);
+  color: var(--red);
+}
 .ctx-menu-item-accent { color: var(--accent); }
 .ctx-menu-item-accent:hover { background: var(--accent-light); color: var(--accent); }
 .ctx-menu-item-pd { padding: 5px 12px; }
