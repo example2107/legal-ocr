@@ -633,54 +633,43 @@ export default function App() {
   };
 
   const handlePdClick = useCallback((id) => {
-    pushSnap(snap()); cancelTextSnap(); // snapshot BEFORE, cancel any pending text snap
-    setAnonymized(prev => {
-      const next = { ...prev, [id]: !prev[id] };
-      anonRef.current = next; // keep ref in sync
-      const isAnon = next[id];
-
+    pushSnap(snap()); cancelTextSnap();
+    // Compute next anon and update ref SYNCHRONOUSLY before setAnonymized
+    // so rapid successive clicks each capture the correct "before" state
+    const nextAnon = { ...anonRef.current, [id]: !anonRef.current[id] };
+    anonRef.current = nextAnon;
+    setAnonymized(() => {
+      const isAnon = nextAnon[id];
       const person = personalData.persons?.find(p => p.id === id);
       const otherItem = personalData.otherPD?.find(it => it.id === id);
       patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
-
       if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
-      return next;
+      return nextAnon;
     });
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
     pushSnap(snap()); cancelTextSnap();
-    setAnonymized(prev => {
-      const { persons = [], otherPD = [] } = personalData;
-      const newAnon = { ...prev };
-
-      let items;
-      if (category === 'private' || category === 'professional') {
-        items = persons.filter(p => p.category === category);
-      } else {
-        items = otherPD.filter(p => p.type === category);
-      }
-
-      const allAnon = items.every(p => newAnon[p.id]);
-      const targetState = !allAnon;
-
-      items.forEach(item => {
-        newAnon[item.id] = targetState;
-        const person = persons.find(p => p.id === item.id);
-        const otherItem = otherPD.find(it => it.id === item.id);
-        patchPdMarks(
-          editorDomRef.current,
-          item.id,
-          targetState,
-          person?.letter,
-          otherItem?.replacement
-        );
-      });
-
-      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
-      anonRef.current = newAnon;
-      return newAnon;
+    const { persons = [], otherPD = [] } = personalData;
+    const newAnon = { ...anonRef.current };
+    let items;
+    if (category === 'private' || category === 'professional') {
+      items = persons.filter(p => p.category === category);
+    } else {
+      items = otherPD.filter(p => p.type === category);
+    }
+    const allAnon = items.every(p => newAnon[p.id]);
+    const targetState = !allAnon;
+    items.forEach(item => {
+      newAnon[item.id] = targetState;
+      const person = persons.find(p => p.id === item.id);
+      const otherItem = otherPD.find(it => it.id === item.id);
+      patchPdMarks(editorDomRef.current, item.id, targetState, person?.letter, otherItem?.replacement);
     });
+    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+    // Update ref synchronously BEFORE setAnonymized
+    anonRef.current = newAnon;
+    setAnonymized(() => newAnon);
   }, [personalData]);
 
   // After editor renders with new html, store originals for de-anonymize
@@ -742,7 +731,7 @@ export default function App() {
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-    cancelTextSnap(); // snapshot already taken via onBeforeAction in RichEditor
+    cancelTextSnap();
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -750,7 +739,6 @@ export default function App() {
         const cat = person
           ? (person.category === 'professional' ? 'prof' : 'priv')
           : 'oth';
-        // Save original text before any possible replacement
         if (!markEl.dataset.original) {
           markEl.dataset.original = person?.fullName || other?.value || markEl.textContent;
         }
@@ -765,8 +753,10 @@ export default function App() {
           markEl.classList.add('anon');
         }
       }
-      return prev; // state unchanged, only DOM updated
+      return prev;
     });
+    // Sync editorHtml so RichEditor doesn't overwrite DOM with stale html prop
+    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
   }, [anonymized]);
 
   // Called from RichEditor when user adds a brand new PD entry
@@ -820,6 +810,8 @@ export default function App() {
       pdRef.current = next;
       return next;
     });
+    // Sync editorHtml so RichEditor doesn't overwrite DOM with stale html prop
+    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
   }, [anonymized]);
 
   // ── Export ────────────────────────────────────────────────────────────────────

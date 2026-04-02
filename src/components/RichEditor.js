@@ -893,12 +893,13 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
   const attachPdMark = useCallback((id) => {
     if (!ctxMenu?.range) return;
+    onBeforeAction?.(); // snapshot BEFORE DOM changes
     const range = ctxMenu.range;
     const selectedText = range.toString().trim();
     const mark = document.createElement('mark');
-    mark.className = 'pd priv'; // corrected to proper class by App.js callback
+    mark.className = 'pd priv';
     mark.dataset.pdId = id;
-    mark.dataset.original = selectedText; // saved now; App.js may override with fullName
+    mark.dataset.original = selectedText;
     mark.contentEditable = 'false';
     try {
       range.surroundContents(mark);
@@ -910,17 +911,18 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     notifyChange();
     setCtxMenu(null);
     onAttachPdMark?.(id, mark);
-  }, [ctxMenu, notifyChange, onAttachPdMark]);
+  }, [ctxMenu, notifyChange, onAttachPdMark, onBeforeAction]);
 
   const addNewPdMark = useCallback((pdData) => {
     if (!ctxMenu?.range) return;
+    onBeforeAction?.(); // snapshot BEFORE DOM changes
     const range = ctxMenu.range;
     const selectedText = range.toString().trim();
     const mark = document.createElement('mark');
     const cat = pdData.category === 'professional' ? 'prof' : pdData.category === 'other' ? 'oth' : 'priv';
     mark.className = `pd ${cat}`;
-    mark.dataset.pdId = '__new__'; // replaced by App.js callback
-    mark.dataset.original = selectedText; // App.js will override with fullName for persons
+    mark.dataset.pdId = '__new__';
+    mark.dataset.original = selectedText;
     mark.contentEditable = 'false';
     try {
       range.surroundContents(mark);
@@ -932,7 +934,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     notifyChange();
     setCtxMenu(null);
     onAddPdMark?.(pdData, selectedText, mark);
-  }, [ctxMenu, notifyChange, onAddPdMark]);
+  }, [ctxMenu, notifyChange, onAddPdMark, onBeforeAction]);
 
   // Удаляем маркер целиком при Delete/Backspace
   const handleKeyDown = useCallback((e) => {
@@ -981,13 +983,14 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
       if (mark) {
         e.preventDefault();
+        onBeforeAction?.(); // snapshot BEFORE deletion so undo can restore the mark
         const id = mark.dataset.pdId;
         mark.parentNode.removeChild(mark);
         notifyChange();
         onRemovePdMark?.(id);
       }
     }
-  }, [exec, notifyChange, onRemovePdMark]);
+  }, [exec, notifyChange, onRemovePdMark, onBeforeAction]);
 
 
 
