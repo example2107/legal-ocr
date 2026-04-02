@@ -606,6 +606,13 @@ export default function App() {
   };
 
 
+  // Replace top stack entry (use after pd/anon state updates that follow a DOM snap)
+  const replaceTopSnap = (s) => {
+    const stack = undoStackRef.current;
+    const idx = undoIndexRef.current;
+    if (idx >= 0) stack[idx] = s;
+  };
+
   // Restore a snapshot — write DOM directly, update React state
   const applySnap = (s) => {
     if (editorDomRef.current) {
@@ -628,20 +635,19 @@ export default function App() {
   };
 
   const handlePdClick = useCallback((id) => {
-    pushSnap(snap());
-    // Compute and apply everything SYNCHRONOUSLY so the next snap() always sees correct state
     const nextAnon = { ...anonRef.current, [id]: !anonRef.current[id] };
     anonRef.current = nextAnon;
     const isAnon = nextAnon[id];
     const person = personalData.persons?.find(p => p.id === id);
     const otherItem = personalData.otherPD?.find(it => it.id === id);
     patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
-    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+    const newHtml = editorDomRef.current?.innerHTML ?? '';
+    setEditorHtml(newHtml);
     setAnonymized(() => nextAnon);
+    pushSnap({ html: newHtml, pd: pdRef.current, anon: nextAnon }); // push AFTER
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
-    pushSnap(snap());
     const { persons = [], otherPD = [] } = personalData;
     const newAnon = { ...anonRef.current };
     let items;
@@ -658,10 +664,11 @@ export default function App() {
       const otherItem = otherPD.find(it => it.id === item.id);
       patchPdMarks(editorDomRef.current, item.id, targetState, person?.letter, otherItem?.replacement);
     });
-    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
-    // Update ref synchronously BEFORE setAnonymized
     anonRef.current = newAnon;
+    const newHtml = editorDomRef.current?.innerHTML ?? '';
+    setEditorHtml(newHtml);
     setAnonymized(() => newAnon);
+    pushSnap({ html: newHtml, pd: pdRef.current, anon: newAnon }); // push AFTER
   }, [personalData]);
 
   // After editor renders with new html, store originals for de-anonymize
@@ -701,7 +708,6 @@ export default function App() {
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
-   
     if (pdCleanupTimerRef.current) { clearTimeout(pdCleanupTimerRef.current); pdCleanupTimerRef.current = null; }
     setPersonalData(prev => {
       const remaining = editorDomRef.current
@@ -714,13 +720,14 @@ export default function App() {
         otherPD: prev.otherPD.filter(p => p.id !== id),
       };
       pdRef.current = next;
+      // notifyChange already pushed snap with restored HTML; update top to reflect new pd
+      replaceTopSnap({ html: editorDomRef.current?.innerHTML ?? '', pd: next, anon: anonRef.current });
       return next;
     });
   }, []);
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
-   
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -744,13 +751,14 @@ export default function App() {
       }
       return prev;
     });
-    // Sync editorHtml so RichEditor doesn't overwrite DOM with stale html prop
-    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+    // Sync html and update top snap to reflect DOM changes made by markEl updates
+    const newHtml = editorDomRef.current?.innerHTML ?? '';
+    setEditorHtml(newHtml);
+    replaceTopSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
   }, [anonymized]);
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    // snapshot already taken via onBeforeAction in RichEditor
     setPersonalData(prev => {
       const newId = `manual_${Date.now()}`;
       let newPersons = prev.persons;
@@ -799,8 +807,10 @@ export default function App() {
       pdRef.current = next;
       return next;
     });
-    // Sync editorHtml so RichEditor doesn't overwrite DOM with stale html prop
-    if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+    // Sync html and update top snap (mark id changed from __new__ to real id)
+    const newHtml = editorDomRef.current?.innerHTML ?? '';
+    setEditorHtml(newHtml);
+    replaceTopSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
   }, [anonymized]);
 
   // ── Export ────────────────────────────────────────────────────────────────────
@@ -1473,7 +1483,6 @@ ${content}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
                 existingPD={personalData}
-                onBeforeAction={() => { pushSnap(snap()); }}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />

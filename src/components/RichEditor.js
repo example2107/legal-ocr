@@ -775,7 +775,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, onBeforeAction, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -857,17 +857,15 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
   const removeUncertainMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
-    onBeforeAction?.();
     const mark = ctxMenu.mark;
     const text = document.createTextNode(mark.textContent);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange, onBeforeAction]);
+  }, [ctxMenu, notifyChange]);
 
   const applyUncertainSuggestion = useCallback(() => {
     if (!ctxMenu?.mark) return;
-    onBeforeAction?.();
     const mark = ctxMenu.mark;
     const suggestion = mark.dataset.suggestion;
     if (!suggestion) return;
@@ -876,11 +874,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange, onBeforeAction]);
+  }, [ctxMenu, notifyChange]);
 
   const removePdMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
-    onBeforeAction?.();
     const mark = ctxMenu.mark;
     const id = mark.dataset.pdId;
     const restoredText = mark.dataset.original || mark.textContent;
@@ -889,11 +886,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     notifyChange();
     setCtxMenu(null);
     onRemovePdMark?.(id);
-  }, [ctxMenu, notifyChange, onRemovePdMark, onBeforeAction]);
+  }, [ctxMenu, notifyChange, onRemovePdMark]);
 
   const attachPdMark = useCallback((id) => {
     if (!ctxMenu?.range) return;
-    onBeforeAction?.(); // snapshot BEFORE DOM changes
     const range = ctxMenu.range;
     const selectedText = range.toString().trim();
     const mark = document.createElement('mark');
@@ -911,11 +907,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     notifyChange();
     setCtxMenu(null);
     onAttachPdMark?.(id, mark);
-  }, [ctxMenu, notifyChange, onAttachPdMark, onBeforeAction]);
+  }, [ctxMenu, notifyChange, onAttachPdMark]);
 
   const addNewPdMark = useCallback((pdData) => {
     if (!ctxMenu?.range) return;
-    onBeforeAction?.(); // snapshot BEFORE DOM changes
     const range = ctxMenu.range;
     const selectedText = range.toString().trim();
     const mark = document.createElement('mark');
@@ -934,7 +929,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     notifyChange();
     setCtxMenu(null);
     onAddPdMark?.(pdData, selectedText, mark);
-  }, [ctxMenu, notifyChange, onAddPdMark, onBeforeAction]);
+  }, [ctxMenu, notifyChange, onAddPdMark]);
 
   // Удаляем маркер целиком при Delete/Backspace
   const handleKeyDown = useCallback((e) => {
@@ -983,14 +978,13 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
       if (mark) {
         e.preventDefault();
-        onBeforeAction?.(); // snapshot BEFORE deletion so undo can restore the mark
         const id = mark.dataset.pdId;
         mark.parentNode.removeChild(mark);
         notifyChange();
         onRemovePdMark?.(id);
       }
     }
-  }, [exec, notifyChange, onRemovePdMark, onBeforeAction]);
+  }, [exec, notifyChange, onRemovePdMark]);
 
 
 
