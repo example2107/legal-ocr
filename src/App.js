@@ -706,7 +706,9 @@ export default function App() {
           const cat = pdData.category === 'professional' ? 'prof' : 'priv';
           markEl.className = `pd ${cat}`;
           markEl.dataset.pdId = newId;
-          markEl.dataset.original = pdData.fullName;
+          // Keep data-original as the selected text (what was in the document),
+          // NOT fullName — so show/hide restores what was actually written
+          if (!markEl.dataset.original) markEl.dataset.original = selectedText;
         }
       } else {
         const typeLabel = OTHER_PD_TYPES_MAP[pdData.type] || pdData.type;

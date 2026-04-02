@@ -878,7 +878,9 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     if (!ctxMenu?.mark) return;
     const mark = ctxMenu.mark;
     const id = mark.dataset.pdId;
-    const text = document.createTextNode(mark.textContent);
+    // Always restore original text — even if mark is currently showing anonymized label
+    const restoredText = mark.dataset.original || mark.textContent;
+    const text = document.createTextNode(restoredText);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);

@@ -266,13 +266,15 @@
   white-space: nowrap;
 }
 .ctx-menu-item:hover { background: var(--bg2); color: var(--text); }
-.ctx-menu-item-danger {
-  color: var(--text2);
+.ctx-menu-item.ctx-menu-item-danger {
+  color: var(--text3);
   font-size: 12px;
   padding: 8px 14px;
   letter-spacing: .01em;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
 }
-.ctx-menu-item-danger:hover {
+.ctx-menu-item.ctx-menu-item-danger:hover {
   background: var(--red-light);
   color: var(--red);
 }
