@@ -775,7 +775,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, onBeforeAction, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -857,15 +857,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
 
   const removeUncertainMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
+    onBeforeAction?.();
     const mark = ctxMenu.mark;
     const text = document.createTextNode(mark.textContent);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange]);
+  }, [ctxMenu, notifyChange, onBeforeAction]);
 
   const applyUncertainSuggestion = useCallback(() => {
     if (!ctxMenu?.mark) return;
+    onBeforeAction?.();
     const mark = ctxMenu.mark;
     const suggestion = mark.dataset.suggestion;
     if (!suggestion) return;
@@ -874,20 +876,20 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange]);
+  }, [ctxMenu, notifyChange, onBeforeAction]);
 
   const removePdMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
+    onBeforeAction?.();
     const mark = ctxMenu.mark;
     const id = mark.dataset.pdId;
-    // Always restore original text — even if mark is currently showing anonymized label
     const restoredText = mark.dataset.original || mark.textContent;
     const text = document.createTextNode(restoredText);
     mark.parentNode.replaceChild(text, mark);
     notifyChange();
     setCtxMenu(null);
     onRemovePdMark?.(id);
-  }, [ctxMenu, notifyChange, onRemovePdMark]);
+  }, [ctxMenu, notifyChange, onRemovePdMark, onBeforeAction]);
 
   const attachPdMark = useCallback((id) => {
     if (!ctxMenu?.range) return;

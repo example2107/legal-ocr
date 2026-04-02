@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
-import { RichEditor, buildAnnotatedHtml, patchPdMarks } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
 import './App.css';
 
@@ -150,8 +150,32 @@ export default function App() {
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
+
+  // Global Ctrl-Z — works regardless of which element has focus
+  useEffect(() => {
+    const handler = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.code !== 'KeyZ') || e.shiftKey) return;
+      // Don't intercept when typing in a text field / form
+      const tag = document.activeElement?.tagName ?? '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      // Only active in result view
+      if (undoStackRef.current.length === 0) return;
+      e.preventDefault();
+      performUndo();
+    };
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }); // no deps — intentionally runs every render so performUndo closure is always fresh
   // Timer ref for deferred PD cleanup after editing
   const pdCleanupTimerRef = useRef(null);
+  // Sync refs — always hold latest values so snapshot is always accurate
+  const pdRef   = useRef({ persons: [], otherPD: [] });
+  const anonRef = useRef({});
+  // Undo stack
+  const undoStackRef  = useRef([]); // array of {html, pd, anon}
+  const undoIndexRef  = useRef(-1);
+  const undoTimerRef  = useRef(null); // debounce for plain-text changes
+  const MAX_UNDO = 80;
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
   const titleRowRef = useRef(null);
   // Callback-ref for pd-panel — prevents wheel events from bleeding to page scroll
@@ -442,9 +466,16 @@ export default function App() {
       setOriginalFileName(origName);
       setRawText(result.text);
       setEditorHtml(html);
+      pdRef.current   = pd;
+      anonRef.current = initialAnon;
       setPersonalData(pd);
       setAnonymized(initialAnon);
       setLastSavedState(null);
+      // Init undo stack with the initial state
+      const initHtml = document.createElement('div');
+      // html isn't in DOM yet — store empty for now; first edit will create proper entry
+      undoStackRef.current = [{ html: buildAnnotatedHtml(result.text, pd, initialAnon), pd, anon: initialAnon }];
+      undoIndexRef.current = 0;
       setShowLongDocWarning(result.text.length > 50000);
 
       stopProgressCreep();
@@ -468,8 +499,13 @@ export default function App() {
     setOriginalFileName(entry.originalFileName || entry.title || '');
     setRawText(entry.text || '');
     setEditorHtml(entry.editedHtml || html);
+    pdRef.current   = pd;
+    anonRef.current = anon;
     setPersonalData(pd);
     setAnonymized(anon);
+    const loadedHtml = entry.editedHtml || buildAnnotatedHtml(entry.text || '', pd, anon);
+    undoStackRef.current = [{ html: loadedHtml, pd, anon }];
+    undoIndexRef.current = 0;
     setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html: entry.editedHtml || html }));
     setView(VIEW_RESULT);
   };
@@ -550,30 +586,65 @@ export default function App() {
   };
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
+  // ── Undo helpers ─────────────────────────────────────────────────────────────
+
+  // Read current state synchronously (refs are always up to date)
+  const snap = () => ({
+    html: editorDomRef.current?.innerHTML ?? '',
+    pd:   pdRef.current,
+    anon: anonRef.current,
+  });
+
+  // Push snapshot onto stack, discarding any redo entries above current index
+  const pushSnap = (s) => {
+    const stack = undoStackRef.current;
+    const idx   = undoIndexRef.current;
+    const next  = stack.slice(0, idx + 1);
+    next.push(s);
+    if (next.length > MAX_UNDO) next.shift();
+    undoStackRef.current = next;
+    undoIndexRef.current = next.length - 1;
+  };
+
+  // Restore a snapshot — write DOM directly, update React state
+  const applySnap = (s) => {
+    if (editorDomRef.current) {
+      editorDomRef.current.innerHTML = s.html;
+      initPdMarkOriginals(editorDomRef.current);
+    }
+    setEditorHtml(s.html);
+    // Update refs first so any cascading effects see correct values
+    pdRef.current   = s.pd;
+    anonRef.current = s.anon;
+    setPersonalData(s.pd);
+    setAnonymized(s.anon);
+  };
+
+  const performUndo = () => {
+    const idx = undoIndexRef.current;
+    if (idx <= 0) return;
+    undoIndexRef.current = idx - 1;
+    applySnap(undoStackRef.current[idx - 1]);
+  };
+
   const handlePdClick = useCallback((id) => {
+    pushSnap(snap()); // snapshot BEFORE the toggle
     setAnonymized(prev => {
       const next = { ...prev, [id]: !prev[id] };
+      anonRef.current = next; // keep ref in sync
       const isAnon = next[id];
 
-      // Find what letter/replacement to use
       const person = personalData.persons?.find(p => p.id === id);
       const otherItem = personalData.otherPD?.find(it => it.id === id);
-      const letter = person?.letter;
-      const replacement = otherItem?.replacement;
+      patchPdMarks(editorDomRef.current, id, isAnon, person?.letter, otherItem?.replacement);
 
-      // Patch DOM without rebuilding — preserves all user edits
-      patchPdMarks(editorDomRef.current, id, isAnon, letter, replacement);
-
-      // Sync state for save/export
-      if (editorDomRef.current) {
-        setEditorHtml(editorDomRef.current.innerHTML);
-      }
-
+      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
       return next;
     });
   }, [personalData]);
 
   const anonymizeAllByCategory = useCallback((category) => {
+    pushSnap(snap());
     setAnonymized(prev => {
       const { persons = [], otherPD = [] } = personalData;
       const newAnon = { ...prev };
@@ -601,10 +672,8 @@ export default function App() {
         );
       });
 
-      if (editorDomRef.current) {
-        setEditorHtml(editorDomRef.current.innerHTML);
-      }
-
+      if (editorDomRef.current) setEditorHtml(editorDomRef.current.innerHTML);
+      anonRef.current = newAnon;
       return newAnon;
     });
   }, [personalData]);
@@ -612,6 +681,12 @@ export default function App() {
   // After editor renders with new html, store originals for de-anonymize
   const handleEditorHtmlChange = useCallback((html) => {
     setEditorHtml(html);
+
+    // Debounced undo snapshot for plain text edits (800ms after typing stops)
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => {
+      pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
+    }, 800);
 
     // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
     if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
@@ -632,32 +707,36 @@ export default function App() {
         const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0);
 
         if (persons.length === prev.persons.length && otherPD.length === prev.otherPD.length) {
-          return prev; // nothing changed, skip re-render
+          return prev;
         }
-        return { ...prev, persons, otherPD };
+        const next = { ...prev, persons, otherPD };
+        pdRef.current = next;
+        return next;
       });
     }, 1000);
   }, []);
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
+    pushSnap(snap());
     setPersonalData(prev => {
-      // Count remaining marks for this id in the editor DOM
       const remaining = editorDomRef.current
         ? editorDomRef.current.querySelectorAll(`mark[data-pd-id="${id}"]`).length
         : 0;
-      if (remaining > 0) return prev; // other marks still exist, just leave state as-is
-      // No marks left — remove entry from panel
-      return {
+      if (remaining > 0) return prev;
+      const next = {
         ...prev,
         persons: prev.persons.filter(p => p.id !== id),
         otherPD: prev.otherPD.filter(p => p.id !== id),
       };
+      pdRef.current = next;
+      return next;
     });
   }, []);
 
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl) => {
+    pushSnap(snap());
     setPersonalData(prev => {
       const person = prev.persons.find(p => p.id === id);
       const other = prev.otherPD.find(p => p.id === id);
@@ -686,6 +765,7 @@ export default function App() {
 
   // Called from RichEditor when user adds a brand new PD entry
   const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
+    pushSnap(snap());
     setPersonalData(prev => {
       const newId = `manual_${Date.now()}`;
       let newPersons = prev.persons;
@@ -730,7 +810,9 @@ export default function App() {
         }
       }
 
-      return { ...prev, persons: newPersons, otherPD: newOtherPD };
+      const next = { ...prev, persons: newPersons, otherPD: newOtherPD };
+      pdRef.current = next;
+      return next;
     });
   }, [anonymized]);
 
@@ -1404,6 +1486,7 @@ ${content}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
                 existingPD={personalData}
+                onBeforeAction={() => pushSnap(snap())}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
               />
