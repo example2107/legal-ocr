@@ -201,7 +201,7 @@ function annotLine(text, marks, anonymized) {
         const isAnon = !!anonymized[hl.id];
         const display = isAnon ? (hl.type === 'person' ? hl.letter : hl.replacement) : esc(mt);
         const cat = hl.type === 'person' ? (hl.cat === 'private' ? 'priv' : 'prof') : 'oth';
-        out += `<mark class="pd ${cat}${isAnon ? ' anon' : ''}" data-pd-id="${hl.id}" title="${isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить'}">${display}</mark>`;
+        out += `<mark class="pd ${cat}${isAnon ? ' anon' : ''}" data-pd-id="${hl.id}" contenteditable="false" title="${isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить'}">${display}</mark>`;
       } else {
         out += applyBold(esc(mt));
       }
@@ -508,6 +508,7 @@ function removeSpaceAroundMark(mark) {
 export function patchPdMarks(editorEl, id, isAnon, letter, replacement) {
   if (!editorEl) return;
   const marks = editorEl.querySelectorAll(`mark[data-pd-id="${id}"]`);
+  // Ensure contenteditable=false on all pd marks (may be missing on manually created ones)
   marks.forEach(mark => {
     const wasAnon = mark.classList.contains('anon');
     if (isAnon && !wasAnon) {
@@ -531,6 +532,7 @@ export function initPdMarkOriginals(editorEl) {
     if (!mark.dataset.original) {
       mark.dataset.original = mark.textContent;
     }
+    mark.contentEditable = 'false';
   });
 }
 
@@ -895,6 +897,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     mark.className = 'pd priv'; // corrected to proper class by App.js callback
     mark.dataset.pdId = id;
     mark.dataset.original = selectedText; // saved now; App.js may override with fullName
+    mark.contentEditable = 'false';
     try {
       range.surroundContents(mark);
     } catch {
@@ -916,6 +919,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     mark.className = `pd ${cat}`;
     mark.dataset.pdId = '__new__'; // replaced by App.js callback
     mark.dataset.original = selectedText; // App.js will override with fullName for persons
+    mark.contentEditable = 'false';
     try {
       range.surroundContents(mark);
     } catch {
@@ -928,53 +932,11 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     onAddPdMark?.(pdData, selectedText, mark);
   }, [ctxMenu, notifyChange, onAddPdMark]);
 
-  // Вспомогательная функция: узел/смещение → маркер, если курсор упирается в него
-  const markAtCursor = (node, offset, direction) => {
-    if (node.nodeType === 3) {
-      // Текстовый узел
-      if (direction === 'forward' && offset === node.textContent.length)
-        return node.nextSibling?.matches?.('mark[data-pd-id]') ? node.nextSibling : null;
-      if (direction === 'backward' && offset === 0)
-        return node.previousSibling?.matches?.('mark[data-pd-id]') ? node.previousSibling : null;
-    } else {
-      if (direction === 'forward')
-        return node.childNodes[offset]?.matches?.('mark[data-pd-id]') ? node.childNodes[offset] : null;
-      if (direction === 'backward')
-        return node.childNodes[offset - 1]?.matches?.('mark[data-pd-id]') ? node.childNodes[offset - 1] : null;
-    }
-    return null;
-  };
-
   // Удаляем маркер целиком при Delete/Backspace
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       exec(e.shiftKey ? 'outdent' : 'indent');
-      return;
-    }
-
-    // Стрелки — перепрыгиваем маркер целиком
-    if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      const sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return;
-      const range = sel.getRangeAt(0);
-
-      if (range.collapsed) {
-        const dir = e.key === 'ArrowRight' ? 'forward' : 'backward';
-        const mark = markAtCursor(range.startContainer, range.startOffset, dir);
-        if (mark) {
-          e.preventDefault();
-          const newRange = document.createRange();
-          if (dir === 'forward') newRange.setStartAfter(mark);
-          else newRange.setStartBefore(mark);
-          newRange.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(newRange);
-        }
-      } else {
-        // Есть выделение — при нажатии стрелки схлопываем к нужному краю
-        // (стандартное поведение браузера, не мешаем)
-      }
       return;
     }
 
@@ -1025,84 +987,9 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     }
   }, [exec, notifyChange, onRemovePdMark]);
 
-  // Расширяем выделение до полных границ маркера при частичном захвате
-  const handleSelectionChange = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return;
-    const range = sel.getRangeAt(0);
 
-    if (!range.collapsed) {
-      // Есть выделение — расширяем до полных границ любого захваченного маркера
-      const editor = editorRef.current;
-      if (!editor) return;
 
-      let newStart = range.startContainer;
-      let newStartOffset = range.startOffset;
-      let newEnd = range.endContainer;
-      let newEndOffset = range.endOffset;
-      let changed = false;
 
-      // Проверяем начало выделения — не попало ли внутрь маркера
-      const startMark = (newStart.nodeType === 3
-        ? newStart.parentElement
-        : newStart)?.closest('mark[data-pd-id]');
-      if (startMark) {
-        newStart = startMark.parentNode;
-        newStartOffset = Array.from(startMark.parentNode.childNodes).indexOf(startMark);
-        changed = true;
-      }
-
-      // Проверяем конец выделения
-      const endMark = (newEnd.nodeType === 3
-        ? newEnd.parentElement
-        : newEnd)?.closest('mark[data-pd-id]');
-      if (endMark) {
-        newEnd = endMark.parentNode;
-        newEndOffset = Array.from(endMark.parentNode.childNodes).indexOf(endMark) + 1;
-        changed = true;
-      }
-
-      if (changed) {
-        const newRange = document.createRange();
-        newRange.setStart(newStart, newStartOffset);
-        newRange.setEnd(newEnd, newEndOffset);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-      }
-    }
-  }, [editorRef]);
-
-  // Выносим курсор за пределы <mark class="pd"> при вводе текста
-  const escapeFromPdMark = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return;
-    const range = sel.getRangeAt(0);
-    const node = range.startContainer;
-    const mark = node.nodeType === 3
-      ? node.parentElement?.closest('mark.pd')
-      : node.closest?.('mark.pd');
-    if (!mark) return;
-    const newRange = document.createRange();
-    newRange.setStartAfter(mark);
-    newRange.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(newRange);
-  }, []);
-
-  // Подписываемся на selectionchange только когда редактор в фокусе
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const onFocus = () => document.addEventListener('selectionchange', handleSelectionChange);
-    const onBlur  = () => document.removeEventListener('selectionchange', handleSelectionChange);
-    editor.addEventListener('focus', onFocus);
-    editor.addEventListener('blur',  onBlur);
-    return () => {
-      editor.removeEventListener('focus', onFocus);
-      editor.removeEventListener('blur',  onBlur);
-      document.removeEventListener('selectionchange', handleSelectionChange);
-    };
-  }, [editorRef, handleSelectionChange]);
 
   return (
     <div className="rich-editor-wrap">
@@ -1135,7 +1022,6 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
         suppressContentEditableWarning
         spellCheck={false}
         onInput={() => {
-          escapeFromPdMark();
           if (!isComposing.current) notifyChange();
         }}
         onCompositionStart={() => { isComposing.current = true; }}
