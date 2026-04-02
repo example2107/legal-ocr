@@ -16,7 +16,7 @@ function assignLetters(personalData) {
     persons: (personalData.persons || []).map(p => ({
       ...p,
       letter: p.category === 'private'
-        ? (ALPHA_PRIVATE[pi++] || `Л${pi}`)
+        ? (ALPHA_PRIVATE[pi] !== undefined ? ALPHA_PRIVATE[pi++] : `Л-${++pi}`)
         : makeProfletter(++pf),
     })),
   };
