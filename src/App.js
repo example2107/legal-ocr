@@ -96,6 +96,7 @@ export default function App() {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
+  const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
 
   const [files, setFiles] = useState([]);
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
@@ -575,6 +576,7 @@ export default function App() {
       setOriginalFileName(origName);
       setRawText(result.text);
       setEditorHtml(html);
+      setPdIdsInDoc(extractPdIdsFromHtml(html));
       pdRef.current   = pd;
       anonRef.current = initialAnon;
       setPersonalData(pd);
@@ -704,6 +706,7 @@ export default function App() {
     if (files.length === 0) { setError('Добавьте хотя бы один файл'); return; }
 
     setCurrentProjectId(null);
+    setPdIdsInDoc(null);
     setError(null);
     setView(VIEW_PROCESSING);
 
@@ -794,20 +797,22 @@ export default function App() {
     const pd = entry.personalData || { persons: [], otherPD: [] };
     const anon = entry.anonymized || {};
     const html = buildAnnotatedHtml(entry.text || '', pd, anon);
+    const loadedHtml = entry.editedHtml || html;
 
     setDocId(entry.id);
     setDocTitle(entry.title);
     setOriginalFileName(entry.originalFileName || entry.title || '');
     setRawText(entry.text || '');
-    setEditorHtml(entry.editedHtml || html);
+    setEditorHtml(loadedHtml);
+    // If in project context — track which PD ids have marks in this specific doc
+    setPdIdsInDoc(currentProjectId ? extractPdIdsFromHtml(loadedHtml) : null);
     pdRef.current   = pd;
     anonRef.current = anon;
     setPersonalData(pd);
     setAnonymized(anon);
-    const loadedHtml = entry.editedHtml || buildAnnotatedHtml(entry.text || '', pd, anon);
     undoStackRef.current = [{ html: loadedHtml, pd, anon }];
     undoIndexRef.current = 0;
-    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html: entry.editedHtml || html }));
+    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html: loadedHtml }));
     setView(VIEW_RESULT);
   };
 
@@ -1011,8 +1016,15 @@ export default function App() {
         markCounts[id] = (markCounts[id] || 0) + 1;
       });
 
+      // Update pdIdsInDoc if in project context
+      if (currentProjectId) {
+        setPdIdsInDoc(new Set(Object.keys(markCounts)));
+      }
+
       setPersonalData(prev => {
-        // Remove entries with 0 remaining marks in the editor
+        // In project context — keep all entries (absent ones shown dimmed)
+        if (currentProjectId) return prev;
+        // Outside project — remove entries with 0 remaining marks
         const persons = prev.persons.filter(p => markCounts[p.id] > 0);
         const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0);
 
@@ -1024,7 +1036,7 @@ export default function App() {
         return next;
       });
     }, 1000);
-  }, []);
+  }, [currentProjectId]);
 
   // Called from RichEditor when user right-clicks a mark and picks "Не является ПД"
   const handleRemovePdMark = useCallback((id) => {
@@ -1396,6 +1408,17 @@ ${content}
     other: 'Прочее',
   };
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
+
+  // Check if a PD id has marks in the current document (for project context display)
+  const pdInDoc = (id) => !pdIdsInDoc || pdIdsInDoc.has(id);
+
+  const extractPdIdsFromHtml = (html) => {
+    const ids = new Set();
+    const re = /data-pd-id="([^"]+)"/g;
+    let m;
+    while ((m = re.exec(html)) !== null) ids.add(m[1]);
+    return ids;
+  };
 
   // ══════════════════════════════════════════════════════════════════════════════
   return (
@@ -1891,19 +1914,22 @@ ${content}
                       </button>
                     </div>
                     {privatePersons.map(p => (
-                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
+                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}${!pdInDoc(p.id) ? ' pd-absent' : ''}`} onClick={() => pdInDoc(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => pdInDoc(p.id) && initNavCounter(p.id)}>
                         <span className="pd-item-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{p.fullName}</span>
-                            <span className="pd-item-nav">
-                              <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
-                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? pdNavState[p.id].total : `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}`}` : ''}</span>
-                              <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
-                            </span>
+                            {pdInDoc(p.id) && (
+                              <span className="pd-item-nav">
+                                <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
+                                <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? pdNavState[p.id].total : `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}`}` : ''}</span>
+                                <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
+                              </span>
+                            )}
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
+                          {!pdInDoc(p.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1919,19 +1945,22 @@ ${content}
                       </button>
                     </div>
                     {profPersons.map(p => (
-                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
+                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}${!pdInDoc(p.id) ? ' pd-absent' : ''}`} onClick={() => pdInDoc(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => pdInDoc(p.id) && initNavCounter(p.id)}>
                         <span className="pd-item-letter prof-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{p.fullName}</span>
-                            <span className="pd-item-nav">
-                              <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
-                              <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? pdNavState[p.id].total : `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}`}` : ''}</span>
-                              <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
-                            </span>
+                            {pdInDoc(p.id) && (
+                              <span className="pd-item-nav">
+                                <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
+                                <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? pdNavState[p.id].total : `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}`}` : ''}</span>
+                                <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
+                              </span>
+                            )}
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
+                          {!pdInDoc(p.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1947,18 +1976,21 @@ ${content}
                       </button>
                     </div>
                     {items.map(item => (
-                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)} onMouseEnter={() => initNavCounter(item.id)}>
+                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}${!pdInDoc(item.id) ? ' pd-absent' : ''}`} onClick={() => pdInDoc(item.id) ? handlePdClick(item.id) : null} onMouseEnter={() => pdInDoc(item.id) && initNavCounter(item.id)}>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{item.value}</span>
-                            <span className="pd-item-nav">
-                              <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(item.id, 'up', e)}>↑</button>
-                              <span className="pd-nav-counter">{pdNavState[item.id] ? `${pdNavState[item.id].cur === -1 ? pdNavState[item.id].total : `${pdNavState[item.id].cur + 1}/${pdNavState[item.id].total}`}` : ''}</span>
-                              <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
-                            </span>
+                            {pdInDoc(item.id) && (
+                              <span className="pd-item-nav">
+                                <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(item.id, 'up', e)}>↑</button>
+                                <span className="pd-nav-counter">{pdNavState[item.id] ? `${pdNavState[item.id].cur === -1 ? pdNavState[item.id].total : `${pdNavState[item.id].cur + 1}/${pdNavState[item.id].total}`}` : ''}</span>
+                                <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
+                              </span>
+                            )}
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
                           </span>
                           <span className="pd-item-role">→ {item.replacement}</span>
+                          {!pdInDoc(item.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}

@@ -355,6 +355,11 @@ a { color: var(--accent); }
 .pd-cat-private { background: var(--pd-private-light); color: var(--pd-private); border-color: #dbc8f0; }
 .pd-cat-professional { background: var(--pd-prof-light); color: var(--pd-prof); border-color: #b8ded8; }
 
+/* Absent PD — from project base but not in current document */
+.pd-item.pd-absent { opacity: 0.4; cursor: default; }
+.pd-item.pd-absent:hover { background: transparent; border-color: var(--border); }
+.pd-absent-label { font-size: 10px; color: var(--text3); font-style: italic; }
+
 /* ============================
    DOCUMENT CARD
    ============================ */
