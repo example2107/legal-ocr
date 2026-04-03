@@ -106,6 +106,14 @@ function esc(s) {
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+// Build flexible regex for otherPD values: normalize whitespace, allow line breaks
+function buildOtherPdPattern(value) {
+  // Split by whitespace, escape each part, join with \s+
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return escRe(value);
+  return parts.map(p => escRe(p)).join('\\s+');
+}
+
 // Строит regex-паттерн для упоминания человека:
 // - Захватывает падежные окончания каждого слова ФИО (через усечение корня)
 // - Захватывает инициалы после фамилии (А., В.Г.) и перед фамилией (С.В. Фамилия)
@@ -156,7 +164,7 @@ function annotLine(text, marks, anonymized) {
   // Для persons — расширенный паттерн с падежами и инициалами
   // Для otherPD — точный паттерн
   const patternEntries = marks.map(m => ({
-    pattern: m.type === 'person' ? buildPersonPattern(m.txt) : escRe(m.txt),
+    pattern: m.type === 'person' ? buildPersonPattern(m.txt) : buildOtherPdPattern(m.txt),
     mark: m,
   }));
 
@@ -251,8 +259,8 @@ function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
       const allMatches = [];
       for (const mark of marks) {
         try {
-          const pattern = buildPersonPattern(mark.txt);
-          const re = new RegExp(pattern, 'g');
+          const pattern = mark.type === 'person' ? buildPersonPattern(mark.txt) : buildOtherPdPattern(mark.txt);
+          const re = new RegExp(pattern, 'gi');
           let m;
           while ((m = re.exec(text)) !== null) {
             allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], mark });
