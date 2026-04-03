@@ -95,7 +95,6 @@ export default function App() {
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
-  const [showAddFromHistory, setShowAddFromHistory] = useState(false);
 
   const [files, setFiles] = useState([]);
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
@@ -163,6 +162,7 @@ export default function App() {
   const fileInputRef = useRef();
   const viewerFileInputRef = useRef();
   const importInputRef = useRef();
+  const projectFileInputRef = useRef();
   const dragFileIdx = useRef(null);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
@@ -440,13 +440,6 @@ export default function App() {
     }
   };
 
-  const handleAddDocFromHistory = (docId) => {
-    if (!currentProjectId) return;
-    addDocumentToProject(currentProjectId, docId);
-    refreshProjects();
-    setShowAddFromHistory(false);
-  };
-
   const handleRemoveDocFromProject = (docId) => {
     if (!currentProjectId) return;
     removeDocumentFromProject(currentProjectId, docId);
@@ -455,6 +448,93 @@ export default function App() {
 
   const openDocFromProject = (entry) => {
     loadDoc(entry);
+  };
+
+  const handleProjectFiles = useCallback((newFiles) => {
+    const valid = Array.from(newFiles).filter(f => f.type === 'application/pdf');
+    if (valid.length !== newFiles.length) setError('В проект можно загружать только PDF-файлы');
+    setFiles(prev => [...prev, ...valid]);
+  }, []);
+
+  const handleProjectRecognize = async () => {
+    if (!apiKey.trim()) { setError('Введите API ключ'); return; }
+    if (files.length === 0) { setError('Добавьте хотя бы один PDF-файл'); return; }
+    if (!currentProjectId) return;
+
+    setError(null);
+    setView(VIEW_PROCESSING);
+
+    // Берём сквозную базу ПД из последнего документа проекта
+    const projectDocs = getProjectDocs();
+    let existingPD = null;
+    if (projectDocs.length > 0) {
+      const lastDoc = projectDocs[projectDocs.length - 1];
+      if (lastDoc.personalData) existingPD = lastDoc.personalData;
+    }
+
+    try {
+      setProgress({ percent: 2, message: 'Подготовка файлов...' });
+      const allImages = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const pages = await pdfToImages(file, (page, total) => {
+          setProgress({ percent: Math.round(5 + (i / files.length) * 20), message: `PDF: страница ${page} из ${total}...` });
+        });
+        allImages.push(...pages);
+      }
+      setOriginalImages(allImages);
+      const result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
+        const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
+        setProgress(prev => prev && prev.percent > pct
+          ? { ...prev, message: p.message }
+          : { percent: pct, message: p.message }
+        );
+        if (p.stage === 'ocr') {
+          animateTo(Math.min(pct + 12, 74), null);
+        } else if (p.stage === 'analysis') {
+          animateTo(Math.min(pct + 8, 98), null);
+        } else {
+          stopProgressCreep();
+        }
+      }, existingPD);
+
+      // Мёржим с существующей базой если она есть
+      let pd;
+      if (existingPD) {
+        const merged = mergePD(existingPD, result.personalData);
+        pd = assignLetters(merged, existingPD);
+      } else {
+        pd = assignLetters(result.personalData);
+      }
+
+      const initialAnon = {};
+      const html = buildAnnotatedHtml(result.text, pd, initialAnon);
+      const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
+      const origName = files[0]?.name || '';
+      const newDocId = generateId();
+
+      setDocId(newDocId);
+      setDocTitle(title);
+      setOriginalFileName(origName);
+      setRawText(result.text);
+      setEditorHtml(html);
+      pdRef.current   = pd;
+      anonRef.current = initialAnon;
+      setPersonalData(pd);
+      setAnonymized(initialAnon);
+      setLastSavedState(null);
+      undoStackRef.current = [{ html: buildAnnotatedHtml(result.text, pd, initialAnon), pd, anon: initialAnon }];
+      undoIndexRef.current = 0;
+      setShowLongDocWarning(result.text.length > 50000);
+
+      stopProgressCreep();
+      setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
+    } catch (err) {
+      stopProgressCreep();
+      setError(err.message || 'Произошла ошибка');
+      setView(VIEW_PROJECT);
+      setProgress(null);
+    }
   };
 
   // ── Import .юрдок file ──────────────────────────────────────────────────────
@@ -1274,10 +1354,10 @@ ${content}
               <button className="btn-tool header-home-btn" onClick={goBackToProject}>← Проект</button>
             )}
             {view === VIEW_RESULT && !currentProjectId && (
-              <button className="btn-tool header-home-btn" onClick={goHome}>← Главная</button>
+              <button className="btn-tool header-home-btn" onClick={goHome}>← На главную</button>
             )}
             {view === VIEW_PROJECT && (
-              <button className="btn-tool header-home-btn" onClick={goHome}>← Главная</button>
+              <button className="btn-tool header-home-btn" onClick={goHome}>← На главную</button>
             )}
             <div
               className="logo"
@@ -1557,35 +1637,6 @@ ${content}
           </div>
         )}
 
-        {/* ════ ADD FROM HISTORY MODAL ════ */}
-        {showAddFromHistory && (
-          <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: 520 }}>
-              <div className="modal-title">Добавить документ из истории</div>
-              <div className="modal-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
-                {history.filter(h => !currentProject?.documentIds.includes(h.id)).length === 0 ? (
-                  <div style={{ color: 'var(--text3)' }}>Нет документов, которые можно добавить</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {history.filter(h => !currentProject?.documentIds.includes(h.id)).map(entry => (
-                      <div key={entry.id} className="history-card" style={{ cursor: 'pointer' }} onClick={() => handleAddDocFromHistory(entry.id)}>
-                        <div className="history-card-icon">📄</div>
-                        <div className="history-card-body">
-                          <div className="history-card-title">{entry.title}</div>
-                          <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="modal-actions">
-                <button className="btn-tool" onClick={() => setShowAddFromHistory(false)}>Закрыть</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ════ PROJECT VIEW ════ */}
         {view === VIEW_PROJECT && currentProject && (
           <div className="project-view">
@@ -1602,14 +1653,88 @@ ${content}
               )}
             </div>
 
-            <div className="project-view-actions">
-              <button className="btn-primary btn-sm" onClick={() => { /* switch to home upload mode within project context */ setView(VIEW_HOME); }}>📄 Загрузить новый файл</button>
-              <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Добавить из истории</button>
+            {/* API key + provider inside project */}
+            <section className="card api-card">
+              <div className="provider-select-wrap">
+                <label className="provider-label">Провайдер ИИ</label>
+                <div className="provider-tabs">
+                  {Object.entries(PROVIDERS).map(([key, p]) => (
+                    <button
+                      key={key}
+                      className={'provider-tab' + (provider === key ? ' active' : '')}
+                      onClick={() => { setProvider(key); setApiKey(''); }}
+                      type="button"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="api-input-wrap" style={{ marginTop: 8 }}>
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  className="api-input"
+                  placeholder={PROVIDERS[provider].placeholder}
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button className="api-toggle" onClick={() => setShowApiKey(v => !v)}>{showApiKey ? '🙈' : '👁'}</button>
+              </div>
+              <div className="api-hint">
+                Ключ не сохраняется.{' '}
+                {provider === 'claude' && <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
+                {provider === 'openai' && <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
+                {provider === 'gemini' && <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
+              </div>
+            </section>
+
+            {/* Upload zone — PDF only */}
+            <section className="card upload-card">
+              <div
+                className={`dropzone ${isDragging ? 'dragging' : ''}`}
+                onDrop={e => { e.preventDefault(); setIsDragging(false); handleProjectFiles(e.dataTransfer.files); }}
+                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onClick={() => projectFileInputRef.current?.click()}
+              >
+                <input ref={projectFileInputRef} type="file" multiple accept=".pdf,application/pdf" className="visually-hidden" onChange={e => { handleProjectFiles(e.target.files); e.target.value = ''; }} />
+                <div className="dropzone-icon">📄</div>
+                <div className="dropzone-text"><strong>Перетащите PDF-файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
+                <div className="dropzone-hint">PDF · Рекомендуем до 20–25 страниц на файл</div>
+              </div>
+              {files.length > 0 && (
+                <div className="file-list">
+                  {files.map((file, idx) => (
+                    <div key={idx} className="file-item">
+                      <span className="file-icon">📑</span>
+                      <span className="file-name">{file.name}</span>
+                      <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                      <button className="file-remove" onClick={e => { e.stopPropagation(); removeFile(idx); }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {error && <div className="error-block" style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}>⚠️ {error}</div>}
+
+            <div className="home-btn-wrap">
+              <button
+                className="btn-primary"
+                onClick={handleProjectRecognize}
+                disabled={!apiKey.trim() || files.length === 0}
+              >
+                {getProjectDocs().length === 0
+                  ? '🔍 Распознать и обезличить первый файл'
+                  : '🔍 Распознать и обезличить следующий файл'}
+              </button>
             </div>
 
-            {getProjectDocs().length > 0 ? (
+            {getProjectDocs().length > 0 && (
               <div className="project-docs">
-                <div className="card-label">Документы проекта</div>
+                <div className="card-label">Документы проекта ({getProjectDocs().length})</div>
                 <div className="project-docs-list">
                   {getProjectDocs().map((doc, idx) => (
                     <div key={doc.id} className="project-doc-item" onClick={() => openDocFromProject(doc)}>
@@ -1619,7 +1744,13 @@ ${content}
                         <div className="project-doc-meta">
                           {formatDate(new Date(doc.savedAt))}
                           {(doc.personalData?.persons?.length || 0) > 0 && (
-                            <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.length} лиц</span>
+                            <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
+                          )}
+                          {(doc.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
+                            <span className="badge badge-prof" style={{ marginLeft: 4 }}>{doc.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
+                          )}
+                          {(doc.personalData?.otherPD?.length || 0) > 0 && (
+                            <span className="badge badge-anon" style={{ marginLeft: 4 }}>{doc.personalData.otherPD.length} др. ПД</span>
                           )}
                         </div>
                       </div>
@@ -1627,10 +1758,6 @@ ${content}
                     </div>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <div className="project-docs-empty">
-                В проекте пока нет документов. Загрузите новый файл или добавьте из истории.
               </div>
             )}
           </div>
