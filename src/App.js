@@ -417,6 +417,20 @@ export default function App() {
 
   useEffect(() => { setProjects(loadProjects()); }, []);
 
+  // Sync lastSavedState with actual DOM after editor renders
+  // Browser normalizes innerHTML (attribute order, whitespace) so the saved string
+  // from buildAnnotatedHtml may differ from what the DOM produces.
+  useEffect(() => {
+    if (view !== VIEW_RESULT) return;
+    const timer = setTimeout(() => {
+      if (editorDomRef.current && lastSavedState) {
+        const realHtml = editorDomRef.current.innerHTML;
+        setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anonymized), html: realHtml }));
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [view]); // only re-run when view changes
+
   // ── Project functions ───────────────────────────────────────────────────────
   const handleCreateProject = () => {
     if (!newProjectTitle.trim()) return;
