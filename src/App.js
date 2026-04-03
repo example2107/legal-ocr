@@ -1400,7 +1400,7 @@ ${content}
                     >
                       {history.map(h => (
                         <option key={h.id} value={h.id}>
-                          {h.title} ({(h.personalData?.persons?.length || 0)} лиц, {(h.personalData?.otherPD?.length || 0)} др. ПД)
+                          {h.title} · {formatDate(new Date(h.savedAt))} ({(h.personalData?.persons?.length || 0)} лиц, {(h.personalData?.otherPD?.length || 0)} др. ПД)
                         </option>
                       ))}
                     </select>
@@ -1589,6 +1589,9 @@ ${content}
                   placeholder="Название документа"
                   spellCheck={false}
                 />
+                {history.some(h => h.id !== docId && h.title === docTitle) && (
+                  <div className="doc-title-duplicate">⚠ Документ с таким названием уже есть в истории</div>
+                )}
                 <div className="doc-title-actions">
                   {originalImages.length > 0 && (
                     <button
