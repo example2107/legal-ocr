@@ -353,7 +353,7 @@ function dehyphenate(text) {
     .replace(/([А-яЁёa-zA-Z])- ([а-яёa-z])/g, '$1$2');       // Са- мара → Самара
 }
 
-export async function recognizeDocument(images, apiKey, provider, onProgress) {
+export async function recognizeDocument(images, apiKey, provider, onProgress, existingPD) {
   const texts = [];
   const total = images.length;
 
@@ -420,7 +420,7 @@ export async function recognizeDocument(images, apiKey, provider, onProgress) {
 
   // Шаг 3: Анализ ПД — 87–100%
   onProgress({ stage: 'analysis', percent: 88, message: 'Анализ персональных данных...' });
-  const personalData = await analyzePD(checkedText, apiKey, provider, onProgress);
+  const personalData = await analyzePD(checkedText, apiKey, provider, onProgress, existingPD);
 
   onProgress({ stage: 'done', percent: 100, message: 'Готово!' });
   return { text: checkedText, personalData };
@@ -513,14 +513,31 @@ async function runQualityCheck(fullText, apiKey, provider, onProgress) {
 }
 
 // ── Шаг 3: Анализ персональных данных ────────────────────────────────────────
-export async function analyzePD(fullText, apiKey, provider, onProgress) {
+export async function analyzePD(fullText, apiKey, provider, onProgress, existingPD) {
   let personalData = { persons: [], otherPD: [] };
   try {
     const cleanForPD = fullText.replace(/\[PAGE:\d+\]/g, '');
     const textForPD = cleanForPD.length > 25000 ? cleanForPD.slice(0, 25000) + '\n...' : cleanForPD;
     onProgress({ stage: 'analysis', percent: 91, message: 'Поиск персональных данных...' });
+
+    // Формируем промпт — если есть существующая база, добавляем её
+    let prompt = PROMPT_PD;
+    if (existingPD && ((existingPD.persons && existingPD.persons.length > 0) || (existingPD.otherPD && existingPD.otherPD.length > 0))) {
+      const existingJson = JSON.stringify({
+        persons: (existingPD.persons || []).map(p => ({
+          id: p.id, fullName: p.fullName, role: p.role, category: p.category, mentions: p.mentions,
+        })),
+        otherPD: (existingPD.otherPD || []).map(it => ({
+          id: it.id, type: it.type, value: it.value, replacement: it.replacement,
+        })),
+      }, null, 2);
+      prompt += '\n\nВАЖНО — СУЩЕСТВУЮЩАЯ БАЗА ПЕРСОНАЛЬНЫХ ДАННЫХ:\nЭтот документ является продолжением ранее обработанного. Вот уже известные персональные данные:\n' + existingJson + '\n\nПравила работы с существующей базой:\n\nPersons (лица):\n- Если в новом тексте встречается человек из существующей базы (совпадает fullName или одно из mentions) — используй его СУЩЕСТВУЮЩИЙ id. Добавь новые mentions если нашлись новые варианты написания. НЕ создавай для него новую запись\n- Если в новом тексте встречается новый человек, которого НЕТ в существующей базе — создай для него НОВУЮ запись с новым уникальным id\n\nOtherPD (адреса, телефоны, паспорта, даты рождения и т.д.):\n- Если в новом тексте встречается ПД, совпадающее по value (или очень близкое — тот же адрес, тот же номер телефона, тот же паспорт) с записью из существующей базы — используй СУЩЕСТВУЮЩИЙ id, НЕ создавай дубликат\n- Если в новом тексте встречается новое ПД, которого НЕТ в существующей базе (новый адрес, новый номер телефона, новый паспорт и т.д.) — создай для него НОВУЮ запись с новым id\n- Типы otherPD, которые нужно проверять на совпадение: address, phone, passport, zagranpassport, inn, snils, card, email, dob, birthplace, social_id, vehicle_plate, vehicle_vin, driver_license, military_id, oms_policy, birth_certificate, imei, org_link\n\nВ результирующем JSON верни ТОЛЬКО НОВЫЕ записи (которых нет в существующей базе) и ОБНОВЛЁННЫЕ существующие записи (с добавленными mentions для persons). Не включай неизменённые записи из существующей базы.\n\nТекст документа:\n';
+    } else {
+      prompt += '\n';
+    }
+
     const pdRaw = await callApi(
-      [{ role: 'user', content: PROMPT_PD + textForPD }],
+      [{ role: 'user', content: prompt + textForPD }],
       apiKey, null, provider
     );
     // Убираем code-fence если модель обернула JSON в ```json...```

@@ -16,17 +16,81 @@ const OTHER_PD_TYPES_MAP = {
 };
 const makeProfletter = (n) => `[ФИО ${n}]`;
 
-function assignLetters(personalData) {
+function assignLetters(personalData, existingPD) {
+  // Если есть существующая база — продолжаем нумерацию с того места где остановились
   let pi = 0, pf = 0;
+  if (existingPD) {
+    pi = (existingPD.persons || []).filter(p => p.category === 'private').length;
+    pf = (existingPD.persons || []).filter(p => p.category === 'professional').length;
+  }
   return {
     ...personalData,
     persons: (personalData.persons || []).map(p => ({
       ...p,
-      letter: p.category === 'private'
+      letter: p.letter || (p.category === 'private'
         ? (ALPHA_PRIVATE[pi] !== undefined ? ALPHA_PRIVATE[pi++] : `Л-${++pi}`)
-        : makeProfletter(++pf),
+        : makeProfletter(++pf)),
     })),
   };
+}
+
+// Генерирует имя следующей части на основе имени источника
+function buildNextPartTitle(sourceTitle) {
+  // Ищем паттерн " — Часть N" перед расширением или в конце
+  const extMatch = sourceTitle.match(/(\.[a-zA-Zа-яА-ЯёЁ]+)$/);
+  const ext = extMatch ? extMatch[1] : '';
+  const base = ext ? sourceTitle.slice(0, -ext.length) : sourceTitle;
+  
+  const partMatch = base.match(/^(.*)\s*—\s*Часть\s+(\d+)$/);
+  if (partMatch) {
+    const nextNum = parseInt(partMatch[2], 10) + 1;
+    return partMatch[1].trimEnd() + ' — Часть ' + nextNum + ext;
+  }
+  return base + ' — Часть 2' + ext;
+}
+
+// Мёржит новые ПД с существующей базой: известные лица сохраняют буквы, новые добавляются
+function mergePD(existingPD, newPD) {
+  const merged = {
+    persons: [...(existingPD.persons || [])],
+    otherPD: [...(existingPD.otherPD || [])],
+  };
+
+  // Нормализация строки для сравнения otherPD
+  const normalizeValue = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+  // Мёржим persons — по совпадению fullName
+  for (const newP of (newPD.persons || [])) {
+    const existing = merged.persons.find(p =>
+      p.fullName.toLowerCase() === newP.fullName.toLowerCase()
+    );
+    if (existing) {
+      // Добавляем новые mentions к уже известному лицу
+      const existingMentions = new Set((existing.mentions || []).map(m => m.toLowerCase()));
+      const addedMentions = (newP.mentions || []).filter(m => !existingMentions.has(m.toLowerCase()));
+      if (addedMentions.length > 0) {
+        existing.mentions = [...(existing.mentions || []), ...addedMentions];
+      }
+      // Обновляем роль если была пустая
+      if (!existing.role && newP.role) existing.role = newP.role;
+    } else {
+      // Новое лицо — добавляем (letter назначит assignLetters)
+      merged.persons.push({ ...newP });
+    }
+  }
+
+  // Мёржим otherPD — по совпадению type + нормализованного value
+  for (const newItem of (newPD.otherPD || [])) {
+    const nv = normalizeValue(newItem.value);
+    const exists = merged.otherPD.some(it =>
+      it.type === newItem.type && normalizeValue(it.value) === nv
+    );
+    if (!exists) {
+      merged.otherPD.push({ ...newItem });
+    }
+  }
+
+  return merged;
 }
 
 const VIEW_HOME = 'home';
@@ -40,6 +104,7 @@ export default function App() {
   const [provider, setProvider] = useState('claude');
 
   const [files, setFiles] = useState([]);
+  const [continuePdFrom, setContinuePdFrom] = useState(null); // id документа-источника ПД или null
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
   const [showOriginal, setShowOriginal] = useState(false);
   const [originalPage, setOriginalPage] = useState(0);
@@ -388,6 +453,7 @@ export default function App() {
     setError(null);
     setProgress(null);
     setShowUnsaved(false);
+    setContinuePdFrom(null);
     refreshHistory();
   };
 
@@ -422,6 +488,16 @@ export default function App() {
     setError(null);
     setView(VIEW_PROCESSING);
 
+    // Если выбран режим «продолжить с базой ПД» — загружаем существующую базу
+    let existingPD = null;
+    let sourceEntry = null;
+    if (continuePdFrom) {
+      sourceEntry = history.find(h => h.id === continuePdFrom);
+      if (sourceEntry?.personalData) {
+        existingPD = sourceEntry.personalData;
+      }
+    }
+
     try {
       let result;
       const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
@@ -438,7 +514,7 @@ export default function App() {
             ? { ...prev, message: p.message }
             : { percent: pct, message: p.message }
           );
-        });
+        }, existingPD);
         stopProgressCreep();
         result = { text: docxText, personalData };
       } else {
@@ -469,14 +545,30 @@ export default function App() {
           } else {
             stopProgressCreep();
           }
-        });
+        }, existingPD);
       }
 
-      const pd = assignLetters(result.personalData);
+      // Если есть существующая база — мёржим и назначаем буквы с учётом неё
+      let pd;
+      if (existingPD) {
+        const merged = mergePD(existingPD, result.personalData);
+        pd = assignLetters(merged, existingPD);
+      } else {
+        pd = assignLetters(result.personalData);
+      }
+
       const initialAnon = {};
       const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-      const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
-      const origName = files[0]?.name || '';
+
+      // Формируем название: если продолжение — автоматически «Часть N»
+      let title, origName;
+      if (sourceEntry) {
+        title = buildNextPartTitle(sourceEntry.title || sourceEntry.originalFileName || 'Документ');
+        origName = files[0]?.name || '';
+      } else {
+        title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
+        origName = files[0]?.name || '';
+      }
 
       setDocId(generateId());
       setDocTitle(title);
@@ -1280,6 +1372,45 @@ ${content}
             </section>
 
             {error && <div className="error-block">⚠️ {error}</div>}
+
+            {history.length > 0 && (
+              <section className="card continue-pd-card">
+                <div className="continue-pd-row">
+                  <label className="continue-pd-toggle">
+                    <input
+                      type="checkbox"
+                      checked={!!continuePdFrom}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setContinuePdFrom(history[0]?.id || null);
+                        } else {
+                          setContinuePdFrom(null);
+                        }
+                      }}
+                    />
+                    <span className="continue-pd-label">Продолжить с базой ПД из предыдущего документа</span>
+                  </label>
+                </div>
+                {continuePdFrom && (
+                  <div className="continue-pd-select-row">
+                    <select
+                      className="continue-pd-select"
+                      value={continuePdFrom}
+                      onChange={e => setContinuePdFrom(e.target.value)}
+                    >
+                      {history.map(h => (
+                        <option key={h.id} value={h.id}>
+                          {h.title} ({(h.personalData?.persons?.length || 0)} лиц, {(h.personalData?.otherPD?.length || 0)} др. ПД)
+                        </option>
+                      ))}
+                    </select>
+                    <div className="continue-pd-hint">
+                      Уже известные лица сохранят свои буквы, новые получат следующие
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
 
             <div className="home-btn-wrap">
               <button
