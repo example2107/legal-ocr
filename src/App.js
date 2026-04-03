@@ -34,21 +34,6 @@ function assignLetters(personalData, existingPD) {
   };
 }
 
-// Генерирует имя следующей части на основе имени источника
-function buildNextPartTitle(sourceTitle) {
-  // Ищем паттерн " — Часть N" перед расширением или в конце
-  const extMatch = sourceTitle.match(/(\.[a-zA-Zа-яА-ЯёЁ]+)$/);
-  const ext = extMatch ? extMatch[1] : '';
-  const base = ext ? sourceTitle.slice(0, -ext.length) : sourceTitle;
-  
-  const partMatch = base.match(/^(.*)\s*—\s*Часть\s+(\d+)$/);
-  if (partMatch) {
-    const nextNum = parseInt(partMatch[2], 10) + 1;
-    return partMatch[1].trimEnd() + ' — Часть ' + nextNum + ext;
-  }
-  return base + ' — Часть 2' + ext;
-}
-
 // Мёржит новые ПД с существующей базой: известные лица сохраняют буквы, новые добавляются
 function mergePD(existingPD, newPD) {
   const merged = {
@@ -105,6 +90,8 @@ export default function App() {
 
   const [files, setFiles] = useState([]);
   const [continuePdFrom, setContinuePdFrom] = useState(null); // id документа-источника ПД или null
+  const [pdIdsInDoc, setPdIdsInDoc] = useState(new Set()); // ids ПД у которых есть маркеры в текущем документе
+  const inheritedPdIdsRef = useRef(new Set()); // ids ПД унаследованных из предыдущей базы (не удаляются cleanup-ом)
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
   const [showOriginal, setShowOriginal] = useState(false);
   const [originalPage, setOriginalPage] = useState(0);
@@ -553,28 +540,27 @@ export default function App() {
       if (existingPD) {
         const merged = mergePD(existingPD, result.personalData);
         pd = assignLetters(merged, existingPD);
+        // Запоминаем id всех унаследованных записей — они не удаляются cleanup-ом
+        const inheritedIds = new Set();
+        (existingPD.persons || []).forEach(p => inheritedIds.add(p.id));
+        (existingPD.otherPD || []).forEach(it => inheritedIds.add(it.id));
+        inheritedPdIdsRef.current = inheritedIds;
       } else {
         pd = assignLetters(result.personalData);
+        inheritedPdIdsRef.current = new Set();
       }
 
       const initialAnon = {};
       const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-
-      // Формируем название: если продолжение — автоматически «Часть N»
-      let title, origName;
-      if (sourceEntry) {
-        title = buildNextPartTitle(sourceEntry.title || sourceEntry.originalFileName || 'Документ');
-        origName = files[0]?.name || '';
-      } else {
-        title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
-        origName = files[0]?.name || '';
-      }
+      const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
+      const origName = files[0]?.name || '';
 
       setDocId(generateId());
       setDocTitle(title);
       setOriginalFileName(origName);
       setRawText(result.text);
       setEditorHtml(html);
+      setPdIdsInDoc(extractPdIdsFromHtml(html));
       pdRef.current   = pd;
       anonRef.current = initialAnon;
       setPersonalData(pd);
@@ -602,12 +588,14 @@ export default function App() {
     const pd = entry.personalData || { persons: [], otherPD: [] };
     const anon = entry.anonymized || {};
     const html = buildAnnotatedHtml(entry.text || '', pd, anon);
+    inheritedPdIdsRef.current = new Set();
 
     setDocId(entry.id);
     setDocTitle(entry.title);
     setOriginalFileName(entry.originalFileName || entry.title || '');
     setRawText(entry.text || '');
     setEditorHtml(entry.editedHtml || html);
+    setPdIdsInDoc(extractPdIdsFromHtml(entry.editedHtml || html));
     pdRef.current   = pd;
     anonRef.current = anon;
     setPersonalData(pd);
@@ -805,19 +793,24 @@ export default function App() {
     if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
     pdCleanupTimerRef.current = setTimeout(() => {
       if (!editorDomRef.current) return;
+
+      const dom = editorDomRef.current;
+      // Count marks per id
+      const markCounts = {};
+      dom.querySelectorAll("mark[data-pd-id]").forEach(el => {
+        const id = el.dataset.pdId;
+        markCounts[id] = (markCounts[id] || 0) + 1;
+      });
+
+      // Update which PD ids are present in current document
+      setPdIdsInDoc(new Set(Object.keys(markCounts)));
+
       setPersonalData(prev => {
-        const dom = editorDomRef.current;
-
-        // Count marks per id
-        const markCounts = {};
-        dom.querySelectorAll("mark[data-pd-id]").forEach(el => {
-          const id = el.dataset.pdId;
-          markCounts[id] = (markCounts[id] || 0) + 1;
-        });
-
         // Remove entries with 0 remaining marks in the editor
-        const persons = prev.persons.filter(p => markCounts[p.id] > 0);
-        const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0);
+        // BUT keep inherited entries (from previous base) — they stay in panel as "absent"
+        const inherited = inheritedPdIdsRef.current;
+        const persons = prev.persons.filter(p => markCounts[p.id] > 0 || inherited.has(p.id));
+        const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0 || inherited.has(p.id));
 
         if (persons.length === prev.persons.length && otherPD.length === prev.otherPD.length) {
           return prev;
@@ -1200,13 +1193,26 @@ ${content}
   };
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
 
+  // Extract PD ids from HTML string (used when DOM isn't ready yet)
+  const extractPdIdsFromHtml = (html) => {
+    const ids = new Set();
+    const re = /data-pd-id="([^"]+)"/g;
+    let m;
+    while ((m = re.exec(html)) !== null) ids.add(m[1]);
+    return ids;
+  };
+
   // ══════════════════════════════════════════════════════════════════════════════
   return (
     <div className="app">
 
       <header className="header">
         <div className="header-inner">
-          <div className="header-left" />
+          <div className="header-left">
+            {view === VIEW_RESULT && history.some(h => h.id !== docId && h.title === docTitle) && (
+              <div className="header-duplicate-warn">⚠ Документ с таким названием уже есть в истории</div>
+            )}
+          </div>
           <div className="header-center">
             {view === VIEW_RESULT && (
               <button className="btn-tool header-home-btn" onClick={goHome}>← Главная</button>
@@ -1405,7 +1411,7 @@ ${content}
                       ))}
                     </select>
                     <div className="continue-pd-hint">
-                      Уже известные лица сохранят свои буквы, новые получат следующие
+                      Известные персональные данные сохранят свои обозначения, а новые персональные данные будут добавлены
                     </div>
                   </div>
                 )}
@@ -1494,7 +1500,7 @@ ${content}
                       </button>
                     </div>
                     {privatePersons.map(p => (
-                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
+                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}${!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) ? ' pd-absent' : ''}`} onClick={() => pdIdsInDoc.has(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => initNavCounter(p.id)}>
                         <span className="pd-item-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
@@ -1507,6 +1513,7 @@ ${content}
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
+                          {!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1522,7 +1529,7 @@ ${content}
                       </button>
                     </div>
                     {profPersons.map(p => (
-                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
+                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}${!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) ? ' pd-absent' : ''}`} onClick={() => pdIdsInDoc.has(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => initNavCounter(p.id)}>
                         <span className="pd-item-letter prof-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
@@ -1535,6 +1542,7 @@ ${content}
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
+                          {!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1550,7 +1558,7 @@ ${content}
                       </button>
                     </div>
                     {items.map(item => (
-                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)} onMouseEnter={() => initNavCounter(item.id)}>
+                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}${!pdIdsInDoc.has(item.id) && inheritedPdIdsRef.current.has(item.id) ? ' pd-absent' : ''}`} onClick={() => pdIdsInDoc.has(item.id) ? handlePdClick(item.id) : null} onMouseEnter={() => initNavCounter(item.id)}>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{item.value}</span>
@@ -1562,6 +1570,7 @@ ${content}
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
                           </span>
                           <span className="pd-item-role">→ {item.replacement}</span>
+                          {!pdIdsInDoc.has(item.id) && inheritedPdIdsRef.current.has(item.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1589,9 +1598,6 @@ ${content}
                   placeholder="Название документа"
                   spellCheck={false}
                 />
-                {history.some(h => h.id !== docId && h.title === docTitle) && (
-                  <div className="doc-title-duplicate">⚠ Документ с таким названием уже есть в истории</div>
-                )}
                 <div className="doc-title-actions">
                   {originalImages.length > 0 && (
                     <button
