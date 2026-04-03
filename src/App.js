@@ -95,6 +95,7 @@ export default function App() {
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [showAddFromHistory, setShowAddFromHistory] = useState(false);
 
   const [files, setFiles] = useState([]);
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
@@ -163,6 +164,7 @@ export default function App() {
   const viewerFileInputRef = useRef();
   const importInputRef = useRef();
   const projectFileInputRef = useRef();
+  const projectImportRef = useRef();
   const dragFileIdx = useRef(null);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
@@ -448,6 +450,61 @@ export default function App() {
 
   const openDocFromProject = (entry) => {
     loadDoc(entry);
+  };
+
+  // Мёржит ПД документа с накопленной базой проекта, пересобирает HTML, сохраняет
+  const mergeDocIntoProject = (docEntry) => {
+    const projectDocs = getProjectDocs();
+    let existingPD = null;
+    if (projectDocs.length > 0) {
+      const lastDoc = projectDocs[projectDocs.length - 1];
+      if (lastDoc.personalData) existingPD = lastDoc.personalData;
+    }
+
+    let pd;
+    if (existingPD) {
+      const merged = mergePD(existingPD, docEntry.personalData || { persons: [], otherPD: [] });
+      pd = assignLetters(merged, existingPD);
+    } else {
+      pd = assignLetters(docEntry.personalData || { persons: [], otherPD: [] });
+    }
+
+    const initialAnon = docEntry.anonymized || {};
+    const html = buildAnnotatedHtml(docEntry.text || '', pd, initialAnon);
+
+    const updatedDoc = {
+      ...docEntry,
+      personalData: pd,
+      editedHtml: html,
+      savedAt: new Date().toISOString(),
+    };
+    saveDocument(updatedDoc);
+    addDocumentToProject(currentProjectId, updatedDoc.id);
+    refreshHistory();
+    refreshProjects();
+    return updatedDoc;
+  };
+
+  const handleAddDocFromHistory = (docId) => {
+    if (!currentProjectId) return;
+    const allHistory = loadHistory();
+    const doc = allHistory.find(h => h.id === docId);
+    if (!doc) return;
+    mergeDocIntoProject(doc);
+    setShowAddFromHistory(false);
+  };
+
+  const handleProjectImport = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const entry = await importDocument(file);
+      refreshHistory();
+      mergeDocIntoProject(entry);
+    } catch (err) {
+      setError(err.message || 'Ошибка импорта');
+    }
   };
 
   const handleProjectFiles = useCallback((newFiles) => {
@@ -1638,6 +1695,38 @@ ${content}
           </div>
         )}
 
+        {/* ════ ADD FROM HISTORY MODAL (project) ════ */}
+        {showAddFromHistory && currentProject && (
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: 520 }}>
+              <div className="modal-title">Добавить документ из истории в проект</div>
+              <div className="modal-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
+                  Персональные данные документа будут объединены с базой ПД проекта
+                </div>
+                {history.filter(h => !currentProject.documentIds.includes(h.id)).length === 0 ? (
+                  <div style={{ color: 'var(--text3)' }}>Нет документов для добавления</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {history.filter(h => !currentProject.documentIds.includes(h.id)).map(entry => (
+                      <div key={entry.id} className="history-card" style={{ cursor: 'pointer' }} onClick={() => handleAddDocFromHistory(entry.id)}>
+                        <div className="history-card-icon">📄</div>
+                        <div className="history-card-body">
+                          <div className="history-card-title">{entry.title}</div>
+                          <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="modal-actions">
+                <button className="btn-tool" onClick={() => setShowAddFromHistory(false)}>Закрыть</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ════ PROJECT VIEW ════ */}
         {view === VIEW_PROJECT && currentProject && (
           <div className="project-view">
@@ -1731,6 +1820,14 @@ ${content}
                   ? '🔍 Распознать и обезличить первый файл'
                   : '🔍 Распознать и обезличить следующий файл'}
               </button>
+            </div>
+
+            <div className="project-extra-actions">
+              {history.length > 0 && (
+                <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Добавить из истории</button>
+              )}
+              <button className="btn-tool" onClick={() => projectImportRef.current?.click()}>📂 Загрузить .юрдок</button>
+              <input ref={projectImportRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleProjectImport} />
             </div>
 
             {getProjectDocs().length > 0 && (

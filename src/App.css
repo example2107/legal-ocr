@@ -833,6 +833,7 @@ a { color: var(--accent); }
 .project-doc-item:hover .project-doc-remove { opacity: 1; }
 .project-doc-remove:hover { background: var(--red-light); color: var(--red); }
 .project-docs-empty { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; font-size: 14px; color: var(--text3); }
+.project-extra-actions { max-width: 720px; width: 100%; align-self: center; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
 /* ── Modal inputs ── */
 .modal-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 6px; }
