@@ -3,7 +3,7 @@ import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
-import { loadHistory, saveDocument, deleteDocument, generateId } from './utils/history';
+import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument } from './utils/history';
 import './App.css';
 
 const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ'.split('').map(l => l + '.');
@@ -104,6 +104,7 @@ export default function App() {
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
   const viewerFileInputRef = useRef();
+  const importInputRef = useRef();
   const dragFileIdx = useRef(null);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
@@ -339,6 +340,20 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []); // eslint-disable-line
   const refreshHistory = () => setHistory(loadHistory());
+
+  // ── Import .юрдок file ──────────────────────────────────────────────────────
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const entry = await importDocument(file);
+      refreshHistory();
+      loadDoc(entry);
+    } catch (err) {
+      setError(err.message || 'Ошибка импорта');
+    }
+  };
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
   const isDirty = () => {
@@ -1276,10 +1291,13 @@ ${content}
               </button>
             </div>
 
+            <input ref={importInputRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleImport} />
+
             {history.length > 0 && (
               <section className="history-section">
                 <div className="history-header">
                   <div className="card-label" style={{ margin: 0 }}>История документов</div>
+                  <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
                 </div>
                 <div className="history-grid">
                   {history.map(entry => (
@@ -1300,11 +1318,18 @@ ${content}
                           )}
                         </div>
                       </div>
+                      <button className="history-export" onClick={e => { e.stopPropagation(); exportDocument(entry); }} title="Скачать .юрдок">⬇</button>
                       <button className="history-delete" onClick={e => { e.stopPropagation(); deleteDocument(entry.id); refreshHistory(); }} title="Удалить">✕</button>
                     </div>
                   ))}
                 </div>
               </section>
+            )}
+
+            {history.length === 0 && (
+              <div className="import-standalone">
+                <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
+              </div>
             )}
           </>
         )}
