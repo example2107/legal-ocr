@@ -545,6 +545,7 @@ export default function App() {
     try {
       const entry = await importDocument(file);
       refreshHistory();
+      setCurrentProjectId(null);
       loadDoc(entry);
     } catch (err) {
       setError(err.message || 'Ошибка импорта');
@@ -1568,7 +1569,7 @@ ${content}
                 </div>
                 <div className="history-grid">
                   {history.map(entry => (
-                    <div key={entry.id} className="history-card" onClick={() => loadDoc(entry)}>
+                    <div key={entry.id} className="history-card" onClick={() => { setCurrentProjectId(null); loadDoc(entry); }}>
                       <div className="history-card-icon">{entry.source === 'paste' ? '📋' : '📄'}</div>
                       <div className="history-card-body">
                         <div className="history-card-title">{entry.title}</div>
