@@ -703,6 +703,7 @@ export default function App() {
     if (!apiKey.trim()) { setError('Введите API ключ Claude'); return; }
     if (files.length === 0) { setError('Добавьте хотя бы один файл'); return; }
 
+    setCurrentProjectId(null);
     setError(null);
     setView(VIEW_PROCESSING);
 
