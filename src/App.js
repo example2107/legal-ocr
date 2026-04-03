@@ -3,7 +3,7 @@ import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
-import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument } from './utils/history';
+import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument, loadProjects, saveProject, deleteProject, getProject, createProject, addDocumentToProject, removeDocumentFromProject, updateProjectSharedPD } from './utils/history';
 import './App.css';
 
 const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ'.split('').map(l => l + '.');
@@ -81,6 +81,7 @@ function mergePD(existingPD, newPD) {
 const VIEW_HOME = 'home';
 const VIEW_PROCESSING = 'processing';
 const VIEW_RESULT = 'result';
+const VIEW_PROJECT = 'project';
 
 export default function App() {
   const [view, setView] = useState(VIEW_HOME);
@@ -88,10 +89,15 @@ export default function App() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [provider, setProvider] = useState('claude');
 
+  // ── Projects ──────────────────────────────────────────────────────────────
+  const [projects, setProjects] = useState([]);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+  const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [showAddFromHistory, setShowAddFromHistory] = useState(false);
+
   const [files, setFiles] = useState([]);
-  const [continuePdFrom, setContinuePdFrom] = useState(null); // id документа-источника ПД или null
-  const [pdIdsInDoc, setPdIdsInDoc] = useState(new Set()); // ids ПД у которых есть маркеры в текущем документе
-  const inheritedPdIdsRef = useRef(new Set()); // ids ПД унаследованных из предыдущей базы (не удаляются cleanup-ом)
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
   const [showOriginal, setShowOriginal] = useState(false);
   const [originalPage, setOriginalPage] = useState(0);
@@ -392,6 +398,64 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []); // eslint-disable-line
   const refreshHistory = () => setHistory(loadHistory());
+  const refreshProjects = () => setProjects(loadProjects());
+
+  useEffect(() => { setProjects(loadProjects()); }, []);
+
+  // ── Project functions ───────────────────────────────────────────────────────
+  const handleCreateProject = () => {
+    if (!newProjectTitle.trim()) return;
+    const proj = createProject(newProjectTitle.trim(), newProjectDesc.trim());
+    setNewProjectTitle('');
+    setNewProjectDesc('');
+    setShowCreateProject(false);
+    refreshProjects();
+    openProject(proj.id);
+  };
+
+  const openProject = (projId) => {
+    setCurrentProjectId(projId);
+    setView(VIEW_PROJECT);
+    setFiles([]);
+    setError(null);
+  };
+
+  const currentProject = currentProjectId ? getProject(currentProjectId) : null;
+
+  const getProjectDocs = () => {
+    if (!currentProject) return [];
+    const allHistory = loadHistory();
+    return currentProject.documentIds
+      .map(id => allHistory.find(h => h.id === id))
+      .filter(Boolean);
+  };
+
+  const handleDeleteProject = (projId, e) => {
+    if (e) e.stopPropagation();
+    deleteProject(projId);
+    refreshProjects();
+    if (currentProjectId === projId) {
+      setCurrentProjectId(null);
+      setView(VIEW_HOME);
+    }
+  };
+
+  const handleAddDocFromHistory = (docId) => {
+    if (!currentProjectId) return;
+    addDocumentToProject(currentProjectId, docId);
+    refreshProjects();
+    setShowAddFromHistory(false);
+  };
+
+  const handleRemoveDocFromProject = (docId) => {
+    if (!currentProjectId) return;
+    removeDocumentFromProject(currentProjectId, docId);
+    refreshProjects();
+  };
+
+  const openDocFromProject = (entry) => {
+    loadDoc(entry);
+  };
 
   // ── Import .юрдок file ──────────────────────────────────────────────────────
   const handleImport = async (e) => {
@@ -427,6 +491,32 @@ export default function App() {
     }
   };
 
+  const goBackToProject = () => {
+    if (view === VIEW_RESULT && isDirty()) {
+      setShowUnsaved(true);
+      pendingNavRef.current = 'project';
+    } else {
+      doGoBackToProject();
+    }
+  };
+
+  const doGoBackToProject = () => {
+    setView(VIEW_PROJECT);
+    setFiles([]);
+    setOriginalImages([]);
+    setShowOriginal(false);
+    setOriginalPage(0);
+    setZoomActive(false);
+    setZoomScale(1);
+    setZoomOffset({ x: 0, y: 0 });
+    setOriginalFileName('');
+    setError(null);
+    setProgress(null);
+    setShowUnsaved(false);
+    refreshHistory();
+    refreshProjects();
+  };
+
   const doGoHome = () => {
     setView(VIEW_HOME);
     setFiles([]);
@@ -440,20 +530,23 @@ export default function App() {
     setError(null);
     setProgress(null);
     setShowUnsaved(false);
-    setContinuePdFrom(null);
+    setCurrentProjectId(null);
     refreshHistory();
+    refreshProjects();
   };
 
   const handleUnsavedSave = () => {
     handleSave();
     setShowUnsaved(false);
     if (pendingNavRef.current === 'home') doGoHome();
+    else if (pendingNavRef.current === 'project') doGoBackToProject();
     pendingNavRef.current = null;
   };
 
   const handleUnsavedDiscard = () => {
     setShowUnsaved(false);
     if (pendingNavRef.current === 'home') doGoHome();
+    else if (pendingNavRef.current === 'project') doGoBackToProject();
     pendingNavRef.current = null;
   };
 
@@ -475,22 +568,11 @@ export default function App() {
     setError(null);
     setView(VIEW_PROCESSING);
 
-    // Если выбран режим «продолжить с базой ПД» — загружаем существующую базу
-    let existingPD = null;
-    let sourceEntry = null;
-    if (continuePdFrom) {
-      sourceEntry = history.find(h => h.id === continuePdFrom);
-      if (sourceEntry?.personalData) {
-        existingPD = sourceEntry.personalData;
-      }
-    }
-
     try {
       let result;
       const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
 
       if (isDocx) {
-        // DOCX — читаем XML напрямую через JSZip, пропускаем OCR и quality check
         setProgress({ percent: 10, message: 'Чтение документа DOCX...' });
         const docxText = await parseDocx(files[0]);
         setProgress({ percent: 40, message: 'Анализ персональных данных...' });
@@ -501,7 +583,7 @@ export default function App() {
             ? { ...prev, message: p.message }
             : { percent: pct, message: p.message }
           );
-        }, existingPD);
+        });
         stopProgressCreep();
         result = { text: docxText, personalData };
       } else {
@@ -532,24 +614,10 @@ export default function App() {
           } else {
             stopProgressCreep();
           }
-        }, existingPD);
+        });
       }
 
-      // Если есть существующая база — мёржим и назначаем буквы с учётом неё
-      let pd;
-      if (existingPD) {
-        const merged = mergePD(existingPD, result.personalData);
-        pd = assignLetters(merged, existingPD);
-        // Запоминаем id всех унаследованных записей — они не удаляются cleanup-ом
-        const inheritedIds = new Set();
-        (existingPD.persons || []).forEach(p => inheritedIds.add(p.id));
-        (existingPD.otherPD || []).forEach(it => inheritedIds.add(it.id));
-        inheritedPdIdsRef.current = inheritedIds;
-      } else {
-        pd = assignLetters(result.personalData);
-        inheritedPdIdsRef.current = new Set();
-      }
-
+      const pd = assignLetters(result.personalData);
       const initialAnon = {};
       const html = buildAnnotatedHtml(result.text, pd, initialAnon);
       const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
@@ -560,7 +628,6 @@ export default function App() {
       setOriginalFileName(origName);
       setRawText(result.text);
       setEditorHtml(html);
-      setPdIdsInDoc(extractPdIdsFromHtml(html));
       pdRef.current   = pd;
       anonRef.current = initialAnon;
       setPersonalData(pd);
@@ -588,14 +655,12 @@ export default function App() {
     const pd = entry.personalData || { persons: [], otherPD: [] };
     const anon = entry.anonymized || {};
     const html = buildAnnotatedHtml(entry.text || '', pd, anon);
-    inheritedPdIdsRef.current = new Set();
 
     setDocId(entry.id);
     setDocTitle(entry.title);
     setOriginalFileName(entry.originalFileName || entry.title || '');
     setRawText(entry.text || '');
     setEditorHtml(entry.editedHtml || html);
-    setPdIdsInDoc(extractPdIdsFromHtml(entry.editedHtml || html));
     pdRef.current   = pd;
     anonRef.current = anon;
     setPersonalData(pd);
@@ -676,6 +741,11 @@ export default function App() {
       anonymized,
       source: files[0]?.name?.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
     });
+    // Если работаем в контексте проекта — добавляем документ в проект
+    if (currentProjectId) {
+      addDocumentToProject(currentProjectId, docId);
+      refreshProjects();
+    }
     setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anonymized), html: currentHtml }));
     refreshHistory();
     setSavedMsg(true);
@@ -802,15 +872,10 @@ export default function App() {
         markCounts[id] = (markCounts[id] || 0) + 1;
       });
 
-      // Update which PD ids are present in current document
-      setPdIdsInDoc(new Set(Object.keys(markCounts)));
-
       setPersonalData(prev => {
         // Remove entries with 0 remaining marks in the editor
-        // BUT keep inherited entries (from previous base) — they stay in panel as "absent"
-        const inherited = inheritedPdIdsRef.current;
-        const persons = prev.persons.filter(p => markCounts[p.id] > 0 || inherited.has(p.id));
-        const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0 || inherited.has(p.id));
+        const persons = prev.persons.filter(p => markCounts[p.id] > 0);
+        const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0);
 
         if (persons.length === prev.persons.length && otherPD.length === prev.otherPD.length) {
           return prev;
@@ -1193,15 +1258,6 @@ ${content}
   };
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
 
-  // Extract PD ids from HTML string (used when DOM isn't ready yet)
-  const extractPdIdsFromHtml = (html) => {
-    const ids = new Set();
-    const re = /data-pd-id="([^"]+)"/g;
-    let m;
-    while ((m = re.exec(html)) !== null) ids.add(m[1]);
-    return ids;
-  };
-
   // ══════════════════════════════════════════════════════════════════════════════
   return (
     <div className="app">
@@ -1214,7 +1270,13 @@ ${content}
             )}
           </div>
           <div className="header-center">
-            {view === VIEW_RESULT && (
+            {view === VIEW_RESULT && currentProjectId && (
+              <button className="btn-tool header-home-btn" onClick={goBackToProject}>← Проект</button>
+            )}
+            {view === VIEW_RESULT && !currentProjectId && (
+              <button className="btn-tool header-home-btn" onClick={goHome}>← Главная</button>
+            )}
+            {view === VIEW_PROJECT && (
               <button className="btn-tool header-home-btn" onClick={goHome}>← Главная</button>
             )}
             <div
@@ -1379,45 +1441,6 @@ ${content}
 
             {error && <div className="error-block">⚠️ {error}</div>}
 
-            {history.length > 0 && (
-              <section className="card continue-pd-card">
-                <div className="continue-pd-row">
-                  <label className="continue-pd-toggle">
-                    <input
-                      type="checkbox"
-                      checked={!!continuePdFrom}
-                      onChange={e => {
-                        if (e.target.checked) {
-                          setContinuePdFrom(history[0]?.id || null);
-                        } else {
-                          setContinuePdFrom(null);
-                        }
-                      }}
-                    />
-                    <span className="continue-pd-label">Продолжить с базой ПД из предыдущего документа</span>
-                  </label>
-                </div>
-                {continuePdFrom && (
-                  <div className="continue-pd-select-row">
-                    <select
-                      className="continue-pd-select"
-                      value={continuePdFrom}
-                      onChange={e => setContinuePdFrom(e.target.value)}
-                    >
-                      {history.map(h => (
-                        <option key={h.id} value={h.id}>
-                          {h.title} · {formatDate(new Date(h.savedAt))} ({(h.personalData?.persons?.length || 0)} лиц, {(h.personalData?.otherPD?.length || 0)} др. ПД)
-                        </option>
-                      ))}
-                    </select>
-                    <div className="continue-pd-hint">
-                      Известные персональные данные сохранят свои обозначения, а новые персональные данные будут добавлены
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
-
             <div className="home-btn-wrap">
               <button
                 className="btn-primary"
@@ -1429,6 +1452,33 @@ ${content}
             </div>
 
             <input ref={importInputRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleImport} />
+
+            {/* ── Проекты ── */}
+            <section className="projects-section">
+              <div className="projects-header">
+                <div className="card-label" style={{ margin: 0 }}>Проекты</div>
+                <button className="btn-tool" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
+              </div>
+              {projects.length > 0 ? (
+                <div className="projects-grid">
+                  {projects.map(proj => (
+                    <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
+                      <div className="project-card-icon">📁</div>
+                      <div className="project-card-body">
+                        <div className="project-card-title">{proj.title}</div>
+                        {proj.description && <div className="project-card-desc">{proj.description}</div>}
+                        <div className="project-card-meta">
+                          {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
+                        </div>
+                      </div>
+                      <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="projects-empty">Проектов пока нет. Создайте проект для объединения документов с общей базой ПД.</div>
+              )}
+            </section>
 
             {history.length > 0 && (
               <section className="history-section">
@@ -1471,6 +1521,121 @@ ${content}
           </>
         )}
 
+        {/* ════ CREATE PROJECT MODAL ════ */}
+        {showCreateProject && (
+          <div className="modal-overlay">
+            <div className="modal">
+              <div className="modal-title">Новый проект</div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label className="modal-label">Название</label>
+                  <input
+                    className="modal-input"
+                    placeholder="Например: Дело № 123/2026"
+                    value={newProjectTitle}
+                    onChange={e => setNewProjectTitle(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleCreateProject()}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="modal-label">Описание (необязательно)</label>
+                  <input
+                    className="modal-input"
+                    placeholder="Краткое описание дела"
+                    value={newProjectDesc}
+                    onChange={e => setNewProjectDesc(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleCreateProject()}
+                  />
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button className="btn-primary btn-sm" onClick={handleCreateProject} disabled={!newProjectTitle.trim()}>Создать</button>
+                <button className="btn-tool" onClick={() => { setShowCreateProject(false); setNewProjectTitle(''); setNewProjectDesc(''); }}>Отмена</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════ ADD FROM HISTORY MODAL ════ */}
+        {showAddFromHistory && (
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: 520 }}>
+              <div className="modal-title">Добавить документ из истории</div>
+              <div className="modal-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {history.filter(h => !currentProject?.documentIds.includes(h.id)).length === 0 ? (
+                  <div style={{ color: 'var(--text3)' }}>Нет документов, которые можно добавить</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {history.filter(h => !currentProject?.documentIds.includes(h.id)).map(entry => (
+                      <div key={entry.id} className="history-card" style={{ cursor: 'pointer' }} onClick={() => handleAddDocFromHistory(entry.id)}>
+                        <div className="history-card-icon">📄</div>
+                        <div className="history-card-body">
+                          <div className="history-card-title">{entry.title}</div>
+                          <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="modal-actions">
+                <button className="btn-tool" onClick={() => setShowAddFromHistory(false)}>Закрыть</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════ PROJECT VIEW ════ */}
+        {view === VIEW_PROJECT && currentProject && (
+          <div className="project-view">
+            <div className="project-view-header">
+              <input
+                className="project-title-input"
+                value={currentProject.title}
+                onChange={e => { saveProject({ ...currentProject, title: e.target.value }); refreshProjects(); }}
+                placeholder="Название проекта"
+                spellCheck={false}
+              />
+              {currentProject.description && (
+                <div className="project-view-desc">{currentProject.description}</div>
+              )}
+            </div>
+
+            <div className="project-view-actions">
+              <button className="btn-primary btn-sm" onClick={() => { /* switch to home upload mode within project context */ setView(VIEW_HOME); }}>📄 Загрузить новый файл</button>
+              <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Добавить из истории</button>
+            </div>
+
+            {getProjectDocs().length > 0 ? (
+              <div className="project-docs">
+                <div className="card-label">Документы проекта</div>
+                <div className="project-docs-list">
+                  {getProjectDocs().map((doc, idx) => (
+                    <div key={doc.id} className="project-doc-item" onClick={() => openDocFromProject(doc)}>
+                      <span className="project-doc-num">{idx + 1}</span>
+                      <div className="project-doc-body">
+                        <div className="project-doc-title">{doc.title}</div>
+                        <div className="project-doc-meta">
+                          {formatDate(new Date(doc.savedAt))}
+                          {(doc.personalData?.persons?.length || 0) > 0 && (
+                            <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.length} лиц</span>
+                          )}
+                        </div>
+                      </div>
+                      <button className="project-doc-remove" onClick={e => { e.stopPropagation(); handleRemoveDocFromProject(doc.id); }} title="Убрать из проекта">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="project-docs-empty">
+                В проекте пока нет документов. Загрузите новый файл или добавьте из истории.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ════ PROCESSING ════ */}
         {view === VIEW_PROCESSING && progress && (
           <div className="progress-card">
@@ -1500,7 +1665,7 @@ ${content}
                       </button>
                     </div>
                     {privatePersons.map(p => (
-                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}${!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) ? ' pd-absent' : ''}`} onClick={() => pdIdsInDoc.has(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => initNavCounter(p.id)}>
+                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
                         <span className="pd-item-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
@@ -1513,7 +1678,6 @@ ${content}
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
-                          {!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1529,7 +1693,7 @@ ${content}
                       </button>
                     </div>
                     {profPersons.map(p => (
-                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}${!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) ? ' pd-absent' : ''}`} onClick={() => pdIdsInDoc.has(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => initNavCounter(p.id)}>
+                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}`} onClick={() => handlePdClick(p.id)} onMouseEnter={() => initNavCounter(p.id)}>
                         <span className="pd-item-letter prof-letter">{p.letter}</span>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
@@ -1542,7 +1706,6 @@ ${content}
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
-                          {!pdIdsInDoc.has(p.id) && inheritedPdIdsRef.current.has(p.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}
@@ -1558,7 +1721,7 @@ ${content}
                       </button>
                     </div>
                     {items.map(item => (
-                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}${!pdIdsInDoc.has(item.id) && inheritedPdIdsRef.current.has(item.id) ? ' pd-absent' : ''}`} onClick={() => pdIdsInDoc.has(item.id) ? handlePdClick(item.id) : null} onMouseEnter={() => initNavCounter(item.id)}>
+                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}`} onClick={() => handlePdClick(item.id)} onMouseEnter={() => initNavCounter(item.id)}>
                         <span className="pd-item-body">
                           <span className="pd-item-row1">
                             <span className="pd-item-name">{item.value}</span>
@@ -1570,7 +1733,6 @@ ${content}
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
                           </span>
                           <span className="pd-item-role">→ {item.replacement}</span>
-                          {!pdIdsInDoc.has(item.id) && inheritedPdIdsRef.current.has(item.id) && <span className="pd-absent-label">нет в документе</span>}
                         </span>
                       </div>
                     ))}

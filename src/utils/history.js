@@ -76,12 +76,10 @@ export function importDocument(file) {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        // Валидация — проверяем обязательные поля
         if (!data.title && !data.editedHtml && !data.text) {
           reject(new Error('Файл не содержит данных документа'));
           return;
         }
-        // Генерируем новый id чтобы не было конфликтов с существующими
         const entry = {
           id: generateId(),
           title: data.title || 'Импортированный документ',
@@ -93,7 +91,6 @@ export function importDocument(file) {
           source: data.source || 'ocr',
           savedAt: new Date().toISOString(),
         };
-        // Сохраняем в историю
         saveDocument(entry);
         resolve(entry);
       } catch (err) {
@@ -103,4 +100,87 @@ export function importDocument(file) {
     reader.onerror = () => reject(new Error('Ошибка чтения файла'));
     reader.readAsText(file);
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Проекты ──────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const PROJECTS_KEY = 'legal_ocr_projects';
+const MAX_PROJECTS = 30;
+
+export function loadProjects() {
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProjects(items) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(items.slice(0, MAX_PROJECTS)));
+  } catch (e) {
+    console.warn('Projects save failed (storage full?)', e);
+  }
+}
+
+export function saveProject(project) {
+  const projects = loadProjects();
+  const idx = projects.findIndex(p => p.id === project.id);
+  const entry = { ...project, updatedAt: new Date().toISOString() };
+  if (idx >= 0) {
+    projects[idx] = entry;
+  } else {
+    entry.createdAt = entry.createdAt || new Date().toISOString();
+    projects.unshift(entry);
+  }
+  saveProjects(projects);
+  return entry;
+}
+
+export function deleteProject(id) {
+  const projects = loadProjects().filter(p => p.id !== id);
+  saveProjects(projects);
+}
+
+export function getProject(id) {
+  return loadProjects().find(p => p.id === id) || null;
+}
+
+export function createProject(title, description) {
+  const project = {
+    id: `proj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    title: title || 'Новый проект',
+    description: description || '',
+    documentIds: [],
+    sharedPD: { persons: [], otherPD: [] },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  saveProject(project);
+  return project;
+}
+
+export function addDocumentToProject(projectId, docId) {
+  const project = getProject(projectId);
+  if (!project) return null;
+  if (!project.documentIds.includes(docId)) {
+    project.documentIds.push(docId);
+  }
+  return saveProject(project);
+}
+
+export function removeDocumentFromProject(projectId, docId) {
+  const project = getProject(projectId);
+  if (!project) return null;
+  project.documentIds = project.documentIds.filter(id => id !== docId);
+  return saveProject(project);
+}
+
+export function updateProjectSharedPD(projectId, sharedPD) {
+  const project = getProject(projectId);
+  if (!project) return null;
+  project.sharedPD = sharedPD;
+  return saveProject(project);
 }

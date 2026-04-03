@@ -60,10 +60,11 @@ a { color: var(--accent); }
 .logo-icon { font-size: 24px; line-height: 1; }
 .logo-title { font-family: var(--font-doc); font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
 .logo-sub { font-size: 11px; color: var(--text3); margin-top: 1px; }
-.header-left { min-width: 120px; }
-.header-center { display: flex; align-items: center; gap: 10px; }
+.header-left { flex: 1; min-width: 120px; display: flex; align-items: center; justify-content: flex-end; }
+.header-center { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-home-btn { white-space: nowrap; }
-.header-right { min-width: 120px; }
+.header-right { flex: 1; min-width: 120px; }
+.header-duplicate-warn { font-size: 11px; color: var(--yellow); white-space: nowrap; margin-right: 4px; }
 
 
 .main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
@@ -187,19 +188,6 @@ a { color: var(--accent); }
 /* Import button */
 .btn-import { white-space: nowrap; }
 .import-standalone { max-width: 720px; width: 100%; align-self: center; display: flex; justify-content: center; }
-
-/* ============================
-   CONTINUE PD CARD
-   ============================ */
-.continue-pd-card { max-width: 720px; width: 100%; align-self: center; padding: 16px 20px; }
-.continue-pd-row { display: flex; align-items: center; }
-.continue-pd-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; }
-.continue-pd-toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
-.continue-pd-label { font-weight: 500; color: var(--text); }
-.continue-pd-select-row { margin-top: 12px; padding-left: 28px; }
-.continue-pd-select { width: 100%; padding: 8px 12px; font-size: 13px; font-family: var(--font-body); border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); cursor: pointer; transition: border-color var(--tr); }
-.continue-pd-select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-light); }
-.continue-pd-hint { margin-top: 6px; font-size: 12px; color: var(--text3); line-height: 1.4; }
 
 /* ============================
    MODAL
@@ -367,12 +355,6 @@ a { color: var(--accent); }
 .pd-cat-private { background: var(--pd-private-light); color: var(--pd-private); border-color: #dbc8f0; }
 .pd-cat-professional { background: var(--pd-prof-light); color: var(--pd-prof); border-color: #b8ded8; }
 
-/* Absent PD — inherited from previous base but not present in current document */
-.pd-item.pd-absent { opacity: 0.4; cursor: default; }
-.pd-item.pd-absent:hover { background: transparent; border-color: var(--border); }
-.pd-item.pd-absent .pd-item-nav { display: none !important; }
-.pd-absent-label { font-size: 10px; color: var(--text3); font-style: italic; }
-
 /* ============================
    DOCUMENT CARD
    ============================ */
@@ -407,7 +389,6 @@ a { color: var(--accent); }
 .doc-title-input { flex: 1; min-width: 160px; font-size: 15px; font-weight: 600; font-family: var(--font-doc); border: 1px solid transparent; background: transparent; color: var(--text); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); }
 .doc-title-input:hover { border-color: var(--border); background: var(--surface); }
 .doc-title-input:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-light); }
-.header-duplicate-warn { font-size: 11px; color: var(--yellow); white-space: nowrap; }
 .doc-title-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 
 /* ============================
@@ -811,6 +792,52 @@ a { color: var(--accent); }
   from { opacity: 0; transform: translateX(-50%) translateY(12px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ============================
+   PROJECTS
+   ============================ */
+.projects-section { max-width: 720px; width: 100%; align-self: center; display: flex; flex-direction: column; gap: 14px; }
+.projects-header { display: flex; align-items: center; justify-content: space-between; }
+.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.projects-empty { font-size: 13px; color: var(--text3); text-align: center; padding: 16px; }
+
+.project-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px; cursor: pointer; transition: all var(--tr); position: relative; }
+.project-card:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(45,90,142,.1); transform: translateY(-1px); }
+.project-card-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+.project-card-body { flex: 1; min-width: 0; }
+.project-card-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
+.project-card-desc { font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.project-card-meta { font-size: 11px; color: var(--text3); }
+.project-delete { position: absolute; top: 10px; right: 10px; font-size: 12px; color: var(--text3); padding: 2px 6px; border-radius: 4px; opacity: 0; }
+.project-card:hover .project-delete { opacity: 1; }
+.project-delete:hover { background: var(--red-light); color: var(--red); }
+
+/* ── Project view (inside) ── */
+.project-view { max-width: 800px; width: 100%; align-self: center; display: flex; flex-direction: column; gap: 20px; }
+.project-view-header { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
+.project-title-input { width: 100%; font-size: 18px; font-weight: 700; font-family: var(--font-doc); border: 1px solid transparent; background: transparent; color: var(--text); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); }
+.project-title-input:hover { border-color: var(--border); background: var(--surface); }
+.project-title-input:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-light); }
+.project-view-desc { font-size: 13px; color: var(--text2); margin-top: 8px; padding: 0 8px; }
+.project-view-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.project-docs { display: flex; flex-direction: column; gap: 10px; }
+.project-docs-list { display: flex; flex-direction: column; gap: 6px; }
+.project-doc-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all var(--tr); position: relative; }
+.project-doc-item:hover { border-color: var(--accent); background: var(--accent-light); }
+.project-doc-num { width: 28px; height: 28px; border-radius: 50%; background: var(--bg3); color: var(--text2); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.project-doc-body { flex: 1; min-width: 0; }
+.project-doc-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-doc-meta { font-size: 11px; color: var(--text3); margin-top: 2px; display: flex; align-items: center; }
+.project-doc-remove { font-size: 12px; color: var(--text3); padding: 2px 6px; border-radius: 4px; opacity: 0; flex-shrink: 0; }
+.project-doc-item:hover .project-doc-remove { opacity: 1; }
+.project-doc-remove:hover { background: var(--red-light); color: var(--red); }
+.project-docs-empty { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; font-size: 14px; color: var(--text3); }
+
+/* ── Modal inputs ── */
+.modal-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 6px; }
+.modal-input { width: 100%; padding: 10px 14px; font-size: 14px; font-family: var(--font-body); border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); outline: none; transition: border-color var(--tr); }
+.modal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
 
 /* ============================
    RESPONSIVE
