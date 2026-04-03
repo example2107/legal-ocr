@@ -319,27 +319,39 @@ export default function App() {
 
     const target = marks[next];
 
+    // Save pd-panel scroll position — scrollIntoView may shift sticky panel
+    const pdPanel = pdPanelRef.current;
+    const pdScrollBefore = pdPanel ? pdPanel.scrollTop : 0;
+
+    const restorePdScroll = () => {
+      if (pdPanel) pdPanel.scrollTop = pdScrollBefore;
+    };
+
     // Check if target is already visible — if so, flash immediately
     const rect = target.getBoundingClientRect();
     const alreadyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
 
     if (alreadyVisible) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      restorePdScroll();
       target.classList.add('pd-flash');
       setTimeout(() => target.classList.remove('pd-flash'), 700);
     } else {
       // Flash only after element enters viewport (scroll finished)
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      restorePdScroll();
+      // Also restore after scroll animation completes
+      setTimeout(restorePdScroll, 400);
       const observer = new IntersectionObserver((entries, obs) => {
         const entry = entries[0];
         if (entry.isIntersecting) {
           obs.disconnect();
+          restorePdScroll();
           target.classList.add('pd-flash');
           setTimeout(() => target.classList.remove('pd-flash'), 700);
         }
-      }, { threshold: 0.5 }); // fire when at least half of mark is visible
+      }, { threshold: 0.5 });
       observer.observe(target);
-      // Safety fallback: disconnect after 2s in case scroll never finishes
       setTimeout(() => observer.disconnect(), 2000);
     }
   }, []);
@@ -477,6 +489,7 @@ export default function App() {
       ...docEntry,
       personalData: pd,
       editedHtml: html,
+      projectId: currentProjectId,
       savedAt: new Date().toISOString(),
     };
     saveDocument(updatedDoc);
@@ -571,6 +584,20 @@ export default function App() {
       const origName = files[0]?.name || '';
       const newDocId = generateId();
 
+      // Auto-save into project (not into main history)
+      saveDocument({
+        id: newDocId,
+        title,
+        originalFileName: origName,
+        text: result.text,
+        editedHtml: html,
+        personalData: pd,
+        anonymized: initialAnon,
+        source: 'ocr',
+        projectId: currentProjectId,
+      });
+      addDocumentToProject(currentProjectId, newDocId);
+
       setDocId(newDocId);
       setDocTitle(title);
       setOriginalFileName(origName);
@@ -581,12 +608,14 @@ export default function App() {
       anonRef.current = initialAnon;
       setPersonalData(pd);
       setAnonymized(initialAnon);
-      setLastSavedState(null);
-      undoStackRef.current = [{ html: buildAnnotatedHtml(result.text, pd, initialAnon), pd, anon: initialAnon }];
+      setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(initialAnon), html }));
+      undoStackRef.current = [{ html, pd, anon: initialAnon }];
       undoIndexRef.current = 0;
       setShowLongDocWarning(result.text.length > 50000);
 
       stopProgressCreep();
+      refreshHistory();
+      refreshProjects();
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
     } catch (err) {
       stopProgressCreep();
@@ -764,8 +793,21 @@ export default function App() {
       const html = buildAnnotatedHtml(result.text, pd, initialAnon);
       const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
       const origName = files[0]?.name || '';
+      const newDocId = generateId();
 
-      setDocId(generateId());
+      // Auto-save immediately after recognition
+      saveDocument({
+        id: newDocId,
+        title,
+        originalFileName: origName,
+        text: result.text,
+        editedHtml: html,
+        personalData: pd,
+        anonymized: initialAnon,
+        source: files.length === 1 && files[0].name.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
+      });
+
+      setDocId(newDocId);
       setDocTitle(title);
       setOriginalFileName(origName);
       setRawText(result.text);
@@ -774,15 +816,13 @@ export default function App() {
       anonRef.current = initialAnon;
       setPersonalData(pd);
       setAnonymized(initialAnon);
-      setLastSavedState(null);
-      // Init undo stack with the initial state
-      const initHtml = document.createElement('div');
-      // html isn't in DOM yet — store empty for now; first edit will create proper entry
-      undoStackRef.current = [{ html: buildAnnotatedHtml(result.text, pd, initialAnon), pd, anon: initialAnon }];
+      setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(initialAnon), html }));
+      undoStackRef.current = [{ html, pd, anon: initialAnon }];
       undoIndexRef.current = 0;
       setShowLongDocWarning(result.text.length > 50000);
 
       stopProgressCreep();
+      refreshHistory();
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
     } catch (err) {
       stopProgressCreep();
@@ -875,7 +915,7 @@ export default function App() {
 
   const handleSave = () => {
     const currentHtml = editorDomRef.current?.innerHTML || editorHtml;
-    saveDocument({
+    const docData = {
       id: docId,
       title: docTitle,
       originalFileName,
@@ -884,11 +924,15 @@ export default function App() {
       personalData,
       anonymized,
       source: files[0]?.name?.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
-    });
-    // Если работаем в контексте проекта — добавляем документ в проект
+    };
+    // Если работаем в контексте проекта — помечаем документ и добавляем в проект
     if (currentProjectId) {
+      docData.projectId = currentProjectId;
+      saveDocument(docData);
       addDocumentToProject(currentProjectId, docId);
       refreshProjects();
+    } else {
+      saveDocument(docData);
     }
     setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anonymized), html: currentHtml }));
     refreshHistory();
@@ -1409,6 +1453,9 @@ ${content}
   };
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
 
+  // Documents not belonging to any project — shown on main page history
+  const freeHistory = history.filter(h => !h.projectId);
+
   // Check if a PD id has marks in the current document (for project context display)
   const pdInDoc = (id) => !pdIdsInDoc || pdIdsInDoc.has(id);
 
@@ -1642,14 +1689,14 @@ ${content}
               )}
             </section>
 
-            {history.length > 0 && (
+            {freeHistory.length > 0 && (
               <section className="history-section">
                 <div className="history-header">
                   <div className="card-label" style={{ margin: 0 }}>История документов</div>
                   <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
                 </div>
                 <div className="history-grid">
-                  {history.map(entry => (
+                  {freeHistory.map(entry => (
                     <div key={entry.id} className="history-card" onClick={() => { setCurrentProjectId(null); loadDoc(entry); }}>
                       <div className="history-card-icon">{entry.source === 'paste' ? '📋' : '📄'}</div>
                       <div className="history-card-body">
@@ -1675,7 +1722,7 @@ ${content}
               </section>
             )}
 
-            {history.length === 0 && (
+            {freeHistory.length === 0 && (
               <div className="import-standalone">
                 <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
               </div>
@@ -1723,16 +1770,16 @@ ${content}
         {showAddFromHistory && currentProject && (
           <div className="modal-overlay">
             <div className="modal" style={{ maxWidth: 520 }}>
-              <div className="modal-title">Добавить документ из истории в проект</div>
+              <div className="modal-title">Перенести документ из истории в проект</div>
               <div className="modal-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
                 <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
-                  Персональные данные документа будут объединены с базой ПД проекта
+                  Документ будет перемещён в проект. Персональные данные будут объединены с базой ПД проекта.
                 </div>
-                {history.filter(h => !currentProject.documentIds.includes(h.id)).length === 0 ? (
-                  <div style={{ color: 'var(--text3)' }}>Нет документов для добавления</div>
+                {freeHistory.length === 0 ? (
+                  <div style={{ color: 'var(--text3)' }}>Нет документов для переноса</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {history.filter(h => !currentProject.documentIds.includes(h.id)).map(entry => (
+                    {freeHistory.map(entry => (
                       <div key={entry.id} className="history-card" style={{ cursor: 'pointer' }} onClick={() => handleAddDocFromHistory(entry.id)}>
                         <div className="history-card-icon">📄</div>
                         <div className="history-card-body">
@@ -1847,8 +1894,8 @@ ${content}
             </div>
 
             <div className="project-extra-actions">
-              {history.length > 0 && (
-                <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Добавить из истории</button>
+              {freeHistory.length > 0 && (
+                <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Перенести из истории</button>
               )}
               <button className="btn-tool" onClick={() => projectImportRef.current?.click()}>📂 Загрузить .юрдок</button>
               <input ref={projectImportRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleProjectImport} />
