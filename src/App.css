@@ -305,13 +305,14 @@ a { color: var(--accent); }
 
 /* Navigation arrows group — sits between name and status */
 .pd-item-nav {
-  display: none;          /* hidden by default, shown on hover */
+  display: flex;
   align-items: center;
   gap: 1px;
   flex-shrink: 0;
+  visibility: hidden;    /* always takes space, hidden until hover */
 }
 .pd-item:hover .pd-item-nav {
-  display: flex;
+  visibility: visible;
 }
 .pd-nav-btn {
   display: flex;

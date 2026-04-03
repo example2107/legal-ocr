@@ -1061,13 +1061,13 @@ export default function App() {
       pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
     }
 
-    // Deferred cleanup: remove PD entries whose <mark> tags are gone from the editor
+    // Deferred cleanup: update pdIdsInDoc tracking
+    // PD entries are NOT auto-removed — only removed by explicit user action (right-click → "Не является ПД")
     if (pdCleanupTimerRef.current) clearTimeout(pdCleanupTimerRef.current);
     pdCleanupTimerRef.current = setTimeout(() => {
       if (!editorDomRef.current) return;
 
       const dom = editorDomRef.current;
-      // Count marks per id
       const markCounts = {};
       dom.querySelectorAll("mark[data-pd-id]").forEach(el => {
         const id = el.dataset.pdId;
@@ -1078,21 +1078,6 @@ export default function App() {
       if (currentProjectId) {
         setPdIdsInDoc(new Set(Object.keys(markCounts)));
       }
-
-      setPersonalData(prev => {
-        // In project context — keep all entries (absent ones shown dimmed)
-        if (currentProjectId) return prev;
-        // Outside project — remove entries with 0 remaining marks
-        const persons = prev.persons.filter(p => markCounts[p.id] > 0);
-        const otherPD = prev.otherPD.filter(p => markCounts[p.id] > 0);
-
-        if (persons.length === prev.persons.length && otherPD.length === prev.otherPD.length) {
-          return prev;
-        }
-        const next = { ...prev, persons, otherPD };
-        pdRef.current = next;
-        return next;
-      });
     }, 1000);
   }, [currentProjectId]);
 
