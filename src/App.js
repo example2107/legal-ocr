@@ -496,7 +496,99 @@ export default function App() {
     }
 
     const initialAnon = docEntry.anonymized || {};
-    const html = buildAnnotatedHtml(docEntry.text || '', pd, initialAnon);
+
+    // Use editedHtml if available (preserves user edits like uncertain mark resolutions),
+    // otherwise build from raw text
+    let html;
+    if (docEntry.editedHtml) {
+      // Start from the user-edited HTML and re-annotate with new PD from project base
+      html = docEntry.editedHtml;
+
+      // Find new PD entries that aren't already marked in the HTML
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const markedIds = new Set();
+      tmp.querySelectorAll('mark[data-pd-id]').forEach(el => markedIds.add(el.dataset.pdId));
+
+      // Annotate new persons
+      const newPersons = pd.persons.filter(p => !markedIds.has(p.id));
+      const newOtherPD = pd.otherPD.filter(it => !markedIds.has(it.id));
+
+      if (newPersons.length > 0 || newOtherPD.length > 0) {
+        const escReLocal = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const buildPatternLocal = (value) => {
+          const parts = value.trim().split(/\s+/).filter(Boolean);
+          if (parts.length === 0) return escReLocal(value);
+          return parts.map(p => escReLocal(p)).join('[\\s\\n]+');
+        };
+
+        function annotateNewInNode(node) {
+          if (node.nodeType === 3) {
+            const text = node.textContent;
+            const allMatches = [];
+
+            // Search for new persons
+            for (const p of newPersons) {
+              for (const mention of (p.mentions || [p.fullName])) {
+                if (!mention || mention.length < 2) continue;
+                try {
+                  // Simple pattern: escape + case insensitive
+                  const re = new RegExp(escReLocal(mention), 'gi');
+                  let m;
+                  while ((m = re.exec(text)) !== null) {
+                    const cat = p.category === 'professional' ? 'prof' : 'priv';
+                    allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], id: p.id, cat, letter: p.letter, isAnon: !!initialAnon[p.id], type: 'person' });
+                  }
+                } catch {}
+              }
+            }
+
+            // Search for new otherPD
+            for (const item of newOtherPD) {
+              if (!item.value) continue;
+              try {
+                const re = new RegExp(buildPatternLocal(item.value), 'gi');
+                let m;
+                while ((m = re.exec(text)) !== null) {
+                  allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], id: item.id, cat: 'oth', replacement: item.replacement, isAnon: !!initialAnon[item.id], type: 'other' });
+                }
+              } catch {}
+            }
+
+            if (allMatches.length === 0) return;
+            allMatches.sort((a, b) => a.start - b.start);
+            const filtered = [];
+            let lastEnd = 0;
+            for (const m of allMatches) {
+              if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
+            }
+
+            const fragment = document.createDocumentFragment();
+            let lastIdx = 0;
+            for (const match of filtered) {
+              if (match.start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, match.start)));
+              const el = document.createElement('mark');
+              el.className = 'pd ' + match.cat + (match.isAnon ? ' anon' : '');
+              el.dataset.pdId = match.id;
+              el.dataset.original = match.mt;
+              el.contentEditable = 'false';
+              el.title = match.isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+              el.textContent = match.isAnon ? (match.type === 'person' ? match.letter : match.replacement) : match.mt;
+              fragment.appendChild(el);
+              lastIdx = match.end;
+            }
+            if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+            node.parentNode.replaceChild(fragment, node);
+          } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+            Array.from(node.childNodes).forEach(annotateNewInNode);
+          }
+        }
+        Array.from(tmp.childNodes).forEach(annotateNewInNode);
+        html = tmp.innerHTML;
+      }
+    } else {
+      html = buildAnnotatedHtml(docEntry.text || '', pd, initialAnon);
+    }
 
     const updatedDoc = {
       ...docEntry,
