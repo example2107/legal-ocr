@@ -106,12 +106,12 @@ function esc(s) {
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-// Build flexible regex for otherPD values: normalize whitespace, allow line breaks
+// Build flexible regex for otherPD values: normalize whitespace
 function buildOtherPdPattern(value) {
-  // Split by whitespace, escape each part, join with \s+
   const parts = value.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return escRe(value);
-  return parts.map(p => escRe(p)).join('\\s+');
+  // Each word escaped, joined by flexible whitespace (including newlines)
+  return parts.map(p => escRe(p)).join('[\\s\\n]+');
 }
 
 // Строит regex-паттерн для упоминания человека:
@@ -419,7 +419,7 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
     return LEGAL_CENTER_RE.test(stripped) && stripped.length < 60;
   };
 
-  return mergedText.split('\n').map(line => {
+  const htmlResult = mergedText.split('\n').map(line => {
     if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
     if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
     // Skip --- (page break artifact)
@@ -458,6 +458,67 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
     }
     return `<div>${annotLine(line, marks, anonymized)}</div>`;
   }).join('');
+
+  // Post-pass: find otherPD values that were NOT marked by annotLine
+  // (e.g. value spans across line breaks, or minor text differences)
+  // Uses DOM-based search across text nodes — same approach as buildAnnotatedDocxHtml
+  const otherOnlyMarks = marks.filter(m => m.type === 'other');
+  if (otherOnlyMarks.length > 0) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = htmlResult;
+    // Collect ids already marked
+    const markedIds = new Set();
+    tmp.querySelectorAll('mark[data-pd-id]').forEach(el => markedIds.add(el.dataset.pdId));
+    // Only process otherPD that have no marks yet
+    const unmarked = otherOnlyMarks.filter(m => !markedIds.has(m.id));
+    if (unmarked.length > 0) {
+      function annotateOtherInNode(node) {
+        if (node.nodeType === 3) {
+          const text = node.textContent;
+          const allMatches = [];
+          for (const mark of unmarked) {
+            try {
+              const pattern = buildOtherPdPattern(mark.txt);
+              const re = new RegExp(pattern, 'gi');
+              let m;
+              while ((m = re.exec(text)) !== null) {
+                allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], mark });
+              }
+            } catch {}
+          }
+          if (allMatches.length === 0) return;
+          allMatches.sort((a, b) => a.start - b.start);
+          const filtered = [];
+          let lastEnd = 0;
+          for (const m of allMatches) {
+            if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
+          }
+          const fragment = document.createDocumentFragment();
+          let lastIdx = 0;
+          for (const { start, end, mt, mark } of filtered) {
+            if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
+            const el = document.createElement('mark');
+            const isAnon = !!anonymized[mark.id];
+            el.className = 'pd oth' + (isAnon ? ' anon' : '');
+            el.dataset.pdId = mark.id;
+            el.dataset.original = mt;
+            el.contentEditable = 'false';
+            el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+            el.textContent = isAnon ? mark.replacement : mt;
+            fragment.appendChild(el);
+            lastIdx = end;
+          }
+          if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+          node.parentNode.replaceChild(fragment, node);
+        } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+          Array.from(node.childNodes).forEach(annotateOtherInNode);
+        }
+      }
+      Array.from(tmp.childNodes).forEach(annotateOtherInNode);
+      return tmp.innerHTML;
+    }
+  }
+  return htmlResult;
 }
 
 export function htmlToPlainText(html) {
