@@ -434,12 +434,11 @@ export default function App() {
   // ── Project functions ───────────────────────────────────────────────────────
   const handleCreateProject = () => {
     if (!newProjectTitle.trim()) return;
-    const proj = createProject(newProjectTitle.trim(), newProjectDesc.trim());
+    createProject(newProjectTitle.trim(), newProjectDesc.trim());
     setNewProjectTitle('');
     setNewProjectDesc('');
     setShowCreateProject(false);
     refreshProjects();
-    openProject(proj.id);
   };
 
   const openProject = (projId) => {
@@ -1183,6 +1182,80 @@ export default function App() {
     pushSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
   }, [anonymized]);
 
+  // ── Re-annotate otherPD after uncertain mark is resolved ──────────────────
+  const handleUncertainResolved = useCallback(() => {
+    if (!editorDomRef.current) return;
+    const dom = editorDomRef.current;
+    const otherItems = pdRef.current.otherPD || [];
+    if (otherItems.length === 0) return;
+
+    // Collect ids already marked
+    const markedIds = new Set();
+    dom.querySelectorAll('mark[data-pd-id]').forEach(el => markedIds.add(el.dataset.pdId));
+    const unmarked = otherItems.filter(it => !markedIds.has(it.id));
+    if (unmarked.length === 0) return;
+
+    // Import buildOtherPdPattern inline (same logic)
+    const escReLocal = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const buildPattern = (value) => {
+      const parts = value.trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return escReLocal(value);
+      return parts.map(p => escReLocal(p)).join('[\\s\\n]+');
+    };
+
+    let changed = false;
+    function tryAnnotate(node) {
+      if (node.nodeType === 3) {
+        const text = node.textContent;
+        const allMatches = [];
+        for (const item of unmarked) {
+          if (!item.value) continue;
+          try {
+            const re = new RegExp(buildPattern(item.value), 'gi');
+            let m;
+            while ((m = re.exec(text)) !== null) {
+              allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], item });
+            }
+          } catch {}
+        }
+        if (allMatches.length === 0) return;
+        allMatches.sort((a, b) => a.start - b.start);
+        const filtered = [];
+        let lastEnd = 0;
+        for (const m of allMatches) {
+          if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
+        }
+        const fragment = document.createDocumentFragment();
+        let lastIdx = 0;
+        for (const { start, end, mt, item } of filtered) {
+          if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
+          const el = document.createElement('mark');
+          const isAnon = !!anonRef.current[item.id];
+          el.className = 'pd oth' + (isAnon ? ' anon' : '');
+          el.dataset.pdId = item.id;
+          el.dataset.original = mt;
+          el.contentEditable = 'false';
+          el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+          el.textContent = isAnon ? item.replacement : mt;
+          fragment.appendChild(el);
+          lastIdx = end;
+          changed = true;
+        }
+        if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+        node.parentNode.replaceChild(fragment, node);
+      } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+        Array.from(node.childNodes).forEach(tryAnnotate);
+      }
+    }
+    Array.from(dom.childNodes).forEach(tryAnnotate);
+
+    if (changed) {
+      const newHtml = dom.innerHTML;
+      setEditorHtml(newHtml);
+      pushSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
+    }
+  }, []);
+
   // ── Export ────────────────────────────────────────────────────────────────────
 
   // Generate .docx by building the XML directly (no external library needed)
@@ -1472,11 +1545,7 @@ ${content}
 
       <header className="header">
         <div className="header-inner">
-          <div className="header-left">
-            {view === VIEW_RESULT && history.some(h => h.id !== docId && h.title === docTitle) && (
-              <div className="header-duplicate-warn">⚠ Документ с таким названием уже есть в истории</div>
-            )}
-          </div>
+          <div className="header-left" />
           <div className="header-center">
             {view === VIEW_RESULT && currentProjectId && (
               <button className="btn-tool header-home-btn" onClick={goBackToProject}>← Проект</button>
@@ -1808,9 +1877,13 @@ ${content}
                 placeholder="Название проекта"
                 spellCheck={false}
               />
-              {currentProject.description && (
-                <div className="project-view-desc">{currentProject.description}</div>
-              )}
+              <input
+                className="project-desc-input"
+                value={currentProject.description || ''}
+                onChange={e => { saveProject({ ...currentProject, description: e.target.value }); refreshProjects(); }}
+                placeholder="Описание проекта (необязательно)"
+                spellCheck={false}
+              />
             </div>
 
             {/* API key + provider inside project */}
@@ -1922,6 +1995,7 @@ ${content}
                           )}
                         </div>
                       </div>
+                      <button className="project-doc-export" onClick={e => { e.stopPropagation(); exportDocument(doc); }} title="Скачать .юрдок">⬇</button>
                       <button className="project-doc-remove" onClick={e => { e.stopPropagation(); handleRemoveDocFromProject(doc.id); }} title="Убрать из проекта">✕</button>
                     </div>
                   ))}
@@ -2046,6 +2120,7 @@ ${content}
                 <div className="pd-legend">
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-private" style={{ cursor: 'default' }}>А</mark> — частное лицо</div>
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-professional" style={{ cursor: 'default', fontSize: '11px' }}>[ФИО 1]</mark> — проф. участник</div>
+                  <div className="pd-legend-item"><mark className="pd-mark pd-cat-other" style={{ cursor: 'default' }}>ПД</mark> — другие перс. данные</div>
                   <div className="pd-legend-item"><span style={{ borderBottom: '3px double #f57c00', paddingBottom: '1px', fontSize: '12px', color: '#4a3000' }}>текст</span> — неточное распознавание</div>
                 </div>
               </aside>
@@ -2124,6 +2199,7 @@ ${content}
                 onRemovePdMark={handleRemovePdMark}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
+                onUncertainResolved={handleUncertainResolved}
                 existingPD={personalData}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}

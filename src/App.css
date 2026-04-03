@@ -64,7 +64,6 @@ a { color: var(--accent); }
 .header-center { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-home-btn { white-space: nowrap; }
 .header-right { flex: 1; min-width: 120px; }
-.header-duplicate-warn { font-size: 11px; color: var(--yellow); white-space: nowrap; margin-right: 4px; }
 
 
 .main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
@@ -355,6 +354,7 @@ a { color: var(--accent); }
 .pd-mark { padding: 1px 4px; border-radius: 3px; font-weight: 500; border: 1px solid transparent; }
 .pd-cat-private { background: var(--pd-private-light); color: var(--pd-private); border-color: #dbc8f0; }
 .pd-cat-professional { background: var(--pd-prof-light); color: var(--pd-prof); border-color: #b8ded8; }
+.pd-cat-other { background: var(--yellow-light); color: #5a3e00; border-color: var(--yellow-border); }
 
 /* Absent PD — from project base but not in current document */
 .pd-item.pd-absent { opacity: 0.4; cursor: default; }
@@ -838,7 +838,13 @@ a { color: var(--accent); }
 .project-doc-remove { font-size: 12px; color: var(--text3); padding: 2px 6px; border-radius: 4px; opacity: 0; flex-shrink: 0; }
 .project-doc-item:hover .project-doc-remove { opacity: 1; }
 .project-doc-remove:hover { background: var(--red-light); color: var(--red); }
+.project-doc-export { font-size: 12px; color: var(--text3); padding: 2px 6px; border-radius: 4px; opacity: 0; flex-shrink: 0; }
+.project-doc-item:hover .project-doc-export { opacity: 1; }
+.project-doc-export:hover { background: var(--accent-light); color: var(--accent); }
 .project-docs-empty { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; font-size: 14px; color: var(--text3); }
+.project-desc-input { width: 100%; font-size: 13px; font-family: var(--font-body); border: 1px solid transparent; background: transparent; color: var(--text2); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); margin-top: 6px; }
+.project-desc-input:hover { border-color: var(--border); background: var(--surface); }
+.project-desc-input:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-light); }
 .project-extra-actions { max-width: 720px; width: 100%; align-self: center; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
 /* ── Modal inputs ── */

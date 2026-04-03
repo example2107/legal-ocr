@@ -844,7 +844,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -929,21 +929,25 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     const mark = ctxMenu.mark;
     const text = document.createTextNode(mark.textContent);
     mark.parentNode.replaceChild(text, mark);
+    // Normalize adjacent text nodes so regex can find values that were split by the uncertain mark
+    mark.parentNode?.normalize?.();
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange]);
+    onUncertainResolved?.();
+  }, [ctxMenu, notifyChange, onUncertainResolved]);
 
   const applyUncertainSuggestion = useCallback(() => {
     if (!ctxMenu?.mark) return;
     const mark = ctxMenu.mark;
     const suggestion = mark.dataset.suggestion;
     if (!suggestion) return;
-    // Заменяем mark на текст с предложенным вариантом
     const text = document.createTextNode(suggestion);
     mark.parentNode.replaceChild(text, mark);
+    text.parentNode?.normalize?.();
     notifyChange();
     setCtxMenu(null);
-  }, [ctxMenu, notifyChange]);
+    onUncertainResolved?.();
+  }, [ctxMenu, notifyChange, onUncertainResolved]);
 
   const removePdMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
