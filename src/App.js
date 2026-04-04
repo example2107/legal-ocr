@@ -96,6 +96,8 @@ export default function App() {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
+  const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
+  const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
 
   const [files, setFiles] = useState([]);
@@ -626,6 +628,95 @@ export default function App() {
     }
   };
 
+  // ── Project summary document ────────────────────────────────────────────────
+  const getProjectSummaryDoc = () => {
+    if (!currentProject) return null;
+    const allHistory = loadHistory();
+    return allHistory.find(h => h.projectId === currentProjectId && h.isProjectSummary) || null;
+  };
+
+  const buildProjectSummary = () => {
+    if (!currentProjectId) return;
+    const docs = getProjectDocs();
+    if (docs.length === 0) return;
+
+    // Merge all editedHtml with part separators between them
+    const htmlParts = docs.map((doc, idx) => {
+      const docHtml = doc.editedHtml || '';
+      if (idx === 0) return docHtml;
+      const separator = `<div class="part-separator" contenteditable="false"><span class="part-separator-line"></span><span class="part-separator-label">Часть ${idx + 1}: ${doc.title || ''}</span><span class="part-separator-line"></span></div>`;
+      return separator + docHtml;
+    });
+    const mergedHtml = htmlParts.join('');
+
+    // Take PD from last doc (cumulative)
+    const lastDoc = docs[docs.length - 1];
+    const pd = lastDoc.personalData || { persons: [], otherPD: [] };
+
+    // Merge anonymized from all docs
+    const mergedAnon = {};
+    docs.forEach(doc => {
+      Object.entries(doc.anonymized || {}).forEach(([id, val]) => {
+        if (val) mergedAnon[id] = true;
+      });
+    });
+
+    // Merge rawText
+    const mergedText = docs.map((doc, idx) => {
+      const text = doc.text || '';
+      if (idx === 0) return text;
+      return '\n[PART:' + (idx + 1) + ']\n' + text;
+    }).join('');
+
+    const summaryId = generateId();
+    const summaryDoc = {
+      id: summaryId,
+      title: '📋 Итоговый документ — ' + (currentProject.title || 'Проект'),
+      originalFileName: '',
+      text: mergedText,
+      editedHtml: mergedHtml,
+      personalData: pd,
+      anonymized: mergedAnon,
+      source: 'project-summary',
+      projectId: currentProjectId,
+      isProjectSummary: true,
+      savedAt: new Date().toISOString(),
+    };
+
+    // Remove old summary if exists
+    const oldSummary = getProjectSummaryDoc();
+    if (oldSummary) {
+      deleteDocument(oldSummary.id);
+    }
+
+    saveDocument(summaryDoc);
+    refreshHistory();
+    refreshProjects();
+  };
+
+  const handleBuildSummary = () => {
+    const existing = getProjectSummaryDoc();
+    if (existing) {
+      setShowRebuildConfirm(true);
+    } else {
+      buildProjectSummary();
+    }
+  };
+
+  const handleConfirmRebuild = () => {
+    setShowRebuildConfirm(false);
+    buildProjectSummary();
+  };
+
+  const handleDeleteSummary = (e) => {
+    if (e) e.stopPropagation();
+    const summary = getProjectSummaryDoc();
+    if (summary) {
+      deleteDocument(summary.id);
+      refreshHistory();
+    }
+  };
+
   const handleProjectFiles = useCallback((newFiles) => {
     const valid = Array.from(newFiles).filter(f => f.type === 'application/pdf');
     if (valid.length !== newFiles.length) setError('В проект можно загружать только PDF-файлы');
@@ -969,7 +1060,7 @@ export default function App() {
 
   const countPageSeparators = () => {
     if (!editorDomRef.current) return 0;
-    return editorDomRef.current.querySelectorAll('.page-separator').length;
+    return editorDomRef.current.querySelectorAll('.page-separator, .part-separator').length;
   };
 
   const triggerExport = (action) => {
@@ -981,7 +1072,7 @@ export default function App() {
       setHighlightUncertain(true);
       // Подсвечиваем разделители страниц анимацией
       if (editorDomRef.current) {
-        editorDomRef.current.querySelectorAll('.page-separator').forEach(el => {
+        editorDomRef.current.querySelectorAll('.page-separator, .part-separator').forEach(el => {
           el.classList.add('page-separator-highlight');
         });
       }
@@ -997,7 +1088,7 @@ export default function App() {
     setHighlightUncertain(false);
     // Убираем подсветку разделителей
     if (editorDomRef.current) {
-      editorDomRef.current.querySelectorAll('.page-separator').forEach(el => {
+      editorDomRef.current.querySelectorAll('.page-separator, .part-separator').forEach(el => {
         el.classList.remove('page-separator-highlight');
       });
     }
@@ -1822,71 +1913,80 @@ ${content}
 
             <input ref={importInputRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleImport} />
 
-            {/* ── Проекты ── */}
-            <section className="projects-section">
-              <div className="projects-header">
-                <div className="card-label" style={{ margin: 0 }}>Проекты</div>
-                <button className="btn-tool" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
+            {/* ── Unified bottom section with tabs ── */}
+            <section className="card home-bottom-card">
+              <div className="home-tabs">
+                <button className={`home-tab${homeTab === 'projects' ? ' active' : ''}`} onClick={() => setHomeTab('projects')}>
+                  📁 Проекты {projects.length > 0 && <span className="home-tab-count">{projects.length}</span>}
+                </button>
+                <button className={`home-tab${homeTab === 'history' ? ' active' : ''}`} onClick={() => setHomeTab('history')}>
+                  📄 История {freeHistory.length > 0 && <span className="home-tab-count">{freeHistory.length}</span>}
+                </button>
               </div>
-              {projects.length > 0 ? (
-                <div className="projects-grid">
-                  {projects.map(proj => (
-                    <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
-                      <div className="project-card-icon">📁</div>
-                      <div className="project-card-body">
-                        <div className="project-card-title">{proj.title}</div>
-                        {proj.description && <div className="project-card-desc">{proj.description}</div>}
-                        <div className="project-card-meta">
-                          {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
+
+              {homeTab === 'projects' && (
+                <div className="home-tab-content">
+                  <div className="home-tab-actions">
+                    <button className="btn-tool" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
+                  </div>
+                  {projects.length > 0 ? (
+                    <div className="projects-grid">
+                      {projects.map(proj => (
+                        <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
+                          <div className="project-card-icon">📁</div>
+                          <div className="project-card-body">
+                            <div className="project-card-title">{proj.title}</div>
+                            {proj.description && <div className="project-card-desc">{proj.description}</div>}
+                            <div className="project-card-meta">
+                              {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
+                            </div>
+                          </div>
+                          <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
                         </div>
-                      </div>
-                      <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <div className="home-tab-empty">Создайте проект для объединения документов с общей базой персональных данных</div>
+                  )}
                 </div>
-              ) : (
-                <div className="projects-empty">Проектов пока нет. Создайте проект для объединения документов с общей базой ПД.</div>
+              )}
+
+              {homeTab === 'history' && (
+                <div className="home-tab-content">
+                  <div className="home-tab-actions">
+                    <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
+                  </div>
+                  {freeHistory.length > 0 ? (
+                    <div className="history-grid">
+                      {freeHistory.map(entry => (
+                        <div key={entry.id} className="history-card" onClick={() => { setCurrentProjectId(null); loadDoc(entry); }}>
+                          <div className="history-card-icon">{entry.source === 'paste' ? '📋' : '📄'}</div>
+                          <div className="history-card-body">
+                            <div className="history-card-title">{entry.title}</div>
+                            <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
+                            <div className="history-card-stats">
+                              {(entry.personalData?.persons?.filter(p => p.category === 'private').length || 0) > 0 && (
+                                <span className="badge badge-private">{entry.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
+                              )}
+                              {(entry.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
+                                <span className="badge badge-prof">{entry.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
+                              )}
+                              {Object.values(entry.anonymized || {}).filter(Boolean).length > 0 && (
+                                <span className="badge badge-anon">🔒 {Object.values(entry.anonymized).filter(Boolean).length} скрыто</span>
+                              )}
+                            </div>
+                          </div>
+                          <button className="history-export" onClick={e => { e.stopPropagation(); exportDocument(entry); }} title="Скачать .юрдок">⬇</button>
+                          <button className="history-delete" onClick={e => { e.stopPropagation(); deleteDocument(entry.id); refreshHistory(); }} title="Удалить">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="home-tab-empty">Документов пока нет. Распознайте файл или загрузите .юрдок</div>
+                  )}
+                </div>
               )}
             </section>
-
-            {freeHistory.length > 0 && (
-              <section className="history-section">
-                <div className="history-header">
-                  <div className="card-label" style={{ margin: 0 }}>История документов</div>
-                  <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
-                </div>
-                <div className="history-grid">
-                  {freeHistory.map(entry => (
-                    <div key={entry.id} className="history-card" onClick={() => { setCurrentProjectId(null); loadDoc(entry); }}>
-                      <div className="history-card-icon">{entry.source === 'paste' ? '📋' : '📄'}</div>
-                      <div className="history-card-body">
-                        <div className="history-card-title">{entry.title}</div>
-                        <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
-                        <div className="history-card-stats">
-                          {(entry.personalData?.persons?.filter(p => p.category === 'private').length || 0) > 0 && (
-                            <span className="badge badge-private">{entry.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
-                          )}
-                          {(entry.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
-                            <span className="badge badge-prof">{entry.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
-                          )}
-                          {Object.values(entry.anonymized || {}).filter(Boolean).length > 0 && (
-                            <span className="badge badge-anon">🔒 {Object.values(entry.anonymized).filter(Boolean).length} скрыто</span>
-                          )}
-                        </div>
-                      </div>
-                      <button className="history-export" onClick={e => { e.stopPropagation(); exportDocument(entry); }} title="Скачать .юрдок">⬇</button>
-                      <button className="history-delete" onClick={e => { e.stopPropagation(); deleteDocument(entry.id); refreshHistory(); }} title="Удалить">✕</button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {freeHistory.length === 0 && (
-              <div className="import-standalone">
-                <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
-              </div>
-            )}
           </>
         )}
 
@@ -1926,6 +2026,20 @@ ${content}
           </div>
         )}
 
+        {/* ════ REBUILD SUMMARY CONFIRM ════ */}
+        {showRebuildConfirm && (
+          <div className="modal-overlay">
+            <div className="modal">
+              <div className="modal-title">Пересобрать итоговый документ?</div>
+              <div className="modal-body">Существующий итоговый документ будет заменён новым. Все изменения, внесённые в предыдущий итоговый документ, будут потеряны.</div>
+              <div className="modal-actions">
+                <button className="btn-primary btn-sm" onClick={handleConfirmRebuild}>Пересобрать</button>
+                <button className="btn-tool" onClick={() => setShowRebuildConfirm(false)}>Отмена</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ════ ADD FROM HISTORY MODAL (project) ════ */}
         {showAddFromHistory && currentProject && (
           <div className="modal-overlay">
@@ -1960,25 +2074,13 @@ ${content}
 
         {/* ════ PROJECT VIEW ════ */}
         {view === VIEW_PROJECT && currentProject && (
-          <div className="project-view">
-            <div className="project-view-header">
-              <input
-                className="project-title-input"
-                value={currentProject.title}
-                onChange={e => { saveProject({ ...currentProject, title: e.target.value }); refreshProjects(); }}
-                placeholder="Название проекта"
-                spellCheck={false}
-              />
-              <input
-                className="project-desc-input"
-                value={currentProject.description || ''}
-                onChange={e => { saveProject({ ...currentProject, description: e.target.value }); refreshProjects(); }}
-                placeholder="Описание проекта (необязательно)"
-                spellCheck={false}
-              />
+          <>
+            {/* Project banner — visual indicator */}
+            <div className="project-banner">
+              <span className="project-banner-icon">📁</span>
+              <span className="project-banner-label">Проект</span>
             </div>
 
-            {/* API key + provider inside project */}
             <section className="card api-card">
               <div className="provider-select-wrap">
                 <label className="provider-label">Провайдер ИИ</label>
@@ -2015,7 +2117,6 @@ ${content}
               </div>
             </section>
 
-            {/* Upload zone — PDF only */}
             <section className="card upload-card">
               <div
                 className={`dropzone ${isDragging ? 'dragging' : ''}`}
@@ -2043,7 +2144,7 @@ ${content}
               )}
             </section>
 
-            {error && <div className="error-block" style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}>⚠️ {error}</div>}
+            {error && <div className="error-block">⚠️ {error}</div>}
 
             <div className="home-btn-wrap">
               <button
@@ -2057,44 +2158,92 @@ ${content}
               </button>
             </div>
 
-            <div className="project-extra-actions">
-              {freeHistory.length > 0 && (
-                <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Перенести из истории</button>
-              )}
-              <button className="btn-tool" onClick={() => projectImportRef.current?.click()}>📂 Загрузить .юрдок</button>
-              <input ref={projectImportRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleProjectImport} />
-            </div>
-
-            {getProjectDocs().length > 0 && (
-              <div className="project-docs">
-                <div className="card-label">Документы проекта ({getProjectDocs().length})</div>
-                <div className="project-docs-list">
-                  {getProjectDocs().map((doc, idx) => (
-                    <div key={doc.id} className="project-doc-item" onClick={() => openDocFromProject(doc)}>
-                      <span className="project-doc-num">{idx + 1}</span>
-                      <div className="project-doc-body">
-                        <div className="project-doc-title">{doc.title}</div>
-                        <div className="project-doc-meta">
-                          {formatDate(new Date(doc.savedAt))}
-                          {(doc.personalData?.persons?.length || 0) > 0 && (
-                            <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
-                          )}
-                          {(doc.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
-                            <span className="badge badge-prof" style={{ marginLeft: 4 }}>{doc.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
-                          )}
-                          {(doc.personalData?.otherPD?.length || 0) > 0 && (
-                            <span className="badge badge-anon" style={{ marginLeft: 4 }}>{doc.personalData.otherPD.length} др. ПД</span>
-                          )}
-                        </div>
-                      </div>
-                      <button className="project-doc-export" onClick={e => { e.stopPropagation(); exportDocument(doc); }} title="Скачать .юрдок">⬇</button>
-                      <button className="project-doc-remove" onClick={e => { e.stopPropagation(); handleRemoveDocFromProject(doc.id); }} title="Убрать из проекта">✕</button>
-                    </div>
-                  ))}
-                </div>
+            {/* Project details card — name, description, extra actions, documents */}
+            <section className="card home-bottom-card project-details-card">
+              <div className="project-details-header">
+                <input
+                  className="project-title-input"
+                  value={currentProject.title}
+                  onChange={e => { saveProject({ ...currentProject, title: e.target.value }); refreshProjects(); }}
+                  placeholder="Название проекта"
+                  spellCheck={false}
+                />
+                <input
+                  className="project-desc-input"
+                  value={currentProject.description || ''}
+                  onChange={e => { saveProject({ ...currentProject, description: e.target.value }); refreshProjects(); }}
+                  placeholder="Описание проекта (необязательно)"
+                  spellCheck={false}
+                />
               </div>
-            )}
-          </div>
+
+              <div className="project-details-actions">
+                {freeHistory.length > 0 && (
+                  <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Перенести из истории</button>
+                )}
+                <button className="btn-tool" onClick={() => projectImportRef.current?.click()}>📂 Загрузить .юрдок</button>
+                <input ref={projectImportRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleProjectImport} />
+              </div>
+
+              {getProjectDocs().length > 0 ? (
+                <div className="project-docs">
+                  <div className="card-label">Документы проекта ({getProjectDocs().length})</div>
+                  <div className="project-docs-list">
+                    {getProjectDocs().map((doc, idx) => (
+                      <div key={doc.id} className="project-doc-item" onClick={() => openDocFromProject(doc)}>
+                        <span className="project-doc-num">{idx + 1}</span>
+                        <div className="project-doc-body">
+                          <div className="project-doc-title">{doc.title}</div>
+                          <div className="project-doc-meta">
+                            {formatDate(new Date(doc.savedAt))}
+                            {(doc.personalData?.persons?.length || 0) > 0 && (
+                              <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
+                            )}
+                            {(doc.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
+                              <span className="badge badge-prof" style={{ marginLeft: 4 }}>{doc.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
+                            )}
+                            {(doc.personalData?.otherPD?.length || 0) > 0 && (
+                              <span className="badge badge-anon" style={{ marginLeft: 4 }}>{doc.personalData.otherPD.length} др. ПД</span>
+                            )}
+                          </div>
+                        </div>
+                        <button className="project-doc-export" onClick={e => { e.stopPropagation(); exportDocument(doc); }} title="Скачать .юрдок">⬇</button>
+                        <button className="project-doc-remove" onClick={e => { e.stopPropagation(); handleRemoveDocFromProject(doc.id); }} title="Убрать из проекта">✕</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Build summary button */}
+                  {getProjectDocs().length >= 2 && (
+                    <div className="project-summary-actions">
+                      <button className="btn-primary btn-sm" onClick={handleBuildSummary}>📋 Собрать итоговый документ</button>
+                    </div>
+                  )}
+
+                  {/* Summary document */}
+                  {getProjectSummaryDoc() && (
+                    <div className="project-summary-section">
+                      <div className="card-label">Итоговый документ</div>
+                      <div className="project-doc-item project-summary-item" onClick={() => openDocFromProject(getProjectSummaryDoc())}>
+                        <span className="project-summary-icon">📋</span>
+                        <div className="project-doc-body">
+                          <div className="project-doc-title">{getProjectSummaryDoc().title}</div>
+                          <div className="project-doc-meta">
+                            {formatDate(new Date(getProjectSummaryDoc().savedAt))}
+                            <span className="badge badge-summary" style={{ marginLeft: 8 }}>итоговый</span>
+                          </div>
+                        </div>
+                        <button className="project-doc-export" onClick={e => { e.stopPropagation(); exportDocument(getProjectSummaryDoc()); }} title="Скачать .юрдок">⬇</button>
+                        <button className="project-doc-remove" onClick={e => handleDeleteSummary(e)} title="Удалить итоговый документ">✕</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="home-tab-empty">Загрузите PDF для распознавания, перенесите документ из истории или загрузите .юрдок</div>
+              )}
+            </section>
+          </>
         )}
 
         {/* ════ PROCESSING ════ */}
