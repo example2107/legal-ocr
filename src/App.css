@@ -875,15 +875,6 @@ a { color: var(--accent); }
 .project-summary-item:hover { background: #d5e7f7; }
 .project-summary-icon { font-size: 20px; flex-shrink: 0; }
 .badge-summary { background: var(--accent-light); color: var(--accent); }
-.summary-attention {
-  animation: summaryPulse 1.35s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(45, 90, 142, 0.35);
-}
-@keyframes summaryPulse {
-  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(45, 90, 142, 0.15); }
-  50% { transform: translateY(-1px); box-shadow: 0 0 0 8px rgba(45, 90, 142, 0.08); }
-}
-
 /* ============================
    LONG DOC WARNING
    ============================ */

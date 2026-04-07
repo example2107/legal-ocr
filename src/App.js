@@ -97,7 +97,6 @@ export default function App() {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
-  const [highlightProjectSummary, setHighlightProjectSummary] = useState(false);
   const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
   const [inputTab, setInputTab] = useState('documents'); // 'documents' | 'text'
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
@@ -438,12 +437,6 @@ export default function App() {
 
   useEffect(() => { setProjects(loadProjects()); }, []);
 
-  useEffect(() => {
-    if (!highlightProjectSummary) return;
-    const timer = setTimeout(() => setHighlightProjectSummary(false), 6000);
-    return () => clearTimeout(timer);
-  }, [highlightProjectSummary]);
-
   // Sync lastSavedState with actual DOM after editor renders
   // Browser normalizes innerHTML (attribute order, whitespace) so the saved string
   // from buildAnnotatedHtml may differ from what the DOM produces.
@@ -468,6 +461,7 @@ export default function App() {
   };
 
   const openProject = (projId) => {
+    cleanupDuplicateProjectChunkDocs(projId);
     setCurrentProjectId(projId);
     setView(VIEW_PROJECT);
     setFiles([]);
@@ -477,6 +471,12 @@ export default function App() {
   const currentProject = currentProjectId ? getProject(currentProjectId) : null;
   const currentBatchSession = currentProject?.batchSession || null;
 
+  const getProjectChunkDocKey = useCallback((doc) => {
+    if (!doc || doc.isProjectSummary) return '';
+    if (!doc.batchFileName || !doc.pageFrom || !doc.pageTo) return '';
+    return `${doc.projectId || ''}::${doc.batchFileName}::${doc.pageFrom}::${doc.pageTo}`;
+  }, []);
+
   const getProjectDocs = () => {
     if (!currentProject) return [];
     const allHistory = loadHistory();
@@ -484,6 +484,40 @@ export default function App() {
       .map(id => allHistory.find(h => h.id === id))
       .filter(Boolean);
   };
+
+  const shouldShowLongDocWarningForEntry = useCallback((entry) => {
+    if (!entry) return false;
+    if (entry.isProjectSummary || entry.source === 'project-summary') return false;
+    return (entry.text || '').replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT;
+  }, []);
+
+  const cleanupDuplicateProjectChunkDocs = useCallback((projectId) => {
+    const project = getProject(projectId);
+    if (!project) return 0;
+    const allHistory = loadHistory();
+    const docs = project.documentIds
+      .map(id => allHistory.find(h => h.id === id))
+      .filter(Boolean);
+
+    const seen = new Map();
+    const duplicates = [];
+    for (const doc of docs) {
+      const key = getProjectChunkDocKey(doc);
+      if (!key) continue;
+      if (seen.has(key)) duplicates.push(doc.id);
+      else seen.set(key, doc.id);
+    }
+
+    if (duplicates.length === 0) return 0;
+
+    duplicates.forEach(id => {
+      removeDocumentFromProject(projectId, id);
+      deleteDocument(id);
+    });
+    refreshHistory();
+    refreshProjects();
+    return duplicates.length;
+  }, [getProjectChunkDocKey]);
 
   const getProjectExistingPD = () => {
     if (currentProject?.sharedPD && ((currentProject.sharedPD.persons || []).length > 0 || (currentProject.sharedPD.otherPD || []).length > 0)) {
@@ -786,7 +820,7 @@ export default function App() {
     if (!currentProjectId) return;
 
     setError(null);
-    setHighlightProjectSummary(false);
+    cleanupDuplicateProjectChunkDocs(currentProjectId);
     setView(VIEW_PROCESSING);
 
     try {
@@ -882,9 +916,22 @@ export default function App() {
 
           const initialAnon = {};
           const html = buildAnnotatedHtml(result.text, pd, initialAnon);
+          const currentProjectDocs = getProjectDocs();
+          const chunkMatches = currentProjectDocs.filter(doc =>
+            doc.batchFileName === file.name &&
+            Number(doc.pageFrom || 0) === pageFrom &&
+            Number(doc.pageTo || 0) === pageTo
+          );
+          const primaryChunkDoc = chunkMatches[0] || null;
+          if (chunkMatches.length > 1) {
+            chunkMatches.slice(1).forEach(doc => {
+              removeDocumentFromProject(currentProjectId, doc.id);
+              deleteDocument(doc.id);
+            });
+          }
           const docEntry = saveDocument({
-            id: generateId(),
-            title: formatProjectChunkTitle(nextDocumentNumber, file.name),
+            id: primaryChunkDoc?.id || generateId(),
+            title: primaryChunkDoc?.title || formatProjectChunkTitle(nextDocumentNumber, file.name),
             originalFileName: file.name,
             text: result.text,
             editedHtml: html,
@@ -926,7 +973,6 @@ export default function App() {
       saveProjectBatchSessionState(null);
       setFiles([]);
       if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, lastChunkImages);
-      setHighlightProjectSummary(true);
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
     } catch (err) {
       stopProgressCreep();
@@ -978,8 +1024,8 @@ export default function App() {
     setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html }));
     undoStackRef.current = [{ html, pd, anon }];
     undoIndexRef.current = 0;
-    setShowLongDocWarning((entry.text || '').replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
-  }, [currentProjectId]);
+    setShowLongDocWarning(shouldShowLongDocWarningForEntry(entry));
+  }, [currentProjectId, shouldShowLongDocWarningForEntry]);
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
   const isDirty = () => {
@@ -2405,7 +2451,7 @@ ${content}
                   {/* Build summary button */}
                   {getProjectDocs().length >= 2 && (
                     <div className="project-summary-actions">
-                      <button className={`btn-primary btn-sm${highlightProjectSummary ? ' summary-attention' : ''}`} onClick={handleBuildSummary}>📋 Собрать итоговый документ</button>
+                      <button className="btn-primary btn-sm" onClick={handleBuildSummary}>📋 Собрать итоговый документ</button>
                     </div>
                   )}
 
