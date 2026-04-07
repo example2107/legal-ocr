@@ -17,6 +17,8 @@ export const PROVIDERS = {
   },
 };
 
+export const PD_ANALYSIS_CHAR_LIMIT = 25000;
+
 // ── Промпт 1: OCR — только распознавание ─────────────────────────────────────
 const SYS_OCR = `Ты — профессиональная система распознавания юридических документов на русском языке.
 
@@ -539,7 +541,9 @@ export async function analyzePD(fullText, apiKey, provider, onProgress, existing
   let personalData = { persons: [], otherPD: [], ambiguousPersons: [] };
   try {
     const cleanForPD = fullText.replace(/\[PAGE:\d+\]/g, '');
-    const textForPD = cleanForPD.length > 25000 ? cleanForPD.slice(0, 25000) + '\n...' : cleanForPD;
+    const textForPD = cleanForPD.length > PD_ANALYSIS_CHAR_LIMIT
+      ? cleanForPD.slice(0, PD_ANALYSIS_CHAR_LIMIT) + '\n...'
+      : cleanForPD;
     onProgress({ stage: 'analysis', percent: 91, message: 'Поиск персональных данных...' });
 
     // Формируем промпт — если есть существующая база, добавляем её

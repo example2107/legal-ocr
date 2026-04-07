@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
-import { recognizeDocument, analyzePD, analyzePastedText, PROVIDERS } from './utils/claudeApi';
+import { recognizeDocument, analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument, loadProjects, saveProject, deleteProject, getProject, createProject, addDocumentToProject, removeDocumentFromProject, updateProjectSharedPD } from './utils/history';
@@ -823,7 +823,7 @@ export default function App() {
       setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(initialAnon), html }));
       undoStackRef.current = [{ html, pd, anon: initialAnon }];
       undoIndexRef.current = 0;
-      setShowLongDocWarning(result.text.length > 50000);
+      setShowLongDocWarning(result.text.replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
 
       stopProgressCreep();
       refreshHistory();
@@ -1048,7 +1048,7 @@ export default function App() {
       setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(initialAnon), html }));
       undoStackRef.current = [{ html, pd, anon: initialAnon }];
       undoIndexRef.current = 0;
-      setShowLongDocWarning(result.text.length > 50000);
+      setShowLongDocWarning(result.text.replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
 
       stopProgressCreep();
       refreshHistory();
@@ -2485,7 +2485,7 @@ ${content}
 
               {showLongDocWarning && (
                 <div className="long-doc-warning">
-                  ⚠️ Документ содержит более 50 000 символов (~30+ страниц) — часть персональных данных могла быть пропущена при анализе. Рекомендуем разбить документ на части и загружать отдельно.
+                  ⚠️ Для анализа персональных данных сейчас используется только первые {PD_ANALYSIS_CHAR_LIMIT.toLocaleString('ru-RU')} символов документа. Если текст длиннее, часть персональных данных после этого лимита могла быть пропущена. Рекомендуем разбить документ на части и загружать отдельно.
                   <button className="long-doc-close" onClick={() => setShowLongDocWarning(false)}>✕</button>
                 </div>
               )}
