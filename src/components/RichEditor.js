@@ -114,14 +114,88 @@ function buildOtherPdPattern(value) {
   return parts.map(p => escRe(p)).join('[\\s\\n]+');
 }
 
+function buildAmbiguousPersonPattern(value) {
+  const base = buildOtherPdPattern(value);
+  return `(?<![A-Za-zА-Яа-яЁё])${base}(?![A-Za-zА-Яа-яЁё])`;
+}
+
+function annotateAmbiguousPersonsHtml(html, ambiguousPersons) {
+  if (!ambiguousPersons || ambiguousPersons.length === 0) return html;
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const ambiguousMarks = ambiguousPersons
+    .filter(item => item?.value && item.value.trim().length > 0)
+    .map(item => ({
+      value: item.value.trim(),
+      context: item.context || '',
+      reason: item.reason || 'Неоднозначное упоминание лица',
+    }))
+    .sort((a, b) => b.value.length - a.value.length);
+
+  if (ambiguousMarks.length === 0) return html;
+
+  function annotateAmbiguousInNode(node) {
+    if (node.nodeType === 3) {
+      const text = node.textContent;
+      const allMatches = [];
+      for (const item of ambiguousMarks) {
+        try {
+          const re = new RegExp(buildAmbiguousPersonPattern(item.value), 'gi');
+          let m;
+          while ((m = re.exec(text)) !== null) {
+            allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], item });
+          }
+        } catch {}
+      }
+      if (allMatches.length === 0) return;
+      allMatches.sort((a, b) => a.start - b.start);
+      const filtered = [];
+      let lastEnd = 0;
+      for (const m of allMatches) {
+        if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
+      }
+      const fragment = document.createDocumentFragment();
+      let lastIdx = 0;
+      for (const { start, end, mt, item } of filtered) {
+        if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
+        const el = document.createElement('mark');
+        el.className = 'ambiguous-person';
+        el.dataset.value = item.value;
+        el.dataset.context = item.context;
+        el.dataset.reason = item.reason;
+        el.dataset.tooltip = item.reason;
+        el.contentEditable = 'false';
+        el.textContent = mt;
+        fragment.appendChild(el);
+        lastIdx = end;
+      }
+      if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+      node.parentNode.replaceChild(fragment, node);
+    } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+      Array.from(node.childNodes).forEach(annotateAmbiguousInNode);
+    }
+  }
+
+  Array.from(tmp.childNodes).forEach(annotateAmbiguousInNode);
+  return tmp.innerHTML;
+}
+
 // Строит regex-паттерн для упоминания человека:
 // - Захватывает падежные окончания каждого слова ФИО (через усечение корня)
 // - Захватывает инициалы после фамилии (А., В.Г.) и перед фамилией (С.В. Фамилия)
 function buildPersonPattern(mention) {
+  // Совпадение не должно начинаться с хвоста предыдущего слова:
+  // предотвращает кейсы вида "л. Полуянович И.В." из "пояснил. Полуянович И.В."
+  const leftBoundary = '(?<![A-Za-zА-Яа-яЁё])';
   // Инициалы после: пробел + заглавная + точка (+ опц. ещё одна пара)
   const initialsAfter = '(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.?|\\s+[А-ЯЁ]\\.)?';
-  // Инициалы перед: заглавная + точка (одна или две пары) + пробел
-  const initialsBefore = '(?:[А-ЯЁ]\\.[А-ЯЁ]\\.?\\s+|[А-ЯЁ]\\.\\s+)?';
+  // Инициалы перед:
+  // - А.С. Фамилия
+  // - А. С. Фамилия
+  // - А. Фамилия
+  // Флаг /i на regex позволяет переживать OCR-ошибки регистра: а.С., а.с., А.с.
+  const initialsBefore = '(?:(?:[А-ЯЁ]\\.?\\s*[А-ЯЁ]\\.?|[А-ЯЁ]\\.)\\s+)?';
 
   // Make first letter case-insensitive to handle OCR lowercase errors
   const caseInsensitiveFirst = (word) => {
@@ -145,16 +219,16 @@ function buildPersonPattern(mention) {
   // Если mention начинается с инициалов (напр. "С.В. Лаптева")
   if (/^[А-ЯЁ]\.[А-ЯЁ]?\.?\s/.test(mention)) {
     const base = words.map(wordToPattern).join('\\s+');
-    return base + initialsAfter;
+    return leftBoundary + base + initialsAfter;
   }
 
   if (words.length > 1) {
     const base = words.map(wordToPattern).join('\\s+');
-    return base + initialsAfter;
+    return leftBoundary + base + initialsAfter;
   }
 
   // Одно слово — ищем с инициалами до и после
-  return initialsBefore + wordToPattern(mention) + initialsAfter;
+  return leftBoundary + initialsBefore + wordToPattern(mention) + initialsAfter;
 }
 function applyBold(html) {
   return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -308,11 +382,13 @@ function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
 export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) {
   if (!rawText) return '';
 
+  const { persons = [], otherPD = [], ambiguousPersons = [] } = personalData;
+
   // Если передан HTML от mammoth (DOCX) — аннотируем его напрямую сохраняя форматирование
   if (docxHtml) {
-    return buildAnnotatedDocxHtml(docxHtml, personalData, anonymized);
+    const docxResult = buildAnnotatedDocxHtml(docxHtml, personalData, anonymized);
+    return annotateAmbiguousPersonsHtml(docxResult, ambiguousPersons);
   }
-  const { persons = [], otherPD = [] } = personalData;
   const marks = [];
   for (const p of persons) {
     for (const mention of (p.mentions || [p.fullName])) {
@@ -518,7 +594,8 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
       return tmp.innerHTML;
     }
   }
-  return htmlResult;
+
+  return annotateAmbiguousPersonsHtml(htmlResult, ambiguousPersons);
 }
 
 export function htmlToPlainText(html) {
@@ -629,8 +706,9 @@ const OTHER_PD_TYPES = [
   { value: 'other', label: 'Другое' },
 ];
 
-function AddPdForm({ x, y, onAdd, onClose }) {
-  const [category, setCategory] = React.useState('private');
+function AddPdForm({ x, y, onAdd, onClose, categories = ['private', 'professional', 'other'] }) {
+  const defaultCategory = categories.includes('private') ? 'private' : categories[0];
+  const [category, setCategory] = React.useState(defaultCategory);
   const [fullName, setFullName] = React.useState('');
   const [role, setRole] = React.useState('');
   const [otherType, setOtherType] = React.useState('address');
@@ -763,7 +841,8 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   });
 
   if (showAddForm) {
-    return <AddPdForm x={x} y={y} onAdd={onAddNewPd} onClose={onClose} />;
+    const allowedCategories = type === 'ambiguous' ? ['private', 'professional'] : ['private', 'professional', 'other'];
+    return <AddPdForm x={x} y={y} onAdd={onAddNewPd} onClose={onClose} categories={allowedCategories} />;
   }
 
   const privatePersons = existingPD?.persons?.filter(p => p.category === 'private') || [];
@@ -792,6 +871,44 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
           )}
           <div className="ctx-menu-item" onClick={onRemoveUncertain}>
             Исправлено — снять выделение
+          </div>
+        </>
+      )}
+      {type === 'ambiguous' && (
+        <>
+          {hasExisting && (
+            <>
+              <div className="ctx-menu-section-title">Привязать к существующему лицу</div>
+              {privatePersons.length > 0 && (
+                <>
+                  <div className="ctx-menu-group-label">Частные лица</div>
+                  {privatePersons.map(p => (
+                    <div key={p.id} className="ctx-menu-item ctx-menu-item-pd" onClick={() => { onAttachPd(p.id); onClose(); }}>
+                      <span className="ctx-menu-pd-letter">{p.letter}</span>
+                      <span className="ctx-menu-pd-name">{p.fullName}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {profPersons.length > 0 && (
+                <>
+                  <div className="ctx-menu-group-label">Профучастники</div>
+                  {profPersons.map(p => (
+                    <div key={p.id} className="ctx-menu-item ctx-menu-item-pd" onClick={() => { onAttachPd(p.id); onClose(); }}>
+                      <span className="ctx-menu-pd-letter ctx-menu-pd-letter-prof">{p.letter}</span>
+                      <span className="ctx-menu-pd-name">{p.fullName}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div className="ctx-menu-divider" />
+            </>
+          )}
+          <div className="ctx-menu-item" onClick={() => setShowAddForm(true)}>
+            + Создать новое лицо
+          </div>
+          <div className="ctx-menu-item" onClick={onRemoveUncertain}>
+            Снять пометку
           </div>
         </>
       )}
@@ -844,7 +961,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -901,9 +1018,13 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
   }, [onPdClick]);
 
   const handleContextMenu = useCallback((e) => {
+    const ambiguousMark = e.target.closest('mark.ambiguous-person');
     const uncertainMark = e.target.closest('mark.uncertain');
     const pdMark = e.target.closest('mark[data-pd-id]');
-    if (uncertainMark) {
+    if (ambiguousMark) {
+      e.preventDefault();
+      setCtxMenu({ x: e.clientX, y: e.clientY, mark: ambiguousMark, type: 'ambiguous' });
+    } else if (uncertainMark) {
       e.preventDefault();
       setCtxMenu({ x: e.clientX, y: e.clientY, mark: uncertainMark, type: 'uncertain' });
     } else if (pdMark) {
@@ -949,6 +1070,17 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
     onUncertainResolved?.();
   }, [ctxMenu, notifyChange, onUncertainResolved]);
 
+  const removeAmbiguousMark = useCallback(() => {
+    if (!ctxMenu?.mark) return;
+    const mark = ctxMenu.mark;
+    const text = document.createTextNode(mark.textContent);
+    mark.parentNode.replaceChild(text, mark);
+    mark.parentNode?.normalize?.();
+    notifyChange();
+    setCtxMenu(null);
+    onRemoveAmbiguousMark?.(mark);
+  }, [ctxMenu, notifyChange, onRemoveAmbiguousMark]);
+
   const removePdMark = useCallback(() => {
     if (!ctxMenu?.mark) return;
     const mark = ctxMenu.mark;
@@ -962,46 +1094,58 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
   }, [ctxMenu, notifyChange, onRemovePdMark]);
 
   const attachPdMark = useCallback((id) => {
-    if (!ctxMenu?.range) return;
-    const range = ctxMenu.range;
-    const selectedText = range.toString().trim();
+    const selectedText = ctxMenu?.range
+      ? ctxMenu.range.toString().trim()
+      : (ctxMenu?.mark?.textContent || '').trim();
     const mark = document.createElement('mark');
     mark.className = 'pd priv';
     mark.dataset.pdId = id;
     mark.dataset.original = selectedText;
     mark.contentEditable = 'false';
-    try {
-      range.surroundContents(mark);
-    } catch {
-      const fragment = range.extractContents();
-      mark.appendChild(fragment);
-      range.insertNode(mark);
+    if (ctxMenu?.range) {
+      const range = ctxMenu.range;
+      try {
+        range.surroundContents(mark);
+      } catch {
+        const fragment = range.extractContents();
+        mark.appendChild(fragment);
+        range.insertNode(mark);
+      }
+    } else if (ctxMenu?.mark) {
+      ctxMenu.mark.parentNode.replaceChild(mark, ctxMenu.mark);
+      mark.textContent = selectedText;
     }
     notifyChange();
     setCtxMenu(null);
-    onAttachPdMark?.(id, mark);
+    onAttachPdMark?.(id, mark, ctxMenu?.type === 'ambiguous' ? ctxMenu?.mark : null);
   }, [ctxMenu, notifyChange, onAttachPdMark]);
 
   const addNewPdMark = useCallback((pdData) => {
-    if (!ctxMenu?.range) return;
-    const range = ctxMenu.range;
-    const selectedText = range.toString().trim();
+    const selectedText = ctxMenu?.range
+      ? ctxMenu.range.toString().trim()
+      : (ctxMenu?.mark?.textContent || '').trim();
     const mark = document.createElement('mark');
     const cat = pdData.category === 'professional' ? 'prof' : pdData.category === 'other' ? 'oth' : 'priv';
     mark.className = `pd ${cat}`;
     mark.dataset.pdId = '__new__';
     mark.dataset.original = selectedText;
     mark.contentEditable = 'false';
-    try {
-      range.surroundContents(mark);
-    } catch {
-      const fragment = range.extractContents();
-      mark.appendChild(fragment);
-      range.insertNode(mark);
+    if (ctxMenu?.range) {
+      const range = ctxMenu.range;
+      try {
+        range.surroundContents(mark);
+      } catch {
+        const fragment = range.extractContents();
+        mark.appendChild(fragment);
+        range.insertNode(mark);
+      }
+    } else if (ctxMenu?.mark) {
+      ctxMenu.mark.parentNode.replaceChild(mark, ctxMenu.mark);
+      mark.textContent = selectedText;
     }
     notifyChange();
     setCtxMenu(null);
-    onAddPdMark?.(pdData, selectedText, mark);
+    onAddPdMark?.(pdData, selectedText, mark, ctxMenu?.type === 'ambiguous' ? ctxMenu?.mark : null);
   }, [ctxMenu, notifyChange, onAddPdMark]);
 
   // Удаляем маркер целиком при Delete/Backspace
@@ -1111,7 +1255,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
           suggestion={ctxMenu.mark?.dataset?.suggestion || ''}
           existingPD={existingPD}
           onRemovePd={removePdMark}
-          onRemoveUncertain={removeUncertainMark}
+          onRemoveUncertain={ctxMenu.type === 'ambiguous' ? removeAmbiguousMark : removeUncertainMark}
           onApplySuggestion={applyUncertainSuggestion}
           onAttachPd={attachPdMark}
           onAddNewPd={addNewPdMark}

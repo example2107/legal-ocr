@@ -149,7 +149,7 @@ export default function App() {
   const [rawText, setRawText] = useState('');
   // editorHtml is only used for initial load and save/export — NOT rebuilt on every anonymize
   const [editorHtml, setEditorHtml] = useState('');
-  const [personalData, setPersonalData] = useState({ persons: [], otherPD: [] });
+  const [personalData, setPersonalData] = useState({ persons: [], otherPD: [], ambiguousPersons: [] });
   // anonymized: { [id]: bool }
   const [anonymized, setAnonymized] = useState({});
   const [lastSavedState, setLastSavedState] = useState(null);
@@ -168,6 +168,23 @@ export default function App() {
   const projectFileInputRef = useRef();
   const projectImportRef = useRef();
   const dragFileIdx = useRef(null);
+
+  const removeAmbiguousEntry = useCallback((pd, markEl) => {
+    if (!markEl) return pd;
+    const value = markEl.dataset?.value || '';
+    const context = markEl.dataset?.context || '';
+    const reason = markEl.dataset?.reason || '';
+    return {
+      ...pd,
+      ambiguousPersons: (pd.ambiguousPersons || []).filter(item =>
+        !(
+          (item?.value || '') === value &&
+          (item?.context || '') === context &&
+          (item?.reason || '') === reason
+        )
+      ),
+    };
+  }, []);
 
   // ── Resizable panels ──────────────────────────────────────────────────────
   const getDefaultPdWidth = () => window.innerWidth >= 1800 ? 300 : window.innerWidth >= 1400 ? 270 : 240;
@@ -234,9 +251,8 @@ export default function App() {
   // Timer ref for deferred PD cleanup after editing
   const pdCleanupTimerRef = useRef(null);
   // Sync refs — always hold latest values so snapshot is always accurate
-  const pdRef   = useRef({ persons: [], otherPD: [] });
+  const pdRef   = useRef({ persons: [], otherPD: [], ambiguousPersons: [] });
   const anonRef = useRef({});
-  const skipNextHtmlSnapRef = useRef(false); // set by attach/add mark to suppress notifyChange snap
   // Undo stack
   const undoStackRef  = useRef([]); // array of {html, pd, anon}
   const undoIndexRef  = useRef(-1);
@@ -1028,7 +1044,7 @@ export default function App() {
 
   // ── Load from history ─────────────────────────────────────────────────────────
   const loadDoc = (entry) => {
-    const pd = entry.personalData || { persons: [], otherPD: [] };
+    const pd = entry.personalData || { persons: [], otherPD: [], ambiguousPersons: [] };
     const anon = entry.anonymized || {};
     const html = buildAnnotatedHtml(entry.text || '', pd, anon);
     const loadedHtml = entry.editedHtml || html;
@@ -1234,12 +1250,7 @@ export default function App() {
     setEditorHtml(html);
 
     // Snapshot every text change immediately (debounce removed — text edits are rare)
-    // Skip if attach/add mark action is about to push the correct snap itself
-    if (skipNextHtmlSnapRef.current) {
-      skipNextHtmlSnapRef.current = false;
-    } else {
-      pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
-    }
+    pushSnap({ html, pd: pdRef.current, anon: anonRef.current });
 
     // Deferred cleanup: update pdIdsInDoc tracking
     // PD entries are NOT auto-removed — only removed by explicit user action (right-click → "Не является ПД")
@@ -1282,9 +1293,7 @@ export default function App() {
   }, []);
 
   // Called from RichEditor when user attaches selection to existing PD
-  const handleAttachPdMark = useCallback((id, markEl) => {
-    // notifyChange in RichEditor already fired with pd-priv class — skip that snap
-    skipNextHtmlSnapRef.current = true;
+  const handleAttachPdMark = useCallback((id, markEl, ambiguousMarkEl) => {
     // Fix DOM class synchronously
     const person = personalData.persons.find(p => p.id === id);
     const other = personalData.otherPD.find(p => p.id === id);
@@ -1307,16 +1316,17 @@ export default function App() {
         markEl.classList.add('anon');
       }
     }
+    const nextPd = removeAmbiguousEntry(pdRef.current, ambiguousMarkEl);
+    pdRef.current = nextPd;
+    setPersonalData(() => nextPd);
     // DOM is now correct — push snap with correct class
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
-    pushSnap({ html: newHtml, pd: pdRef.current, anon: anonRef.current });
-  }, [personalData, anonymized]);
+    replaceTopSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
+  }, [personalData, anonymized, removeAmbiguousEntry]);
 
   // Called from RichEditor when user adds a brand new PD entry
-  const handleAddPdMark = useCallback((pdData, selectedText, markEl) => {
-    // notifyChange in RichEditor fired with __new__ id and wrong class — skip that snap
-    skipNextHtmlSnapRef.current = true;
+  const handleAddPdMark = useCallback((pdData, selectedText, markEl, ambiguousMarkEl) => {
     // Compute new pd state and fix DOM synchronously BEFORE reading innerHTML
     const newId = `manual_${Date.now()}`;
     let newPersons = pdRef.current.persons;
@@ -1353,15 +1363,25 @@ export default function App() {
       }
     }
 
-    const nextPd = { persons: newPersons, otherPD: newOtherPD };
+    const nextPd = removeAmbiguousEntry({ persons: newPersons, otherPD: newOtherPD, ambiguousPersons: pdRef.current.ambiguousPersons || [] }, ambiguousMarkEl);
     pdRef.current = nextPd;
     setPersonalData(() => nextPd);
 
     // DOM has correct class and real id — push snap
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
-    pushSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
-  }, [anonymized]);
+    replaceTopSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
+  }, [anonymized, removeAmbiguousEntry]);
+
+  const handleRemoveAmbiguousMark = useCallback((markEl) => {
+    if (pdCleanupTimerRef.current) { clearTimeout(pdCleanupTimerRef.current); pdCleanupTimerRef.current = null; }
+    setPersonalData(prev => {
+      const next = removeAmbiguousEntry(prev, markEl);
+      pdRef.current = next;
+      replaceTopSnap({ html: editorDomRef.current?.innerHTML ?? '', pd: next, anon: anonRef.current });
+      return next;
+    });
+  }, [removeAmbiguousEntry]);
 
   // ── Re-annotate otherPD after uncertain mark is resolved ──────────────────
   const handleUncertainResolved = useCallback(() => {
@@ -2342,6 +2362,7 @@ ${content}
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-private" style={{ cursor: 'default' }}>А</mark> — частное лицо</div>
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-professional" style={{ cursor: 'default', fontSize: '11px' }}>[ФИО 1]</mark> — проф. участник</div>
                   <div className="pd-legend-item"><mark className="pd-mark pd-cat-other" style={{ cursor: 'default' }}>ПД</mark> — другие перс. данные</div>
+                  <div className="pd-legend-item"><span style={{ borderBottom: '2px dashed #2196f3', background: 'rgba(33, 150, 243, 0.10)', padding: '0 2px', fontSize: '12px', color: '#0d3b66' }}>имя</span> — неоднозначное упоминание лица</div>
                   <div className="pd-legend-item"><span style={{ borderBottom: '3px double #f57c00', paddingBottom: '1px', fontSize: '12px', color: '#4a3000' }}>текст</span> — неточное распознавание</div>
                 </div>
               </aside>
@@ -2420,6 +2441,7 @@ ${content}
                 onRemovePdMark={handleRemovePdMark}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
+                onRemoveAmbiguousMark={handleRemoveAmbiguousMark}
                 onUncertainResolved={handleUncertainResolved}
                 existingPD={personalData}
                 editorRef={editorDomRef}

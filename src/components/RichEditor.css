@@ -166,6 +166,57 @@
   opacity: 1;
 }
 
+/* ── Ambiguous person marks ── */
+.rich-content mark.ambiguous-person {
+  background: rgba(33, 150, 243, 0.10);
+  color: #0d3b66;
+  border-bottom: 2px dashed #2196f3;
+  padding: 0 1px;
+  cursor: help;
+  border-radius: 0;
+  position: relative;
+}
+
+.rich-content mark.ambiguous-person::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.93);
+  color: #fff;
+  font-size: 11.5px;
+  font-family: var(--font-body);
+  font-style: normal;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 200;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+
+.rich-content mark.ambiguous-person::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: rgba(30, 30, 30, 0.93);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 200;
+}
+
+.rich-content mark.ambiguous-person:hover::after,
+.rich-content mark.ambiguous-person:hover::before {
+  opacity: 1;
+}
+
 /* ── PD flash navigation highlight ── */
 @keyframes pdFlash {
   0%   { outline: 3px solid transparent; outline-offset: 3px; }
