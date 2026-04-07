@@ -23,6 +23,24 @@ function expectMarkedText(html, markedText) {
   expect(html).toContain(`>${markedText}</mark>`);
 }
 
+function renderWithAddress(rawText, value) {
+  return buildAnnotatedHtml(
+    rawText,
+    {
+      persons: [],
+      otherPD: [
+        {
+          id: 'addr1',
+          type: 'address',
+          value,
+          replacement: '[адрес]',
+        },
+      ],
+    },
+    {}
+  );
+}
+
 describe('person annotation regression', () => {
   test('does not capture last letter of previous sentence before surname and initials', () => {
     const html = buildAnnotatedHtml(
@@ -245,5 +263,20 @@ describe('person annotation regression', () => {
     expect(html).toContain('class="ambiguous-person"');
     expect(html).toContain('>Слава</mark>');
     expect(html).not.toContain('data-pd-id=');
+  });
+
+  test.each([
+    ['с. Белозерки, ул. Золинская, 13', 'ул. Золинская, 13'],
+    ['с. Белозерки, ул. Золинская, д. 13', 'ул. Золинская, д. 13'],
+    ['в селе Белозерки на улице Золинская, дом 13', 'на улице Золинская, дом 13'],
+    ['д. № 13 по ул. Золинская с. Белозерки', 'д. № 13 по ул. Золинская'],
+    ['д. 13 по ул. Золинская с. Белозерки', 'д. 13 по ул. Золинская'],
+  ])('matches address variants with reordered street/house/locality: %s', (valueInText, expectedMarkedPart) => {
+    const html = renderWithAddress(
+      `Фрагмент: ${valueInText}.`,
+      'Самарская область, муниципальный район Волжский, с. Белозерки, ул. Золинская, д. 13'
+    );
+
+    expectMarkedText(html, expectedMarkedPart);
   });
 });

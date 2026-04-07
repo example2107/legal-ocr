@@ -106,8 +106,56 @@ function esc(s) {
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+function extractAddressParts(value) {
+  const text = (value || '').trim();
+  if (!text) return null;
+
+  const streetMatch = text.match(/(?:ул\.?|улиц[аеиы])\s*([А-ЯA-ZЁ][A-Za-zА-Яа-яЁё0-9-]*(?:\s+[А-ЯA-ZЁ][A-Za-zА-Яа-яЁё0-9-]*){0,3})/i);
+  const houseMatch =
+    text.match(/(?:д\.?|дом)\s*№?\s*([0-9]+(?:[A-Za-zА-Яа-яЁё/-]*[0-9A-Za-zА-Яа-яЁё]*)?)/i) ||
+    (streetMatch ? text.match(/,\s*([0-9]+(?:[A-Za-zА-Яа-яЁё/-]*[0-9A-Za-zА-Яа-яЁё]*)?)\s*$/i) : null);
+  const localityMatch = text.match(/(?:^|,\s*|\s+)(с\.?|пос\.?|пгт\.?|г\.?|дер\.?|д\.)\s*([А-ЯA-ZЁ][A-Za-zА-Яа-яЁё-]*(?:\s+[А-ЯA-ZЁ][A-Za-zА-Яа-яЁё-]*){0,2})/i);
+
+  if (!streetMatch || !houseMatch) return null;
+
+  return {
+    street: streetMatch[1].trim(),
+    house: houseMatch[1].trim(),
+    localityType: localityMatch?.[1]?.trim() || '',
+    localityName: localityMatch?.[2]?.trim() || '',
+  };
+}
+
+function buildAddressPattern(value) {
+  const exact = buildOtherPdPattern(value);
+  const parts = extractAddressParts(value);
+  if (!parts) return exact;
+
+  const streetName = escRe(parts.street).replace(/\s+/g, '\\s+');
+  const houseNum = escRe(parts.house);
+  const streetLabel = '(?:ул\\.?|улиц[аеиы])';
+  const houseLabel = '(?:д\\.?|дом)';
+  const directHouse = `(?:${houseLabel}\\s*№?\\s*)?${houseNum}`;
+  const locality = parts.localityName
+    ? `${escRe(parts.localityType || '').replace(/\s+/g, '\\s*')}\\s*${escRe(parts.localityName).replace(/\s+/g, '\\s+')}`.trim()
+    : '';
+  const localityBefore = locality ? `(?:${locality}[,\\s]+)?` : '';
+  const localityAfter = locality ? `(?:[,\\s]+${locality})?` : '';
+  const separators = '(?:\\s*,\\s*|\\s+)';
+
+  const variants = [
+    exact,
+    `${localityBefore}(?:по\\s+)?${streetLabel}\\s+${streetName}${separators}${directHouse}${localityAfter}`,
+    `${localityBefore}(?:на\\s+)?улиц[еы]\\s+${streetName}${separators}(?:дом(?:е|а)?\\s*)?${houseNum}${localityAfter}`,
+    `(?:во\\s+дворе\\s*)?(?:${houseLabel}\\s*№?\\s*)${houseNum}(?:\\s*(?:,|по)\\s*|\\s+по\\s+)${streetLabel}\\s+${streetName}${localityAfter}`,
+  ];
+
+  return `(?:${variants.join('|')})`;
+}
+
 // Build flexible regex for otherPD values: normalize whitespace
-function buildOtherPdPattern(value) {
+function buildOtherPdPattern(value, pdType) {
+  if (pdType === 'address') return buildAddressPattern(value);
   const parts = value.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return escRe(value);
   // Each word escaped, joined by flexible whitespace (including newlines)
@@ -244,7 +292,7 @@ function annotLine(text, marks, anonymized) {
   // Для persons — расширенный паттерн с падежами и инициалами
   // Для otherPD — точный паттерн
   const patternEntries = marks.map(m => ({
-    pattern: m.type === 'person' ? buildPersonPattern(m.txt) : buildOtherPdPattern(m.txt),
+    pattern: m.type === 'person' ? buildPersonPattern(m.txt) : buildOtherPdPattern(m.txt, m.pdType),
     mark: m,
   }));
 
@@ -319,7 +367,7 @@ function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
     }
   }
   for (const it of otherPD) {
-    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement });
+    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
@@ -339,8 +387,8 @@ function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
       const allMatches = [];
       for (const mark of marks) {
         try {
-          const pattern = mark.type === 'person' ? buildPersonPattern(mark.txt) : buildOtherPdPattern(mark.txt);
-          const re = new RegExp(pattern, 'gi');
+          const finalPattern = mark.type === 'person' ? buildPersonPattern(mark.txt) : buildOtherPdPattern(mark.txt, mark.pdType);
+          const re = new RegExp(finalPattern, 'gi');
           let m;
           while ((m = re.exec(text)) !== null) {
             allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], mark });
@@ -403,7 +451,7 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
     }
   }
   for (const it of otherPD) {
-    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement });
+    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
@@ -560,7 +608,7 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
           const allMatches = [];
           for (const mark of unmarked) {
             try {
-              const pattern = buildOtherPdPattern(mark.txt);
+              const pattern = buildOtherPdPattern(mark.txt, mark.pdType);
               const re = new RegExp(pattern, 'gi');
               let m;
               while ((m = re.exec(text)) !== null) {
