@@ -19,6 +19,10 @@ function renderWithPerson(rawText, mentions) {
   );
 }
 
+function expectMarkedText(html, markedText) {
+  expect(html).toContain(`>${markedText}</mark>`);
+}
+
 describe('person annotation regression', () => {
   test('does not capture last letter of previous sentence before surname and initials', () => {
     const html = buildAnnotatedHtml(
@@ -99,6 +103,121 @@ describe('person annotation regression', () => {
   test('matches initials before surname with space when both initials are lowercase OCR error', () => {
     const html = renderWithPerson('а. с. Баданов ответил, что ничего не помнит.', ['Баданов']);
     expect(html).toContain('>а. с. Баданов</mark>');
+  });
+
+  test.each([
+    'З,С. Лебедев',
+    'З.С, Лебедев',
+    'З,С, Лебедев',
+    'З, С. Лебедев',
+    'З. С, Лебедев',
+    'З, с. Лебедев',
+    'з,С. Лебедев',
+    'з,с. Лебедев',
+    'з. с, Лебедев',
+  ])('matches initials before surname when dots are replaced by commas: %s', (value) => {
+    const html = buildAnnotatedHtml(
+      `${value} пояснил, что видел автомобиль.`,
+      {
+        persons: [
+          {
+            id: 'p3',
+            fullName: 'Лебедев З.С.',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Лебедев', 'З.С. Лебедев'],
+          },
+        ],
+        otherPD: [],
+      },
+      {}
+    );
+
+    expectMarkedText(html, value);
+  });
+
+  test.each([
+    'З ,С. Лебедев',
+    'З, С . Лебедев',
+    'З . С, Лебедев',
+    'з , с . Лебедев',
+    'з. с , лебедев',
+  ])('matches initials before surname with conservative OCR spaces around punctuation: %s', (value) => {
+    const html = buildAnnotatedHtml(
+      `${value} пояснил, что видел автомобиль.`,
+      {
+        persons: [
+          {
+            id: 'p5',
+            fullName: 'Лебедев З.С.',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Лебедев', 'З.С. Лебедев'],
+          },
+        ],
+        otherPD: [],
+      },
+      {}
+    );
+
+    expectMarkedText(html, value);
+  });
+
+  test.each([
+    'Лебедев З,С.',
+    'Лебедев З.С,',
+    'Лебедев З,С,',
+    'Лебедев з,С.',
+    'Лебедев з,с.',
+    'Лебедев З, С.',
+    'Лебедев з, с.',
+    'Лебедев З. С,',
+  ])('matches surname followed by initials when dots are replaced by commas: %s', (value) => {
+    const html = buildAnnotatedHtml(
+      `${value} пояснил, что видел автомобиль.`,
+      {
+        persons: [
+          {
+            id: 'p4',
+            fullName: 'Лебедев З.С.',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Лебедев', 'Лебедев З.С.'],
+          },
+        ],
+        otherPD: [],
+      },
+      {}
+    );
+
+    expectMarkedText(html, value);
+  });
+
+  test.each([
+    'Лебедев З ,С.',
+    'Лебедев З, С .',
+    'Лебедев З . С,',
+    'лебедев з , с .',
+    'лебедев з. с ,',
+  ])('matches surname followed by initials with conservative OCR spaces and lowercase surname: %s', (value) => {
+    const html = buildAnnotatedHtml(
+      `${value} пояснил, что видел автомобиль.`,
+      {
+        persons: [
+          {
+            id: 'p6',
+            fullName: 'Лебедев З.С.',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Лебедев', 'Лебедев З.С.'],
+          },
+        ],
+        otherPD: [],
+      },
+      {}
+    );
+
+    expectMarkedText(html, value);
   });
 
   test('still matches surname in indirect case with initials', () => {

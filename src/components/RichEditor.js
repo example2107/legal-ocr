@@ -188,14 +188,20 @@ function buildPersonPattern(mention) {
   // Совпадение не должно начинаться с хвоста предыдущего слова:
   // предотвращает кейсы вида "л. Полуянович И.В." из "пояснил. Полуянович И.В."
   const leftBoundary = '(?<![A-Za-zА-Яа-яЁё])';
-  // Инициалы после: пробел + заглавная + точка (+ опц. ещё одна пара)
-  const initialsAfter = '(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.?|\\s+[А-ЯЁ]\\.)?';
+  // OCR иногда путает точки и запятые внутри инициалов, поэтому допускаем оба разделителя.
+  const initialSep = '\\s*[\\.,]\\s*';
+  // Инициалы после:
+  // - А.С. / А,С. / А.С, / А, С. / А. С. / А.
+  // - А , С . / А ,с. / А. с ,  (консервативно допускаем только пробелы вокруг знаков)
+  const initialsAfter = `(?:\\s+[А-ЯЁ]${initialSep}[А-ЯЁ](?:${initialSep})?|\\s+[А-ЯЁ]${initialSep})?`;
   // Инициалы перед:
   // - А.С. Фамилия
+  // - А,С. Фамилия
   // - А. С. Фамилия
+  // - А, С. Фамилия
   // - А. Фамилия
   // Флаг /i на regex позволяет переживать OCR-ошибки регистра: а.С., а.с., А.с.
-  const initialsBefore = '(?:(?:[А-ЯЁ]\\.?\\s*[А-ЯЁ]\\.?|[А-ЯЁ]\\.)\\s+)?';
+  const initialsBefore = `(?:(?:[А-ЯЁ]${initialSep}[А-ЯЁ](?:${initialSep})?|[А-ЯЁ]${initialSep})\\s+)?`;
 
   // Make first letter case-insensitive to handle OCR lowercase errors
   const caseInsensitiveFirst = (word) => {
@@ -217,7 +223,7 @@ function buildPersonPattern(mention) {
   const words = mention.split(/\s+/);
 
   // Если mention начинается с инициалов (напр. "С.В. Лаптева")
-  if (/^[А-ЯЁ]\.[А-ЯЁ]?\.?\s/.test(mention)) {
+  if (/^[А-ЯЁ]\s*[\.,]\s*[А-ЯЁ]?(?:\s*[\.,])?\s/i.test(mention)) {
     const base = words.map(wordToPattern).join('\\s+');
     return leftBoundary + base + initialsAfter;
   }
