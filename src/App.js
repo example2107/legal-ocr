@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
-import { recognizeDocument, analyzePD, PROVIDERS } from './utils/claudeApi';
+import { recognizeDocument, analyzePD, analyzePastedText, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument, loadProjects, saveProject, deleteProject, getProject, createProject, addDocumentToProject, removeDocumentFromProject, updateProjectSharedPD } from './utils/history';
@@ -100,6 +100,7 @@ export default function App() {
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
 
   const [files, setFiles] = useState([]);
+  const [pastedText, setPastedText] = useState('');
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
   const [showOriginal, setShowOriginal] = useState(false);
   const [originalPage, setOriginalPage] = useState(0);
@@ -882,6 +883,7 @@ export default function App() {
   const doGoBackToProject = () => {
     setView(VIEW_PROJECT);
     setFiles([]);
+    setPastedText('');
     setOriginalImages([]);
     setShowOriginal(false);
     setOriginalPage(0);
@@ -899,6 +901,7 @@ export default function App() {
   const doGoHome = () => {
     setView(VIEW_HOME);
     setFiles([]);
+    setPastedText('');
     setOriginalImages([]);
     setShowOriginal(false);
     setOriginalPage(0);
@@ -942,7 +945,7 @@ export default function App() {
   // ── Recognize ─────────────────────────────────────────────────────────────────
   const handleRecognize = async () => {
     if (!apiKey.trim()) { setError('Введите API ключ Claude'); return; }
-    if (files.length === 0) { setError('Добавьте хотя бы один файл'); return; }
+    if (files.length === 0 && !pastedText.trim()) { setError('Добавьте хотя бы один файл или вставьте текст'); return; }
 
     setCurrentProjectId(null);
     setPdIdsInDoc(null);
@@ -951,9 +954,22 @@ export default function App() {
 
     try {
       let result;
+      const hasPastedText = !!pastedText.trim();
       const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
 
-      if (isDocx) {
+      if (hasPastedText) {
+        setOriginalImages([]);
+        setProgress({ percent: 10, message: 'Подготовка текста...' });
+        animateTo(85, null);
+        result = await analyzePastedText(pastedText.trim(), apiKey.trim(), provider, p => {
+          const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
+          setProgress(prev => prev && prev.percent > pct
+            ? { ...prev, message: p.message }
+            : { percent: pct, message: p.message }
+          );
+        });
+        stopProgressCreep();
+      } else if (isDocx) {
         setProgress({ percent: 10, message: 'Чтение документа DOCX...' });
         const docxText = await parseDocx(files[0]);
         setProgress({ percent: 40, message: 'Анализ персональных данных...' });
@@ -1001,8 +1017,10 @@ export default function App() {
       const pd = assignLetters(result.personalData);
       const initialAnon = {};
       const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-      const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
-      const origName = files[0]?.name || '';
+      const title = hasPastedText
+        ? `Текст от ${formatDate(new Date())}`
+        : (files[0]?.name || `Документ от ${formatDate(new Date())}`);
+      const origName = hasPastedText ? '' : (files[0]?.name || '');
       const newDocId = generateId();
 
       // Auto-save immediately after recognition
@@ -1014,7 +1032,7 @@ export default function App() {
         editedHtml: html,
         personalData: pd,
         anonymized: initialAnon,
-        source: files.length === 1 && files[0].name.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
+        source: hasPastedText ? 'paste' : (files.length === 1 && files[0].name.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr'),
       });
 
       setDocId(newDocId);
@@ -1917,15 +1935,31 @@ ${content}
                   )}
             </section>
 
+            <section className="card upload-card">
+              <div className="card-label">Или вставьте текст</div>
+              <textarea
+                className="paste-textarea"
+                placeholder="Вставьте цифровой текст документа для быстрого обезличивания и ручной проверки"
+                value={pastedText}
+                onChange={e => setPastedText(e.target.value)}
+                spellCheck={false}
+              />
+              <div className="paste-hint">
+                Этот режим работает без загрузки файлов. Если заполнены и файлы, и текст, приоритет будет у вставленного текста.
+              </div>
+            </section>
+
             {error && <div className="error-block">⚠️ {error}</div>}
 
             <div className="home-btn-wrap">
               <button
                 className="btn-primary"
                 onClick={handleRecognize}
-                disabled={!apiKey.trim() || files.length === 0}
+                disabled={!apiKey.trim() || (files.length === 0 && !pastedText.trim())}
               >
-                {files.length > 0 && files[0].name.toLowerCase().endsWith('.docx') ? '🔒 Обезличить документ' : '🔍 Распознать и обезличить'}
+                {pastedText.trim()
+                  ? '🔒 Обезличить'
+                  : (files.length > 0 && files[0].name.toLowerCase().endsWith('.docx') ? '🔒 Обезличить документ' : '🔍 Распознать и обезличить')}
               </button>
             </div>
 
