@@ -94,7 +94,6 @@ export default function App() {
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
-  const [newProjectDesc, setNewProjectDesc] = useState('');
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
@@ -436,9 +435,8 @@ export default function App() {
   // ── Project functions ───────────────────────────────────────────────────────
   const handleCreateProject = () => {
     if (!newProjectTitle.trim()) return;
-    createProject(newProjectTitle.trim(), newProjectDesc.trim());
+    createProject(newProjectTitle.trim());
     setNewProjectTitle('');
-    setNewProjectDesc('');
     setShowCreateProject(false);
     refreshProjects();
   };
@@ -1848,7 +1846,7 @@ ${content}
                     <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
                     <div className="dropzone-icon">📄</div>
                     <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF, DOCX · Рекомендуем до 20–25 страниц</div>
+                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF, DOCX · Рекомендуем до 10 страниц. Если страниц больше, воспользуйтесь функцией "создать проект".</div>
                   </div>
                   {files.length > 0 && (
                     <div className="file-list">
@@ -1936,7 +1934,6 @@ ${content}
                           <div className="project-card-icon">📁</div>
                           <div className="project-card-body">
                             <div className="project-card-title">{proj.title}</div>
-                            {proj.description && <div className="project-card-desc">{proj.description}</div>}
                             <div className="project-card-meta">
                               {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
                             </div>
@@ -2007,20 +2004,10 @@ ${content}
                     autoFocus
                   />
                 </div>
-                <div>
-                  <label className="modal-label">Описание (необязательно)</label>
-                  <input
-                    className="modal-input"
-                    placeholder="Краткое описание дела"
-                    value={newProjectDesc}
-                    onChange={e => setNewProjectDesc(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleCreateProject()}
-                  />
-                </div>
               </div>
               <div className="modal-actions">
                 <button className="btn-primary btn-sm" onClick={handleCreateProject} disabled={!newProjectTitle.trim()}>Создать</button>
-                <button className="btn-tool" onClick={() => { setShowCreateProject(false); setNewProjectTitle(''); setNewProjectDesc(''); }}>Отмена</button>
+                <button className="btn-tool" onClick={() => { setShowCreateProject(false); setNewProjectTitle(''); }}>Отмена</button>
               </div>
             </div>
           </div>
@@ -2128,7 +2115,7 @@ ${content}
                 <input ref={projectFileInputRef} type="file" multiple accept=".pdf,application/pdf" className="visually-hidden" onChange={e => { handleProjectFiles(e.target.files); e.target.value = ''; }} />
                 <div className="dropzone-icon">📄</div>
                 <div className="dropzone-text"><strong>Перетащите PDF-файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                <div className="dropzone-hint">PDF · Рекомендуем до 20–25 страниц на файл</div>
+                <div className="dropzone-hint">PDF · Рекомендуем до 10 страниц. Если страниц больше, воспользуйтесь функцией "создать проект".</div>
               </div>
               {files.length > 0 && (
                 <div className="file-list">
@@ -2158,7 +2145,7 @@ ${content}
               </button>
             </div>
 
-            {/* Project details card — name, description, extra actions, documents */}
+            {/* Project details card — name, extra actions, documents */}
             <section className="card home-bottom-card project-details-card">
               <div className="project-details-header">
                 <input
@@ -2166,13 +2153,6 @@ ${content}
                   value={currentProject.title}
                   onChange={e => { saveProject({ ...currentProject, title: e.target.value }); refreshProjects(); }}
                   placeholder="Название проекта"
-                  spellCheck={false}
-                />
-                <input
-                  className="project-desc-input"
-                  value={currentProject.description || ''}
-                  onChange={e => { saveProject({ ...currentProject, description: e.target.value }); refreshProjects(); }}
-                  placeholder="Описание проекта (необязательно)"
                   spellCheck={false}
                 />
               </div>

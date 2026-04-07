@@ -148,11 +148,10 @@ export function getProject(id) {
   return loadProjects().find(p => p.id === id) || null;
 }
 
-export function createProject(title, description) {
+export function createProject(title) {
   const project = {
     id: `proj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     title: title || 'Новый проект',
-    description: description || '',
     documentIds: [],
     sharedPD: { persons: [], otherPD: [] },
     createdAt: new Date().toISOString(),
