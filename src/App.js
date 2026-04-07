@@ -97,6 +97,7 @@ export default function App() {
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
+  const [inputTab, setInputTab] = useState('documents'); // 'documents' | 'text'
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
 
   const [files, setFiles] = useState([]);
@@ -1874,6 +1875,25 @@ ${content}
             </section>
 
             <section className="card upload-card">
+              <div className="input-tabs">
+                <button
+                  className={`input-tab${inputTab === 'documents' ? ' active' : ''}`}
+                  onClick={() => setInputTab('documents')}
+                  type="button"
+                >
+                  Документы
+                </button>
+                <button
+                  className={`input-tab${inputTab === 'text' ? ' active' : ''}`}
+                  onClick={() => setInputTab('text')}
+                  type="button"
+                >
+                  Текст
+                </button>
+              </div>
+
+              {inputTab === 'documents' && (
+                <>
                   <div
                     className={`dropzone ${isDragging ? 'dragging' : ''}`}
                     onDrop={handleDrop}
@@ -1900,7 +1920,6 @@ ${content}
                           onDragEnd={(e) => {
                             e.currentTarget.classList.remove('dragging');
                             dragFileIdx.current = null;
-                            // Убираем over-класс со всех элементов
                             document.querySelectorAll('.file-item').forEach(el => el.classList.remove('drag-over'));
                           }}
                           onDragOver={(e) => {
@@ -1933,20 +1952,23 @@ ${content}
                       ))}
                     </div>
                   )}
-            </section>
+                </>
+              )}
 
-            <section className="card upload-card">
-              <div className="card-label">Или вставьте текст</div>
-              <textarea
-                className="paste-textarea"
-                placeholder="Вставьте цифровой текст документа для быстрого обезличивания и ручной проверки"
-                value={pastedText}
-                onChange={e => setPastedText(e.target.value)}
-                spellCheck={false}
-              />
-              <div className="paste-hint">
-                Этот режим работает без загрузки файлов. Если заполнены и файлы, и текст, приоритет будет у вставленного текста.
-              </div>
+              {inputTab === 'text' && (
+                <>
+                  <textarea
+                    className="paste-textarea"
+                    placeholder="Вставьте цифровой текст документа для быстрого обезличивания и ручной проверки"
+                    value={pastedText}
+                    onChange={e => setPastedText(e.target.value)}
+                    spellCheck={false}
+                  />
+                  <div className="paste-hint">
+                    Этот режим работает без загрузки файлов и подходит для быстрых ручных проверок.
+                  </div>
+                </>
+              )}
             </section>
 
             {error && <div className="error-block">⚠️ {error}</div>}

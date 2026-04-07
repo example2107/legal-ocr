@@ -98,6 +98,34 @@ a { color: var(--accent); }
 .dropzone-text strong { font-weight: 600; }
 .dropzone-hint { font-size: 12px; color: var(--text3); }
 
+.input-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.input-tab {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text3);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.input-tab:hover {
+  background: var(--bg2);
+  color: var(--text2);
+}
+
+.input-tab.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent2);
+}
+
 .paste-textarea {
   width: 100%;
   min-height: 180px;
