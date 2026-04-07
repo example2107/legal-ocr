@@ -54,6 +54,12 @@ export function exportDocument(entry) {
     personalData: entry.personalData || { persons: [], otherPD: [], ambiguousPersons: [] },
     anonymized: entry.anonymized || {},
     source: entry.source || 'ocr',
+    pageFrom: entry.pageFrom || null,
+    pageTo: entry.pageTo || null,
+    totalPages: entry.totalPages || null,
+    chunkIndex: entry.chunkIndex || null,
+    chunkSize: entry.chunkSize || null,
+    batchFileName: entry.batchFileName || '',
     savedAt: entry.savedAt || new Date().toISOString(),
   };
   const json = JSON.stringify(exportData, null, 2);
@@ -89,6 +95,12 @@ export function importDocument(file) {
           personalData: data.personalData || { persons: [], otherPD: [], ambiguousPersons: [] },
           anonymized: data.anonymized || {},
           source: data.source || 'ocr',
+          pageFrom: data.pageFrom || null,
+          pageTo: data.pageTo || null,
+          totalPages: data.totalPages || null,
+          chunkIndex: data.chunkIndex || null,
+          chunkSize: data.chunkSize || null,
+          batchFileName: data.batchFileName || '',
           savedAt: new Date().toISOString(),
         };
         saveDocument(entry);
@@ -154,6 +166,7 @@ export function createProject(title) {
     title: title || 'Новый проект',
     documentIds: [],
     sharedPD: { persons: [], otherPD: [] },
+    batchSession: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -181,5 +194,12 @@ export function updateProjectSharedPD(projectId, sharedPD) {
   const project = getProject(projectId);
   if (!project) return null;
   project.sharedPD = sharedPD;
+  return saveProject(project);
+}
+
+export function updateProjectBatchSession(projectId, batchSession) {
+  const project = getProject(projectId);
+  if (!project) return null;
+  project.batchSession = batchSession || null;
   return saveProject(project);
 }

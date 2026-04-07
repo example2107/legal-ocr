@@ -19,6 +19,12 @@ async function loadPdfJs() {
   });
 }
 
+async function loadPdfDocument(file) {
+  const lib = await loadPdfJs();
+  const arrayBuffer = await file.arrayBuffer();
+  return lib.getDocument({ data: arrayBuffer }).promise;
+}
+
 // Claude API hard limit: 5 242 880 bytes. base64 inflates ~33% so ~5 000 000 chars is safe.
 const MAX_B64 = 5_000_000;
 
@@ -45,13 +51,24 @@ async function canvasToSafeBase64(canvas) {
 }
 
 export async function pdfToImages(file, onProgress) {
-  const lib = await loadPdfJs();
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
+  const pdf = await loadPdfDocument(file);
   const totalPages = pdf.numPages;
+  return pdfToImagesRange(file, 1, totalPages, onProgress, pdf);
+}
+
+export async function getPdfPageCount(file) {
+  const pdf = await loadPdfDocument(file);
+  return pdf.numPages;
+}
+
+export async function pdfToImagesRange(file, fromPage, toPage, onProgress, existingPdf = null) {
+  const pdf = existingPdf || await loadPdfDocument(file);
+  const totalPages = pdf.numPages;
+  const safeFrom = Math.max(1, Math.min(fromPage || 1, totalPages));
+  const safeTo = Math.max(safeFrom, Math.min(toPage || totalPages, totalPages));
   const images = [];
 
-  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+  for (let pageNum = safeFrom; pageNum <= safeTo; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const scale = 1.5; // good OCR quality, reasonable file size
     const viewport = page.getViewport({ scale });
@@ -61,7 +78,7 @@ export async function pdfToImages(file, onProgress) {
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     const base64 = await canvasToSafeBase64(canvas);
     images.push({ base64, mediaType: 'image/jpeg', pageNum, totalPages });
-    if (onProgress) onProgress(pageNum, totalPages);
+    if (onProgress) onProgress(pageNum, safeTo - safeFrom + 1, totalPages);
   }
   return images;
 }

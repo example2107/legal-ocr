@@ -1,9 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
+import { getPdfPageCount, pdfToImages, pdfToImagesRange, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
-import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument, loadProjects, saveProject, deleteProject, getProject, createProject, addDocumentToProject, removeDocumentFromProject, updateProjectSharedPD } from './utils/history';
+import { loadHistory, saveDocument, deleteDocument, generateId, exportDocument, importDocument, loadProjects, saveProject, deleteProject, getProject, createProject, addDocumentToProject, removeDocumentFromProject, updateProjectBatchSession, updateProjectSharedPD } from './utils/history';
+import { PROJECT_PDF_CHUNK_SIZE, createProjectPdfBatchSession, formatProjectChunkPageRange, formatProjectChunkTitle, getProjectPdfChunkEnd, isSameProjectPdfBatchFile, updateProjectPdfBatchSession } from './utils/projectBatch';
 import './App.css';
 
 const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ'.split('').map(l => l + '.');
@@ -96,6 +97,7 @@ export default function App() {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
+  const [highlightProjectSummary, setHighlightProjectSummary] = useState(false);
   const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
   const [inputTab, setInputTab] = useState('documents'); // 'documents' | 'text'
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
@@ -436,6 +438,12 @@ export default function App() {
 
   useEffect(() => { setProjects(loadProjects()); }, []);
 
+  useEffect(() => {
+    if (!highlightProjectSummary) return;
+    const timer = setTimeout(() => setHighlightProjectSummary(false), 6000);
+    return () => clearTimeout(timer);
+  }, [highlightProjectSummary]);
+
   // Sync lastSavedState with actual DOM after editor renders
   // Browser normalizes innerHTML (attribute order, whitespace) so the saved string
   // from buildAnnotatedHtml may differ from what the DOM produces.
@@ -467,6 +475,7 @@ export default function App() {
   };
 
   const currentProject = currentProjectId ? getProject(currentProjectId) : null;
+  const currentBatchSession = currentProject?.batchSession || null;
 
   const getProjectDocs = () => {
     if (!currentProject) return [];
@@ -475,6 +484,23 @@ export default function App() {
       .map(id => allHistory.find(h => h.id === id))
       .filter(Boolean);
   };
+
+  const getProjectExistingPD = () => {
+    if (currentProject?.sharedPD && ((currentProject.sharedPD.persons || []).length > 0 || (currentProject.sharedPD.otherPD || []).length > 0)) {
+      return currentProject.sharedPD;
+    }
+    const projectDocs = getProjectDocs();
+    if (projectDocs.length === 0) return null;
+    const lastDoc = projectDocs[projectDocs.length - 1];
+    return lastDoc.personalData || null;
+  };
+
+  const saveProjectBatchSessionState = useCallback((session) => {
+    if (!currentProjectId) return null;
+    const saved = updateProjectBatchSession(currentProjectId, session);
+    refreshProjects();
+    return saved;
+  }, [currentProjectId]);
 
   const handleDeleteProject = (projId, e) => {
     if (e) e.stopPropagation();
@@ -490,6 +516,13 @@ export default function App() {
     if (!currentProjectId) return;
     removeDocumentFromProject(currentProjectId, docId);
     refreshProjects();
+  };
+
+  const handleResetProjectBatchSession = () => {
+    if (!currentProjectId) return;
+    updateProjectBatchSession(currentProjectId, null);
+    refreshProjects();
+    setError(null);
   };
 
   const openDocFromProject = (entry) => {
@@ -617,6 +650,7 @@ export default function App() {
     };
     saveDocument(updatedDoc);
     addDocumentToProject(currentProjectId, updatedDoc.id);
+    updateProjectSharedPD(currentProjectId, pd);
     refreshHistory();
     refreshProjects();
     return updatedDoc;
@@ -739,98 +773,169 @@ export default function App() {
     setFiles(prev => [...prev, ...valid]);
   }, []);
 
+  const getProjectBatchOverallPercent = (completedChunks, totalChunks, chunkPercent = 0) => {
+    const safeTotal = Math.max(1, totalChunks);
+    const base = 6 + (completedChunks / safeTotal) * 90;
+    const current = (chunkPercent / 100) * (90 / safeTotal);
+    return Math.max(2, Math.min(98, Math.round(base + current)));
+  };
+
   const handleProjectRecognize = async () => {
     if (!apiKey.trim()) { setError('Введите API ключ'); return; }
     if (files.length === 0) { setError('Добавьте хотя бы один PDF-файл'); return; }
     if (!currentProjectId) return;
 
     setError(null);
+    setHighlightProjectSummary(false);
     setView(VIEW_PROCESSING);
 
-    // Берём сквозную базу ПД из последнего документа проекта
-    const projectDocs = getProjectDocs();
-    let existingPD = null;
-    if (projectDocs.length > 0) {
-      const lastDoc = projectDocs[projectDocs.length - 1];
-      if (lastDoc.personalData) existingPD = lastDoc.personalData;
-    }
-
     try {
-      setProgress({ percent: 2, message: 'Подготовка файлов...' });
-      const allImages = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const pages = await pdfToImages(file, (page, total) => {
-          setProgress({ percent: Math.round(5 + (i / files.length) * 20), message: `PDF: страница ${page} из ${total}...` });
-        });
-        allImages.push(...pages);
-      }
-      setOriginalImages(allImages);
-      const result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
-        const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-        setProgress(prev => prev && prev.percent > pct
-          ? { ...prev, message: p.message }
-          : { percent: pct, message: p.message }
-        );
-        if (p.stage === 'ocr') {
-          animateTo(Math.min(pct + 12, 74), null);
-        } else if (p.stage === 'analysis') {
-          animateTo(Math.min(pct + 8, 98), null);
-        } else {
-          stopProgressCreep();
+      const liveProject = getProject(currentProjectId);
+      const activeBatchSession = liveProject?.batchSession || null;
+      let jobs = [];
+
+      if (activeBatchSession && activeBatchSession.status !== 'completed') {
+        if (files.length !== 1) {
+          throw new Error('Для продолжения выберите только тот PDF-файл, обработка которого была прервана.');
         }
-      }, existingPD);
-
-      // Мёржим с существующей базой если она есть
-      let pd;
-      if (existingPD) {
-        const merged = mergePD(existingPD, result.personalData);
-        pd = assignLetters(merged, existingPD);
+        if (!isSameProjectPdfBatchFile(activeBatchSession, files[0])) {
+          throw new Error('Для продолжения выберите тот же PDF-файл, который обрабатывался ранее. Если хотите начать другой файл, сначала сбросьте незавершённую обработку.');
+        }
+        jobs = [{
+          file: files[0],
+          totalPages: activeBatchSession.totalPages,
+          session: updateProjectPdfBatchSession(activeBatchSession, { status: 'running', error: '' }),
+        }];
       } else {
-        pd = assignLetters(result.personalData);
+        setProgress({ percent: 2, message: 'Подсчёт страниц PDF...' });
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const totalPages = await getPdfPageCount(file);
+          setProgress({
+            percent: Math.round(2 + ((i + 1) / files.length) * 8),
+            message: `Подсчёт страниц: ${file.name} (${totalPages} стр.)`,
+          });
+          jobs.push({ file, totalPages, session: null });
+        }
       }
 
-      const initialAnon = {};
-      const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-      const title = files[0]?.name || `Документ от ${formatDate(new Date())}`;
-      const origName = files[0]?.name || '';
-      const newDocId = generateId();
+      let totalChunks = jobs.reduce((sum, job) => {
+        const startPage = job.session?.nextPage || 1;
+        return sum + Math.ceil(Math.max(0, job.totalPages - startPage + 1) / PROJECT_PDF_CHUNK_SIZE);
+      }, 0);
+      totalChunks = Math.max(1, totalChunks);
 
-      // Auto-save into project (not into main history)
-      saveDocument({
-        id: newDocId,
-        title,
-        originalFileName: origName,
-        text: result.text,
-        editedHtml: html,
-        personalData: pd,
-        anonymized: initialAnon,
-        source: 'ocr',
-        projectId: currentProjectId,
-      });
-      addDocumentToProject(currentProjectId, newDocId);
+      let completedChunks = 0;
+      let existingPD = getProjectExistingPD();
+      let nextDocumentNumber = activeBatchSession?.nextDocumentNumber || (getProjectDocs().length + 1);
+      let lastSavedDoc = null;
+      let lastChunkImages = [];
+      let failedSession = null;
 
-      setDocId(newDocId);
-      setDocTitle(title);
-      setOriginalFileName(origName);
-      setRawText(result.text);
-      setEditorHtml(html);
-      setPdIdsInDoc(extractPdIdsFromHtml(html));
-      pdRef.current   = pd;
-      anonRef.current = initialAnon;
-      setPersonalData(pd);
-      setAnonymized(initialAnon);
-      setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(initialAnon), html }));
-      undoStackRef.current = [{ html, pd, anon: initialAnon }];
-      undoIndexRef.current = 0;
-      setShowLongDocWarning(result.text.replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
+      for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
+        const { file, totalPages } = jobs[jobIndex];
+        let session = jobs[jobIndex].session || createProjectPdfBatchSession(file, totalPages, nextDocumentNumber);
+        session = updateProjectPdfBatchSession(session, { status: 'running', error: '' });
+        saveProjectBatchSessionState(session);
+
+        for (let pageFrom = session.nextPage || 1; pageFrom <= session.totalPages; pageFrom += session.chunkSize || PROJECT_PDF_CHUNK_SIZE) {
+          const pageTo = getProjectPdfChunkEnd(pageFrom, session.totalPages, session.chunkSize || PROJECT_PDF_CHUNK_SIZE);
+          session = updateProjectPdfBatchSession(session, {
+            status: 'running',
+            error: '',
+            nextPage: pageFrom,
+            nextDocumentNumber,
+            currentPageFrom: pageFrom,
+            currentPageTo: pageTo,
+          });
+          failedSession = session;
+          saveProjectBatchSessionState(session);
+
+          const rangeLabel = formatProjectChunkPageRange(pageFrom, pageTo, session.totalPages);
+          setProgress({
+            percent: getProjectBatchOverallPercent(completedChunks, totalChunks, 0),
+            message: `${file.name}: подготовка ${rangeLabel}...`,
+          });
+
+          const chunkImages = await pdfToImagesRange(file, pageFrom, pageTo, (pageNumInFile) => {
+            const rendered = Math.max(0, pageNumInFile - pageFrom + 1);
+            const innerPercent = Math.round((rendered / (pageTo - pageFrom + 1)) * 18);
+            setProgress({
+              percent: getProjectBatchOverallPercent(completedChunks, totalChunks, innerPercent),
+              message: `${file.name}: рендер ${rangeLabel} (${rendered}/${pageTo - pageFrom + 1})...`,
+            });
+          });
+          lastChunkImages = chunkImages;
+
+          const result = await recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
+            const chunkPercent = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
+            const percent = getProjectBatchOverallPercent(completedChunks, totalChunks, Math.max(20, chunkPercent));
+            setProgress(prev => prev && prev.percent > percent
+              ? { ...prev, message: `${file.name}: ${p.message} (${rangeLabel})` }
+              : { percent, message: `${file.name}: ${p.message} (${rangeLabel})` }
+            );
+          }, existingPD);
+
+          const pd = existingPD
+            ? assignLetters(mergePD(existingPD, result.personalData), existingPD)
+            : assignLetters(result.personalData);
+
+          const initialAnon = {};
+          const html = buildAnnotatedHtml(result.text, pd, initialAnon);
+          const docEntry = saveDocument({
+            id: generateId(),
+            title: formatProjectChunkTitle(nextDocumentNumber, file.name),
+            originalFileName: file.name,
+            text: result.text,
+            editedHtml: html,
+            personalData: pd,
+            anonymized: initialAnon,
+            source: 'ocr',
+            projectId: currentProjectId,
+            pageFrom,
+            pageTo,
+            totalPages: session.totalPages,
+            chunkIndex: Math.ceil(pageFrom / (session.chunkSize || PROJECT_PDF_CHUNK_SIZE)),
+            chunkSize: session.chunkSize || PROJECT_PDF_CHUNK_SIZE,
+            batchFileName: file.name,
+          });
+          addDocumentToProject(currentProjectId, docEntry.id);
+          updateProjectSharedPD(currentProjectId, pd);
+          refreshHistory();
+          refreshProjects();
+
+          lastSavedDoc = docEntry;
+          existingPD = pd;
+          nextDocumentNumber += 1;
+          completedChunks += 1;
+
+          session = updateProjectPdfBatchSession(session, {
+            nextPage: pageTo + 1,
+            nextDocumentNumber,
+            status: pageTo >= session.totalPages ? 'completed' : 'running',
+            error: '',
+            currentPageFrom: pageFrom,
+            currentPageTo: pageTo,
+          });
+          saveProjectBatchSessionState(pageTo >= session.totalPages ? null : session);
+          failedSession = pageTo >= session.totalPages ? null : session;
+        }
+      }
 
       stopProgressCreep();
-      refreshHistory();
-      refreshProjects();
+      saveProjectBatchSessionState(null);
+      setFiles([]);
+      if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, lastChunkImages);
+      setHighlightProjectSummary(true);
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
     } catch (err) {
       stopProgressCreep();
+      if (failedSession) {
+        saveProjectBatchSessionState(updateProjectPdfBatchSession(failedSession, {
+          status: 'failed',
+          error: err.message || 'Произошла ошибка',
+        }));
+      }
       setError(err.message || 'Произошла ошибка');
       setView(VIEW_PROJECT);
       setProgress(null);
@@ -851,6 +956,30 @@ export default function App() {
       setError(err.message || 'Ошибка импорта');
     }
   };
+
+  const openRecognizedDocResult = useCallback((entry, images = []) => {
+    const pd = entry.personalData || { persons: [], otherPD: [], ambiguousPersons: [] };
+    const anon = entry.anonymized || {};
+    const html = entry.editedHtml || buildAnnotatedHtml(entry.text || '', pd, anon);
+
+    setDocId(entry.id);
+    setDocTitle(entry.title || '');
+    setOriginalFileName(entry.originalFileName || '');
+    setRawText(entry.text || '');
+    setEditorHtml(html);
+    setOriginalImages(images);
+    setShowOriginal(images.length > 0);
+    setOriginalPage(0);
+    setPdIdsInDoc(currentProjectId ? extractPdIdsFromHtml(html) : null);
+    pdRef.current = pd;
+    anonRef.current = anon;
+    setPersonalData(pd);
+    setAnonymized(anon);
+    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html }));
+    undoStackRef.current = [{ html, pd, anon }];
+    undoIndexRef.current = 0;
+    setShowLongDocWarning((entry.text || '').replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
+  }, [currentProjectId]);
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
   const isDirty = () => {
@@ -1063,25 +1192,7 @@ export default function App() {
 
   // ── Load from history ─────────────────────────────────────────────────────────
   const loadDoc = (entry) => {
-    const pd = entry.personalData || { persons: [], otherPD: [], ambiguousPersons: [] };
-    const anon = entry.anonymized || {};
-    const html = buildAnnotatedHtml(entry.text || '', pd, anon);
-    const loadedHtml = entry.editedHtml || html;
-
-    setDocId(entry.id);
-    setDocTitle(entry.title);
-    setOriginalFileName(entry.originalFileName || entry.title || '');
-    setRawText(entry.text || '');
-    setEditorHtml(loadedHtml);
-    // If in project context — track which PD ids have marks in this specific doc
-    setPdIdsInDoc(currentProjectId ? extractPdIdsFromHtml(loadedHtml) : null);
-    pdRef.current   = pd;
-    anonRef.current = anon;
-    setPersonalData(pd);
-    setAnonymized(anon);
-    undoStackRef.current = [{ html: loadedHtml, pd, anon }];
-    undoIndexRef.current = 0;
-    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html: loadedHtml }));
+    openRecognizedDocResult(entry, []);
     setView(VIEW_RESULT);
   };
 
@@ -2191,7 +2302,7 @@ ${content}
                 <input ref={projectFileInputRef} type="file" multiple accept=".pdf,application/pdf" className="visually-hidden" onChange={e => { handleProjectFiles(e.target.files); e.target.value = ''; }} />
                 <div className="dropzone-icon">📄</div>
                 <div className="dropzone-text"><strong>Перетащите PDF-файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                <div className="dropzone-hint">PDF · Рекомендуем до 10 страниц. Если страниц больше, воспользуйтесь функцией "создать проект".</div>
+                <div className="dropzone-hint">PDF · Большие файлы автоматически обрабатываются частями по {PROJECT_PDF_CHUNK_SIZE} страниц.</div>
               </div>
               {files.length > 0 && (
                 <div className="file-list">
@@ -2207,6 +2318,23 @@ ${content}
               )}
             </section>
 
+            {currentBatchSession && currentBatchSession.status !== 'completed' && (
+              <div className={`project-batch-status ${currentBatchSession.status === 'failed' ? 'failed' : ''}`}>
+                <div className="project-batch-status-title">
+                  {currentBatchSession.status === 'failed' ? 'Обработка большого PDF остановлена' : 'Есть незавершённая обработка PDF'}
+                </div>
+                <div className="project-batch-status-body">
+                  <strong>{currentBatchSession.fileName}</strong>
+                  <span>Следующий запуск начнётся с {formatProjectChunkPageRange(currentBatchSession.nextPage, getProjectPdfChunkEnd(currentBatchSession.nextPage, currentBatchSession.totalPages, currentBatchSession.chunkSize), currentBatchSession.totalPages)}.</span>
+                  <span>Для продолжения выберите тот же PDF-файл заново.</span>
+                  {currentBatchSession.error && <span>Последняя ошибка: {currentBatchSession.error}</span>}
+                </div>
+                <div className="project-batch-actions">
+                  <button className="btn-tool" onClick={handleResetProjectBatchSession}>Сбросить незавершённую обработку</button>
+                </div>
+              </div>
+            )}
+
             {error && <div className="error-block">⚠️ {error}</div>}
 
             <div className="home-btn-wrap">
@@ -2215,9 +2343,11 @@ ${content}
                 onClick={handleProjectRecognize}
                 disabled={!apiKey.trim() || files.length === 0}
               >
-                {getProjectDocs().length === 0
-                  ? '🔍 Распознать и обезличить первый файл'
-                  : '🔍 Распознать и обезличить следующий файл'}
+                {currentBatchSession && currentBatchSession.status !== 'completed'
+                  ? '▶ Продолжить обработку PDF'
+                  : (getProjectDocs().length === 0
+                    ? '🔍 Распознать и обезличить первый файл'
+                    : '🔍 Распознать и обезличить следующий файл')}
               </button>
             </div>
 
@@ -2252,6 +2382,9 @@ ${content}
                           <div className="project-doc-title">{doc.title}</div>
                           <div className="project-doc-meta">
                             {formatDate(new Date(doc.savedAt))}
+                            {doc.pageFrom && doc.pageTo && (
+                              <span className="project-doc-range">{formatProjectChunkPageRange(doc.pageFrom, doc.pageTo, doc.totalPages)}</span>
+                            )}
                             {(doc.personalData?.persons?.length || 0) > 0 && (
                               <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
                             )}
@@ -2272,7 +2405,7 @@ ${content}
                   {/* Build summary button */}
                   {getProjectDocs().length >= 2 && (
                     <div className="project-summary-actions">
-                      <button className="btn-primary btn-sm" onClick={handleBuildSummary}>📋 Собрать итоговый документ</button>
+                      <button className={`btn-primary btn-sm${highlightProjectSummary ? ' summary-attention' : ''}`} onClick={handleBuildSummary}>📋 Собрать итоговый документ</button>
                     </div>
                   )}
 
