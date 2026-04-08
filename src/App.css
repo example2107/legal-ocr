@@ -63,12 +63,30 @@ a { color: var(--accent); }
 .header-left { flex: 1; min-width: 120px; display: flex; align-items: center; justify-content: flex-end; }
 .header-center { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-home-btn { white-space: nowrap; }
-.header-right { flex: 1; min-width: 120px; }
+.header-right { flex: 1; min-width: 120px; display: flex; align-items: center; justify-content: flex-start; }
+.header-user { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.header-user-email { font-size: 12px; color: var(--text3); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 
 .main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
 .main.main-result { padding: 20px 16px; }
 .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text3); border-top: 1px solid var(--border); background: var(--surface); }
+
+.auth-main { justify-content: center; align-items: center; }
+.auth-card { width: 100%; max-width: 460px; padding: 28px; }
+.auth-loading-card { text-align: center; }
+.auth-title { font-family: var(--font-doc); font-size: 28px; line-height: 1.2; margin-bottom: 10px; }
+.auth-subtitle { font-size: 14px; color: var(--text2); margin-bottom: 18px; }
+.auth-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+.auth-mode-btn { padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text2); font-size: 13px; font-weight: 600; }
+.auth-mode-btn.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent2); }
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+.auth-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text2); }
+.auth-input { width: 100%; padding: 11px 13px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 14px; outline: none; transition: border-color var(--tr), box-shadow var(--tr), background var(--tr); }
+.auth-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); background: var(--surface); }
+.auth-submit { width: 100%; justify-content: center; }
+.auth-message { font-size: 13px; color: var(--green); background: var(--green-light); border: 1px solid #b8ddc8; padding: 10px 12px; border-radius: var(--radius-sm); }
+.auth-config-hint { margin-top: 14px; font-size: 12px; color: var(--text3); }
 
 /* ============================
    CARDS
