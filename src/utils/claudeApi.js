@@ -451,14 +451,14 @@ export async function recognizeDocument(images, apiKey, provider, onProgress, ex
 }
 
 export async function analyzePastedText(text, apiKey, provider, onProgress) {
+  const plainText = text || '';
   onProgress({ stage: 'quality', percent: 15, message: 'Проверка качества текста...' });
-  const checkedText = await runQualityCheck(text, apiKey, provider, onProgress);
 
   onProgress({ stage: 'analysis', percent: 55, message: 'Анализ персональных данных...' });
-  const personalData = await analyzePD(checkedText, apiKey, provider, onProgress);
+  const personalData = await analyzePD(plainText, apiKey, provider, onProgress);
 
   onProgress({ stage: 'done', percent: 100, message: 'Готово!' });
-  return { text: checkedText, personalData };
+  return { text: plainText, personalData };
 }
 
 // ── Шаг 2: Проверка качества (отдельный запрос) ───────────────────────────────
