@@ -895,7 +895,7 @@ function AddPdForm({ x, y, onAdd, onClose, categories = ['private', 'professiona
 }
 
 // ── Контекстное меню редактора ───────────────────────────────────────────────
-function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onRemovePd, onEditPdText, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
+function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onRemovePd, onApplyPdCanonicalText, onEditPdText, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
   const menuRef = React.useRef(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
 
@@ -936,6 +936,9 @@ function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onR
     >
       {type === 'pd' && (
         <>
+          <div className="ctx-menu-item" onClick={() => { onApplyPdCanonicalText?.(pdId, mark); onClose(); }}>
+            Принять вид из панели ПД
+          </div>
           <div className="ctx-menu-item" onClick={() => { onEditPdText?.(pdId, mark); onClose(); }}>
             Исправить текст фрагмента
           </div>
@@ -1043,7 +1046,7 @@ function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onEditPdMark, onEditPdTextMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onApplyPdCanonicalText, onEditPdMark, onEditPdTextMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -1339,7 +1342,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onEd
           mark={ctxMenu.mark || null}
           existingPD={existingPD}
           onRemovePd={removePdMark}
-          onEditPd={onEditPdMark}
+          onApplyPdCanonicalText={onApplyPdCanonicalText}
           onEditPdText={onEditPdTextMark}
           onRemoveUncertain={ctxMenu.type === 'ambiguous' ? removeAmbiguousMark : removeUncertainMark}
           onApplySuggestion={applyUncertainSuggestion}

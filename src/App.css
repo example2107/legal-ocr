@@ -63,12 +63,12 @@ a { color: var(--accent); }
 .header-left { flex: 1; min-width: 120px; display: flex; align-items: center; justify-content: flex-end; }
 .header-center { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-home-btn { white-space: nowrap; }
-.header-right { flex: 1; min-width: 120px; display: flex; align-items: center; justify-content: flex-start; }
+.header-right { flex: 1; min-width: 120px; display: flex; align-items: center; justify-content: flex-end; }
 .header-user {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-left: 16px;
+  margin-left: auto;
   padding: 7px 8px 7px 14px;
   background: var(--bg);
   border: 1px solid var(--border);

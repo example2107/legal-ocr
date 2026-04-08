@@ -1920,6 +1920,37 @@ export default function App() {
     pushSnap({ html, pd: nextPd, anon: anonRef.current });
   }, [editingPdFragment]);
 
+  const handleApplyPdCanonicalText = useCallback((id, markEl) => {
+    if (!id || !markEl) return;
+
+    const person = (pdRef.current.persons || []).find(item => item.id === id) || null;
+    const other = (pdRef.current.otherPD || []).find(item => item.id === id) || null;
+    const canonicalText = normalizePdText(person?.fullName || other?.value || '');
+    if (!canonicalText) return;
+
+    markEl.dataset.original = canonicalText;
+    if (!markEl.classList.contains('anon')) {
+      markEl.textContent = canonicalText;
+    }
+
+    const nextPd = {
+      ...pdRef.current,
+      persons: (pdRef.current.persons || []).map(item => item.id === id
+        ? { ...item, mentions: dedupeMentions([...(item.mentions || []), canonicalText, item.fullName]) }
+        : item),
+      otherPD: (pdRef.current.otherPD || []).map(item => item.id === id
+        ? { ...item, mentions: dedupeMentions([...(item.mentions || []), canonicalText, item.value]) }
+        : item),
+    };
+
+    pdRef.current = nextPd;
+    setPersonalData(nextPd);
+
+    const html = editorDomRef.current?.innerHTML ?? editorHtml;
+    setEditorHtml(html);
+    pushSnap({ html, pd: nextPd, anon: anonRef.current });
+  }, [editorHtml]);
+
   // ── Re-annotate otherPD after uncertain mark is resolved ──────────────────
   const handleUncertainResolved = useCallback(() => {
     if (!editorDomRef.current) return;
@@ -3162,6 +3193,7 @@ ${content}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
                 onRemovePdMark={handleRemovePdMark}
+                onApplyPdCanonicalText={handleApplyPdCanonicalText}
                 onEditPdMark={openPdEditor}
                 onEditPdTextMark={openPdFragmentEditor}
                 onAttachPdMark={handleAttachPdMark}

@@ -226,6 +226,59 @@ describe('App ambiguous person undo/redo integration', () => {
     expect(updatedMark.textContent).toBe('Иванов И.И.');
   });
 
+  test('pd mark can adopt canonical text from PD panel', async () => {
+    localStorage.setItem('legal_ocr_history', JSON.stringify([{
+      id: 'doc_test_2b',
+      title: 'Документ для принятия канона',
+      originalFileName: 'test.pdf',
+      text: 'Стрекова Лилия Андреевна пояснила обстоятельства.',
+      editedHtml: '',
+      personalData: {
+        persons: [
+          {
+            id: 'p1',
+            fullName: 'Стрежнева Лидия Андреевна',
+            role: 'свидетель',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Стрекова Лилия Андреевна', 'Стрежнева Лидия Андреевна'],
+          },
+        ],
+        otherPD: [],
+        ambiguousPersons: [],
+      },
+      anonymized: {},
+      source: 'ocr',
+      savedAt: '2026-04-09T10:05:00.000Z',
+    }]));
+
+    await act(async () => {
+      root = ReactDOM.createRoot(container);
+      root.render(<App />);
+    });
+    await flush();
+
+    click(findByText(container, 'button', 'История'));
+    await flush();
+
+    click(findByText(container, '.history-card', 'Документ для принятия канона'));
+    await flush();
+
+    const pdMark = container.querySelector('mark[data-pd-id="p1"]');
+    expect(pdMark).not.toBeNull();
+    expect(pdMark.textContent).toBe('Стрекова Лилия Андреевна');
+
+    contextMenu(pdMark);
+    await flush();
+
+    click(findByText(container, '.ctx-menu-item', 'Принять вид из панели ПД'));
+    await flush();
+
+    const updatedMark = container.querySelector('mark[data-pd-id="p1"]');
+    expect(updatedMark).not.toBeNull();
+    expect(updatedMark.textContent).toBe('Стрежнева Лидия Андреевна');
+  });
+
   test('editing person card re-annotates document by corrected full name', async () => {
     localStorage.setItem('legal_ocr_history', JSON.stringify([{
       id: 'doc_test_3',
