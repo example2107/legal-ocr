@@ -1745,21 +1745,6 @@ export default function App() {
     });
   }, [removeAmbiguousEntry]);
 
-  const resetPdMarksInEditor = useCallback((targetId) => {
-    const dom = editorDomRef.current;
-    if (!dom || !targetId) return false;
-
-    const marks = Array.from(dom.querySelectorAll(`mark[data-pd-id="${targetId}"]`));
-    if (marks.length === 0) return false;
-
-    marks.forEach(mark => {
-      const restoredText = mark.dataset.original || mark.textContent || '';
-      mark.replaceWith(document.createTextNode(restoredText));
-    });
-    dom.normalize();
-    return true;
-  }, []);
-
   const annotatePdMentionsInEditor = useCallback((pdState, targetId) => {
     const dom = editorDomRef.current;
     if (!dom) return false;
@@ -1856,38 +1841,29 @@ export default function App() {
 
     const currentPerson = (pdRef.current.persons || []).find(person => person.id === payload.id) || null;
     const currentOther = (pdRef.current.otherPD || []).find(item => item.id === payload.id) || null;
-    const nextFullName = currentPerson ? normalizePdText(payload.fullName || currentPerson.fullName) : '';
-    const nextValue = currentOther ? normalizePdText(payload.value || currentOther.value) : '';
-    const shouldReannotate = !!(
-      (currentPerson && nextFullName !== normalizePdText(currentPerson.fullName))
-      || (currentOther && nextValue !== normalizePdText(currentOther.value))
-    );
 
     const nextPd = {
       ...pdRef.current,
       persons: (pdRef.current.persons || []).map(person => {
         if (person.id !== payload.id) return person;
         const fullName = normalizePdText(payload.fullName || person.fullName);
-        const fullNameChanged = fullName !== normalizePdText(person.fullName);
         return {
           ...person,
           fullName,
           role: payload.role ?? person.role ?? '',
-          mentions: fullNameChanged
-            ? buildCanonicalPersonMentions(fullName)
-            : dedupeMentions([fullName, ...(person.mentions || [])]),
+          mentions: dedupeMentions([
+            ...(person.mentions || []),
+            ...buildCanonicalPersonMentions(fullName),
+          ]),
         };
       }),
       otherPD: (pdRef.current.otherPD || []).map(item => {
         if (item.id !== payload.id) return item;
         const value = normalizePdText(payload.value || item.value);
-        const valueChanged = value !== normalizePdText(item.value);
         return {
           ...item,
           value,
-          mentions: valueChanged
-            ? dedupeMentions([value])
-            : dedupeMentions([value, ...(item.mentions || [])]),
+          mentions: dedupeMentions([...(item.mentions || []), value]),
         };
       }),
     };
@@ -1896,20 +1872,16 @@ export default function App() {
     setPersonalData(nextPd);
     setEditingPdId(null);
 
-    if (shouldReannotate) {
-      resetPdMarksInEditor(payload.id);
-      annotatePdMentionsInEditor(nextPd, payload.id);
-    } else {
-      const updatedItem = nextPd.otherPD.find(item => item.id === payload.id);
-      if (updatedItem && anonRef.current[payload.id]) {
-        patchPdMarks(editorDomRef.current, payload.id, true, null, updatedItem.replacement);
-      }
+    const updatedItem = nextPd.otherPD.find(item => item.id === payload.id);
+    if (updatedItem && anonRef.current[payload.id]) {
+      patchPdMarks(editorDomRef.current, payload.id, true, null, updatedItem.replacement);
     }
+    annotatePdMentionsInEditor(nextPd, payload.id);
 
     const finalHtml = editorDomRef.current?.innerHTML ?? editorHtml;
     setEditorHtml(finalHtml);
     pushSnap({ html: finalHtml, pd: nextPd, anon: anonRef.current });
-  }, [annotatePdMentionsInEditor, editorHtml, resetPdMarksInEditor]);
+  }, [annotatePdMentionsInEditor, editorHtml]);
 
   const handleSavePdFragmentEdit = useCallback((payload) => {
     if (!payload?.id) return;

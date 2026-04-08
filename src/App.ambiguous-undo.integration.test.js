@@ -280,4 +280,59 @@ describe('App ambiguous person undo/redo integration', () => {
     expect(updatedMark).not.toBeNull();
     expect(updatedMark.textContent).toBe('Стрежнева Лидия Андреевна');
   });
+
+  test('editing person card keeps existing marked occurrences while adding new canonical matches', async () => {
+    localStorage.setItem('legal_ocr_history', JSON.stringify([{
+      id: 'doc_test_4',
+      title: 'Документ без потери старых маркеров',
+      originalFileName: 'test.pdf',
+      text: 'Стрекова Лилия Андреевна пояснила, что Стрежнева Лидия Андреевна также фигурирует в деле.',
+      editedHtml: '',
+      personalData: {
+        persons: [
+          {
+            id: 'p1',
+            fullName: 'Стрекова Лилия Андреевна',
+            role: 'свидетель',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Стрекова Лилия Андреевна'],
+          },
+        ],
+        otherPD: [],
+        ambiguousPersons: [],
+      },
+      anonymized: {},
+      source: 'ocr',
+      savedAt: '2026-04-09T10:40:00.000Z',
+    }]));
+
+    await act(async () => {
+      root = ReactDOM.createRoot(container);
+      root.render(<App />);
+    });
+    await flush();
+
+    click(findByText(container, 'button', 'История'));
+    await flush();
+
+    click(findByText(container, '.history-card', 'Документ без потери старых маркеров'));
+    await flush();
+
+    expect(Array.from(container.querySelectorAll('mark[data-pd-id="p1"]')).map(el => el.textContent))
+      .toContain('Стрекова Лилия Андреевна');
+
+    click(findByText(container, 'button', 'Изм.'));
+    await flush();
+
+    const inputs = container.querySelectorAll('.modal-input');
+    setInputValue(inputs[0], 'Стрежнева Лидия Андреевна');
+
+    click(findByText(container, 'button', 'Сохранить'));
+    await flush();
+
+    const markTexts = Array.from(container.querySelectorAll('mark[data-pd-id="p1"]')).map(el => el.textContent);
+    expect(markTexts).toContain('Стрекова Лилия Андреевна');
+    expect(markTexts).toContain('Стрежнева Лидия Андреевна');
+  });
 });
