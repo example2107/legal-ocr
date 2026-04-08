@@ -103,6 +103,7 @@ const VIEW_PROJECT = 'project';
 
 export default function App() {
   const { user, loading: authLoading, isConfigured, signInWithPassword, signUpWithPassword, signOut } = useAuth();
+  const userId = user?.id || null;
   const [view, setView] = useState(VIEW_HOME);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -192,6 +193,7 @@ export default function App() {
   const projectImportRef = useRef();
   const dragFileIdx = useRef(null);
   const uploadedFilesRef = useRef(new Map());
+  const hasHydratedCloudDataRef = useRef(false);
 
   const removeAmbiguousEntry = useCallback((pd, markEl) => {
     if (!markEl) return pd;
@@ -436,16 +438,16 @@ export default function App() {
   }, []);
 
   const refreshHistory = useCallback(async () => {
-    const docs = await listDocuments(user);
+    const docs = await listDocuments(userId ? { id: userId } : null);
     setHistory(docs);
     return docs;
-  }, [user]);
+  }, [userId]);
 
   const refreshProjects = useCallback(async () => {
-    const nextProjects = await listProjects(user);
+    const nextProjects = await listProjects(userId ? { id: userId } : null);
     setProjects(nextProjects);
     return nextProjects;
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -458,6 +460,7 @@ export default function App() {
           if (!active) return;
           setHistory(docs);
           setProjects(nextProjects);
+          hasHydratedCloudDataRef.current = true;
           setDataLoading(false);
         })
         .catch((err) => {
@@ -471,35 +474,38 @@ export default function App() {
       };
     }
 
-    if (!user) {
+    if (!userId) {
       setHistory([]);
       setProjects([]);
       setCurrentProjectId(null);
+      hasHydratedCloudDataRef.current = false;
       setDataLoading(false);
       uploadedFilesRef.current.clear();
       return;
     }
 
     let active = true;
-    setDataLoading(true);
+    const shouldBlockUi = !hasHydratedCloudDataRef.current;
+    if (shouldBlockUi) setDataLoading(true);
 
-    Promise.all([listDocuments(user), listProjects(user)])
+    Promise.all([listDocuments({ id: userId }), listProjects({ id: userId })])
       .then(([docs, nextProjects]) => {
         if (!active) return;
         setHistory(docs);
         setProjects(nextProjects);
+        hasHydratedCloudDataRef.current = true;
         setDataLoading(false);
       })
       .catch((err) => {
         if (!active) return;
         setError(err.message || 'Ошибка загрузки данных');
-        setDataLoading(false);
+        if (shouldBlockUi) setDataLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [authLoading, isConfigured, user]);
+  }, [authLoading, isConfigured, userId]);
 
   useEffect(() => {
     if (currentProjectId && !projects.some((item) => item.id === currentProjectId)) {
