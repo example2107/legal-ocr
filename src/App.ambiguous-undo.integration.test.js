@@ -210,6 +210,7 @@ describe('App ambiguous person undo/redo integration', () => {
     contextMenu(pdMark);
     await flush();
 
+    expect(findByText(container, '.ctx-menu-item', 'Редактировать запись ПД')).toBeUndefined();
     click(findByText(container, '.ctx-menu-item', 'Исправить текст фрагмента'));
     await flush();
 
@@ -223,5 +224,60 @@ describe('App ambiguous person undo/redo integration', () => {
     const updatedMark = container.querySelector('mark[data-pd-id="p1"]');
     expect(updatedMark).not.toBeNull();
     expect(updatedMark.textContent).toBe('Иванов И.И.');
+  });
+
+  test('editing person card re-annotates document by corrected full name', async () => {
+    localStorage.setItem('legal_ocr_history', JSON.stringify([{
+      id: 'doc_test_3',
+      title: 'Документ для переаннотации ПД',
+      originalFileName: 'test.pdf',
+      text: 'Стрежнева Лидия Андреевна пояснила обстоятельства.',
+      editedHtml: '',
+      personalData: {
+        persons: [
+          {
+            id: 'p1',
+            fullName: 'Стрекова Лилия Андреевна',
+            role: 'свидетель',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Стрекова Лилия Андреевна'],
+          },
+        ],
+        otherPD: [],
+        ambiguousPersons: [],
+      },
+      anonymized: {},
+      source: 'ocr',
+      savedAt: '2026-04-09T10:30:00.000Z',
+    }]));
+
+    await act(async () => {
+      root = ReactDOM.createRoot(container);
+      root.render(<App />);
+    });
+    await flush();
+
+    click(findByText(container, 'button', 'История'));
+    await flush();
+
+    click(findByText(container, '.history-card', 'Документ для переаннотации ПД'));
+    await flush();
+
+    expect(container.querySelector('mark[data-pd-id="p1"]')).toBeNull();
+
+    click(findByText(container, 'button', 'Изм.'));
+    await flush();
+
+    const inputs = container.querySelectorAll('.modal-input');
+    expect(inputs.length).toBeGreaterThan(0);
+    setInputValue(inputs[0], 'Стрежнева Лидия Андреевна');
+
+    click(findByText(container, 'button', 'Сохранить'));
+    await flush();
+
+    const updatedMark = container.querySelector('mark[data-pd-id="p1"]');
+    expect(updatedMark).not.toBeNull();
+    expect(updatedMark.textContent).toBe('Стрежнева Лидия Андреевна');
   });
 });

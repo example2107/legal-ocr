@@ -3,7 +3,7 @@ import { getPdfPageCount, pdfToImages, pdfToImagesRange, imageFileToBase64 } fro
 import { recognizeDocument, analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import AuthScreen from './components/AuthScreen';
-import { RichEditor, buildAnnotatedHtml, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
+import { RichEditor, buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { useAuth } from './context/AuthContext';
 import { generateId, exportDocument, importDocument } from './utils/history';
 import {
@@ -58,6 +58,31 @@ function getPersonMentions(person) {
 
 function getOtherPdMentions(item) {
   return dedupeMentions([item?.value, ...(item?.mentions || [])]);
+}
+
+function buildCanonicalPersonMentions(fullName) {
+  const normalized = normalizePdText(fullName);
+  if (!normalized) return [];
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const surname = words[0] || '';
+  const initials = words.slice(1)
+    .flatMap(word => {
+      const letters = word.match(/[A-Za-zА-Яа-яЁё]/g) || [];
+      if (letters.length === 0) return [];
+      if (/[.,]/.test(word)) return letters.slice(0, 2);
+      return [letters[0]];
+    })
+    .map(letter => letter.toUpperCase())
+    .slice(0, 2);
+  const initialsText = initials.map(letter => `${letter}.`).join('');
+
+  return dedupeMentions([
+    normalized,
+    surname,
+    initialsText ? `${surname} ${initialsText}` : '',
+    initialsText ? `${initialsText} ${surname}` : '',
+  ]);
 }
 
 function assignLetters(personalData, existingPD) {
@@ -1720,6 +1745,21 @@ export default function App() {
     });
   }, [removeAmbiguousEntry]);
 
+  const resetPdMarksInEditor = useCallback((targetId) => {
+    const dom = editorDomRef.current;
+    if (!dom || !targetId) return false;
+
+    const marks = Array.from(dom.querySelectorAll(`mark[data-pd-id="${targetId}"]`));
+    if (marks.length === 0) return false;
+
+    marks.forEach(mark => {
+      const restoredText = mark.dataset.original || mark.textContent || '';
+      mark.replaceWith(document.createTextNode(restoredText));
+    });
+    dom.normalize();
+    return true;
+  }, []);
+
   const annotatePdMentionsInEditor = useCallback((pdState, targetId) => {
     const dom = editorDomRef.current;
     if (!dom) return false;
@@ -1732,13 +1772,6 @@ export default function App() {
     const mentions = targetPerson ? getPersonMentions(target) : getOtherPdMentions(target);
     if (mentions.length === 0) return false;
 
-    const escReLocal = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const buildPatternLocal = (value) => {
-      const parts = normalizePdText(value).split(/\s+/).filter(Boolean);
-      if (parts.length === 0) return escReLocal(value);
-      return parts.map(part => escReLocal(part)).join('[\\s\\n]+');
-    };
-
     let changed = false;
 
     function annotateNode(node) {
@@ -1748,7 +1781,12 @@ export default function App() {
         for (const mention of mentions) {
           if (!mention || mention.length < 2) continue;
           try {
-            const re = new RegExp(buildPatternLocal(mention), 'gi');
+            const pattern = buildPdMatchPattern(
+              mention,
+              targetPerson ? 'person' : 'other',
+              targetOther?.type
+            );
+            const re = new RegExp(pattern, 'gi');
             let m;
             while ((m = re.exec(text)) !== null) {
               allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0] });
@@ -1816,27 +1854,40 @@ export default function App() {
   const handleSavePdEdit = useCallback((payload) => {
     if (!payload?.id) return;
 
+    const currentPerson = (pdRef.current.persons || []).find(person => person.id === payload.id) || null;
+    const currentOther = (pdRef.current.otherPD || []).find(item => item.id === payload.id) || null;
+    const nextFullName = currentPerson ? normalizePdText(payload.fullName || currentPerson.fullName) : '';
+    const nextValue = currentOther ? normalizePdText(payload.value || currentOther.value) : '';
+    const shouldReannotate = !!(
+      (currentPerson && nextFullName !== normalizePdText(currentPerson.fullName))
+      || (currentOther && nextValue !== normalizePdText(currentOther.value))
+    );
+
     const nextPd = {
       ...pdRef.current,
       persons: (pdRef.current.persons || []).map(person => {
         if (person.id !== payload.id) return person;
         const fullName = normalizePdText(payload.fullName || person.fullName);
+        const fullNameChanged = fullName !== normalizePdText(person.fullName);
         return {
           ...person,
           fullName,
           role: payload.role ?? person.role ?? '',
-          mentions: dedupeMentions(payload.mentions?.length ? payload.mentions : [fullName, ...(person.mentions || [])]),
+          mentions: fullNameChanged
+            ? buildCanonicalPersonMentions(fullName)
+            : dedupeMentions([fullName, ...(person.mentions || [])]),
         };
       }),
       otherPD: (pdRef.current.otherPD || []).map(item => {
         if (item.id !== payload.id) return item;
         const value = normalizePdText(payload.value || item.value);
+        const valueChanged = value !== normalizePdText(item.value);
         return {
           ...item,
-          type: payload.type || item.type,
           value,
-          replacement: payload.replacement || item.replacement || '[ПД]',
-          mentions: dedupeMentions(payload.mentions?.length ? payload.mentions : [value, ...(item.mentions || [])]),
+          mentions: valueChanged
+            ? dedupeMentions([value])
+            : dedupeMentions([value, ...(item.mentions || [])]),
         };
       }),
     };
@@ -1845,18 +1896,20 @@ export default function App() {
     setPersonalData(nextPd);
     setEditingPdId(null);
 
-    const updatedItem = nextPd.otherPD.find(item => item.id === payload.id);
-    if (updatedItem && anonRef.current[payload.id]) {
-      patchPdMarks(editorDomRef.current, payload.id, true, null, updatedItem.replacement);
+    if (shouldReannotate) {
+      resetPdMarksInEditor(payload.id);
+      annotatePdMentionsInEditor(nextPd, payload.id);
+    } else {
+      const updatedItem = nextPd.otherPD.find(item => item.id === payload.id);
+      if (updatedItem && anonRef.current[payload.id]) {
+        patchPdMarks(editorDomRef.current, payload.id, true, null, updatedItem.replacement);
+      }
     }
 
-    const newHtml = editorDomRef.current?.innerHTML ?? editorHtml;
-    setEditorHtml(newHtml);
-    const changed = annotatePdMentionsInEditor(nextPd, payload.id);
-    const finalHtml = changed ? (editorDomRef.current?.innerHTML ?? newHtml) : newHtml;
+    const finalHtml = editorDomRef.current?.innerHTML ?? editorHtml;
     setEditorHtml(finalHtml);
     pushSnap({ html: finalHtml, pd: nextPd, anon: anonRef.current });
-  }, [annotatePdMentionsInEditor, editorHtml]);
+  }, [annotatePdMentionsInEditor, editorHtml, resetPdMarksInEditor]);
 
   const handleSavePdFragmentEdit = useCallback((payload) => {
     if (!payload?.id) return;
@@ -2323,8 +2376,11 @@ ${content}
             <div className="header-right">
               {user && (
                 <div className="header-user">
-                  <span className="header-user-email">{user.email}</span>
-                  <button className="btn-tool" onClick={() => signOut()}>Выйти</button>
+                  <div className="header-user-meta">
+                    <span className="header-user-label">Аккаунт</span>
+                    <span className="header-user-email">{user.email}</span>
+                  </div>
+                  <button className="header-user-logout" onClick={() => signOut()}>Выйти</button>
                 </div>
               )}
             </div>
@@ -2371,8 +2427,11 @@ ${content}
           <div className="header-right">
             {user && (
               <div className="header-user">
-                <span className="header-user-email">{user.email}</span>
-                <button className="btn-tool" onClick={() => signOut()}>Выйти</button>
+                <div className="header-user-meta">
+                  <span className="header-user-label">Аккаунт</span>
+                  <span className="header-user-email">{user.email}</span>
+                </div>
+                <button className="header-user-logout" onClick={() => signOut()}>Выйти</button>
               </div>
             )}
           </div>
@@ -3281,21 +3340,9 @@ function PdRecordEditorModal({ pdItem, onClose, onSave }) {
   const isPerson = Object.prototype.hasOwnProperty.call(pdItem || {}, 'fullName');
   const [fullName, setFullName] = useState(pdItem?.fullName || '');
   const [role, setRole] = useState(pdItem?.role || '');
-  const [type, setType] = useState(pdItem?.type || 'other');
   const [value, setValue] = useState(pdItem?.value || '');
-  const [replacement, setReplacement] = useState(pdItem?.replacement || '');
-  const [mentionsText, setMentionsText] = useState(
-    (isPerson ? getPersonMentions(pdItem) : getOtherPdMentions(pdItem)).join('\n')
-  );
 
   const handleSave = () => {
-    const mentions = dedupeMentions(
-      mentionsText
-        .split('\n')
-        .map(line => line.trim())
-        .filter(Boolean)
-    );
-
     if (isPerson) {
       const nextFullName = normalizePdText(fullName);
       if (!nextFullName) return;
@@ -3303,7 +3350,6 @@ function PdRecordEditorModal({ pdItem, onClose, onSave }) {
         id: pdItem.id,
         fullName: nextFullName,
         role,
-        mentions: dedupeMentions([nextFullName, ...mentions]),
       });
       return;
     }
@@ -3312,10 +3358,7 @@ function PdRecordEditorModal({ pdItem, onClose, onSave }) {
     if (!nextValue) return;
     onSave({
       id: pdItem.id,
-      type,
       value: nextValue,
-      replacement: normalizePdText(replacement) || '[ПД]',
-      mentions: dedupeMentions([nextValue, ...mentions]),
     });
   };
 
@@ -3338,32 +3381,11 @@ function PdRecordEditorModal({ pdItem, onClose, onSave }) {
           ) : (
             <>
               <div>
-                <label className="modal-label">Тип ПД</label>
-                <select className="modal-input" value={type} onChange={e => setType(e.target.value)}>
-                  {OTHER_PD_TYPE_OPTIONS.map(option => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
                 <label className="modal-label">Основное значение</label>
                 <input className="modal-input" value={value} onChange={e => setValue(e.target.value)} />
               </div>
-              <div>
-                <label className="modal-label">Замена при обезличивании</label>
-                <input className="modal-input" value={replacement} onChange={e => setReplacement(e.target.value)} />
-              </div>
             </>
           )}
-          <div>
-            <label className="modal-label">Варианты в тексте / mentions</label>
-            <textarea
-              className="modal-input"
-              style={{ minHeight: 140, resize: 'vertical' }}
-              value={mentionsText}
-              onChange={e => setMentionsText(e.target.value)}
-            />
-          </div>
         </div>
         <div className="modal-actions">
           <button className="btn-primary btn-sm" onClick={handleSave}>Сохранить</button>

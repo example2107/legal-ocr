@@ -162,6 +162,12 @@ function buildOtherPdPattern(value, pdType) {
   return parts.map(p => escRe(p)).join('[\\s\\n]+');
 }
 
+export function buildPdMatchPattern(value, type = 'other', pdType) {
+  return type === 'person'
+    ? buildPersonPattern(value)
+    : buildOtherPdPattern(value, pdType);
+}
+
 function buildAmbiguousPersonPattern(value) {
   const base = buildOtherPdPattern(value);
   return `(?<![A-Za-zА-Яа-яЁё])${base}(?![A-Za-zА-Яа-яЁё])`;
@@ -889,7 +895,7 @@ function AddPdForm({ x, y, onAdd, onClose, categories = ['private', 'professiona
 }
 
 // ── Контекстное меню редактора ───────────────────────────────────────────────
-function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onRemovePd, onEditPd, onEditPdText, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
+function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onRemovePd, onEditPdText, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
   const menuRef = React.useRef(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
 
@@ -932,9 +938,6 @@ function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onR
         <>
           <div className="ctx-menu-item" onClick={() => { onEditPdText?.(pdId, mark); onClose(); }}>
             Исправить текст фрагмента
-          </div>
-          <div className="ctx-menu-item" onClick={() => { onEditPd?.(pdId); onClose(); }}>
-            Редактировать запись ПД
           </div>
           <div className="ctx-menu-item ctx-menu-item-danger" onClick={onRemovePd}>
             Не является ПД
