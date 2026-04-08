@@ -28,7 +28,7 @@ export default function AuthScreen({ isConfigured, onSignIn, onSignUp, loading }
         await onSignIn({ email: email.trim(), password });
       } else {
         await onSignUp({ email: email.trim(), password });
-        setMessage('Регистрация отправлена. Если в проекте включено подтверждение email, подтвердите адрес и затем войдите.');
+        setMessage('Регистрация прошла успешно. Подтвердите адрес электронной почты, перейдя по ссылке, которая уже туда отправлена.');
         setMode('signin');
       }
     } catch (err) {
