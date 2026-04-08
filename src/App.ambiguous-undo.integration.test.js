@@ -279,6 +279,65 @@ describe('App ambiguous person undo/redo integration', () => {
     expect(updatedMark.textContent).toBe('Стрежнева Лидия Андреевна');
   });
 
+  test('pd fragment edit targets the exact clicked mark when duplicates exist', async () => {
+    localStorage.setItem('legal_ocr_history', JSON.stringify([{
+      id: 'doc_test_2c',
+      title: 'Документ с дублями упоминаний',
+      originalFileName: 'test.pdf',
+      text: 'Иванов Иван Иванович пояснил. Позже Иванов Иван Иванович подтвердил показания.',
+      editedHtml: '',
+      personalData: {
+        persons: [
+          {
+            id: 'p1',
+            fullName: 'Иванов Иван Иванович',
+            role: 'свидетель',
+            category: 'private',
+            letter: 'А.',
+            mentions: ['Иванов Иван Иванович'],
+          },
+        ],
+        otherPD: [],
+        ambiguousPersons: [],
+      },
+      anonymized: {},
+      source: 'ocr',
+      savedAt: '2026-04-09T10:07:00.000Z',
+    }]));
+
+    await act(async () => {
+      root = ReactDOM.createRoot(container);
+      root.render(<App />);
+    });
+    await flush();
+
+    click(findByText(container, 'button', 'История'));
+    await flush();
+
+    click(findByText(container, '.history-card', 'Документ с дублями упоминаний'));
+    await flush();
+
+    const marksBefore = Array.from(container.querySelectorAll('mark[data-pd-id="p1"]'));
+    expect(marksBefore).toHaveLength(2);
+
+    contextMenu(marksBefore[1]);
+    await flush();
+
+    click(findByText(container, '.ctx-menu-item', 'Исправить текст фрагмента'));
+    await flush();
+
+    const input = container.querySelector('.modal-input');
+    setInputValue(input, 'Иванов И.И.');
+
+    click(findByText(container, 'button', 'Сохранить'));
+    await flush();
+
+    const marksAfter = Array.from(container.querySelectorAll('mark[data-pd-id="p1"]'));
+    expect(marksAfter).toHaveLength(2);
+    expect(marksAfter[0].textContent).toBe('Иванов Иван Иванович');
+    expect(marksAfter[1].textContent).toBe('Иванов И.И.');
+  });
+
   test('editing person card re-annotates document by corrected full name', async () => {
     localStorage.setItem('legal_ocr_history', JSON.stringify([{
       id: 'doc_test_3',

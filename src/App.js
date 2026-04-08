@@ -1833,6 +1833,7 @@ export default function App() {
     setEditingPdFragment({
       id,
       text: normalizePdText(markEl.dataset.original || markEl.textContent || ''),
+      markEl,
     });
   }, []);
 
@@ -1891,8 +1892,10 @@ export default function App() {
     const nextText = normalizePdText(payload.text);
     if (!nextText) return;
 
+    const directMark = editingPdFragment?.markEl;
     const marks = Array.from(dom.querySelectorAll(`mark[data-pd-id="${payload.id}"]`));
-    const targetMark = marks.find(mark => normalizePdText(mark.dataset.original || mark.textContent) === normalizePdText(editingPdFragment?.text))
+    const targetMark = (directMark && directMark.isConnected ? directMark : null)
+      || marks.find(mark => normalizePdText(mark.dataset.original || mark.textContent) === normalizePdText(editingPdFragment?.text))
       || marks[0];
     if (!targetMark) return;
 
