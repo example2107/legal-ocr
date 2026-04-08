@@ -37,6 +37,25 @@ function renderWithAddress(rawText, value) {
         },
       ],
     },
+      {}
+  );
+}
+
+function renderWithOtherPdMention(rawText, value, mentions) {
+  return buildAnnotatedHtml(
+    rawText,
+    {
+      persons: [],
+      otherPD: [
+        {
+          id: 'other1',
+          type: 'other',
+          value,
+          replacement: '[ПД]',
+          mentions,
+        },
+      ],
+    },
     {}
   );
 }
@@ -278,5 +297,15 @@ describe('person annotation regression', () => {
     );
 
     expectMarkedText(html, expectedMarkedPart);
+  });
+
+  test('matches otherPD by manual mention variant, not only by canonical value', () => {
+    const html = renderWithOtherPdMention(
+      'Адрес проживания: Самарская область, с. Белозерки, ул. Зелинская, д. 13.',
+      'Самарская область, с. Белозерки, ул. Зеленская, д. 13',
+      ['Самарская область, с. Белозерки, ул. Зелинская, д. 13']
+    );
+
+    expectMarkedText(html, 'Самарская область, с. Белозерки, ул. Зелинская, д. 13');
   });
 });

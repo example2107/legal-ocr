@@ -34,6 +34,32 @@ const OTHER_PD_TYPES_MAP = {
 };
 const makeProfletter = (n) => `[ФИО ${n}]`;
 
+function normalizePdText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function dedupeMentions(values) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of values || []) {
+    const value = normalizePdText(raw);
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+function getPersonMentions(person) {
+  return dedupeMentions([person?.fullName, ...(person?.mentions || [])]);
+}
+
+function getOtherPdMentions(item) {
+  return dedupeMentions([item?.value, ...(item?.mentions || [])]);
+}
+
 function assignLetters(personalData, existingPD) {
   // Если есть существующая база — продолжаем нумерацию с того места где остановились
   let pi = 0, pf = 0;
@@ -60,7 +86,7 @@ function mergePD(existingPD, newPD) {
   };
 
   // Нормализация строки для сравнения otherPD
-  const normalizeValue = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalizeValue = (s) => normalizePdText(s).toLowerCase();
 
   // Мёржим persons — по совпадению fullName
   for (const newP of (newPD.persons || [])) {
@@ -69,10 +95,10 @@ function mergePD(existingPD, newPD) {
     );
     if (existing) {
       // Добавляем новые mentions к уже известному лицу
-      const existingMentions = new Set((existing.mentions || []).map(m => m.toLowerCase()));
-      const addedMentions = (newP.mentions || []).filter(m => !existingMentions.has(m.toLowerCase()));
+      const existingMentions = new Set(getPersonMentions(existing).map(m => m.toLowerCase()));
+      const addedMentions = getPersonMentions(newP).filter(m => !existingMentions.has(m.toLowerCase()));
       if (addedMentions.length > 0) {
-        existing.mentions = [...(existing.mentions || []), ...addedMentions];
+        existing.mentions = dedupeMentions([...(existing.mentions || []), ...addedMentions]);
       }
       // Обновляем роль если была пустая
       if (!existing.role && newP.role) existing.role = newP.role;
@@ -90,6 +116,13 @@ function mergePD(existingPD, newPD) {
     );
     if (!exists) {
       merged.otherPD.push({ ...newItem });
+    } else {
+      const existing = merged.otherPD.find(it =>
+        it.type === newItem.type && normalizeValue(it.value) === nv
+      );
+      if (existing) {
+        existing.mentions = dedupeMentions([...(existing.mentions || []), ...getOtherPdMentions(newItem)]);
+      }
     }
   }
 
@@ -117,6 +150,8 @@ export default function App() {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [showAddFromHistory, setShowAddFromHistory] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
+  const [editingPdId, setEditingPdId] = useState(null);
+  const [editingPdFragment, setEditingPdFragment] = useState(null);
   const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
   const [inputTab, setInputTab] = useState('documents'); // 'documents' | 'text'
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
@@ -722,14 +757,15 @@ export default function App() {
 
             // Search for new otherPD
             for (const item of newOtherPD) {
-              if (!item.value) continue;
-              try {
-                const re = new RegExp(buildPatternLocal(item.value), 'gi');
-                let m;
-                while ((m = re.exec(text)) !== null) {
-                  allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], id: item.id, cat: 'oth', replacement: item.replacement, isAnon: !!initialAnon[item.id], type: 'other' });
-                }
-              } catch {}
+              for (const mention of getOtherPdMentions(item)) {
+                try {
+                  const re = new RegExp(buildPatternLocal(mention), 'gi');
+                  let m;
+                  while ((m = re.exec(text)) !== null) {
+                    allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], id: item.id, cat: 'oth', replacement: item.replacement, isAnon: !!initialAnon[item.id], type: 'other' });
+                  }
+                } catch {}
+              }
             }
 
             if (allMatches.length === 0) return;
@@ -1587,6 +1623,7 @@ export default function App() {
     // Fix DOM class synchronously
     const person = personalData.persons.find(p => p.id === id);
     const other = personalData.otherPD.find(p => p.id === id);
+    const attachedText = normalizePdText(markEl?.dataset?.original || markEl?.textContent || '');
     if (markEl) {
       const cat = person
         ? (person.category === 'professional' ? 'prof' : 'priv')
@@ -1606,7 +1643,16 @@ export default function App() {
         markEl.classList.add('anon');
       }
     }
-    const nextPd = removeAmbiguousEntry(pdRef.current, ambiguousMarkEl);
+    const nextPdBase = {
+      ...pdRef.current,
+      persons: (pdRef.current.persons || []).map(item => item.id === id
+        ? { ...item, mentions: dedupeMentions([...(item.mentions || []), attachedText, item.fullName]) }
+        : item),
+      otherPD: (pdRef.current.otherPD || []).map(item => item.id === id
+        ? { ...item, mentions: dedupeMentions([...(item.mentions || []), attachedText, item.value]) }
+        : item),
+    };
+    const nextPd = removeAmbiguousEntry(nextPdBase, ambiguousMarkEl);
     pdRef.current = nextPd;
     setPersonalData(() => nextPd);
     // DOM is now correct — push snap with correct class
@@ -1631,7 +1677,7 @@ export default function App() {
       newPersons = [...pdRef.current.persons, {
         id: newId, fullName: pdData.fullName, role: pdData.role || '',
         category: pdData.category, letter,
-        mentions: [pdData.fullName, selectedText].filter(Boolean),
+        mentions: dedupeMentions([pdData.fullName, selectedText]),
       }];
       if (markEl) {
         const cat = pdData.category === 'professional' ? 'prof' : 'priv';
@@ -1644,6 +1690,7 @@ export default function App() {
       const typeLabel = OTHER_PD_TYPES_MAP[pdData.type] || pdData.type;
       newOtherPD = [...pdRef.current.otherPD, {
         id: newId, type: pdData.type, value: selectedText, replacement: `[${typeLabel}]`,
+        mentions: dedupeMentions([selectedText]),
       }];
       if (markEl) {
         markEl.className = 'pd oth';
@@ -1673,6 +1720,181 @@ export default function App() {
     });
   }, [removeAmbiguousEntry]);
 
+  const annotatePdMentionsInEditor = useCallback((pdState, targetId) => {
+    const dom = editorDomRef.current;
+    if (!dom) return false;
+
+    const targetPerson = (pdState.persons || []).find(item => item.id === targetId);
+    const targetOther = (pdState.otherPD || []).find(item => item.id === targetId);
+    const target = targetPerson || targetOther;
+    if (!target) return false;
+
+    const mentions = targetPerson ? getPersonMentions(target) : getOtherPdMentions(target);
+    if (mentions.length === 0) return false;
+
+    const escReLocal = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const buildPatternLocal = (value) => {
+      const parts = normalizePdText(value).split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return escReLocal(value);
+      return parts.map(part => escReLocal(part)).join('[\\s\\n]+');
+    };
+
+    let changed = false;
+
+    function annotateNode(node) {
+      if (node.nodeType === 3) {
+        const text = node.textContent;
+        const allMatches = [];
+        for (const mention of mentions) {
+          if (!mention || mention.length < 2) continue;
+          try {
+            const re = new RegExp(buildPatternLocal(mention), 'gi');
+            let m;
+            while ((m = re.exec(text)) !== null) {
+              allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0] });
+            }
+          } catch {}
+        }
+
+        if (allMatches.length === 0) return;
+        allMatches.sort((a, b) => a.start - b.start || b.end - a.end);
+
+        const filtered = [];
+        let lastEnd = 0;
+        for (const match of allMatches) {
+          if (match.start >= lastEnd) {
+            filtered.push(match);
+            lastEnd = match.end;
+          }
+        }
+        if (filtered.length === 0) return;
+
+        const fragment = document.createDocumentFragment();
+        let lastIdx = 0;
+        for (const { start, end, mt } of filtered) {
+          if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
+          const el = document.createElement('mark');
+          const isAnon = !!anonRef.current[targetId];
+          const isPerson = !!targetPerson;
+          el.className = `pd ${isPerson ? (targetPerson.category === 'professional' ? 'prof' : 'priv') : 'oth'}${isAnon ? ' anon' : ''}`;
+          el.dataset.pdId = targetId;
+          el.dataset.original = mt;
+          el.contentEditable = 'false';
+          el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+          el.textContent = isAnon
+            ? (isPerson ? targetPerson.letter : targetOther.replacement || '[ПД]')
+            : mt;
+          fragment.appendChild(el);
+          lastIdx = end;
+          changed = true;
+        }
+        if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+        node.parentNode.replaceChild(fragment, node);
+      } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+        Array.from(node.childNodes).forEach(annotateNode);
+      }
+    }
+
+    Array.from(dom.childNodes).forEach(annotateNode);
+    return changed;
+  }, []);
+
+  const openPdEditor = useCallback((id) => {
+    if (!id) return;
+    const exists = pdRef.current.persons.some(p => p.id === id) || pdRef.current.otherPD.some(p => p.id === id);
+    if (exists) setEditingPdId(id);
+  }, []);
+
+  const openPdFragmentEditor = useCallback((id, markEl) => {
+    if (!id || !markEl) return;
+    setEditingPdFragment({
+      id,
+      text: normalizePdText(markEl.dataset.original || markEl.textContent || ''),
+    });
+  }, []);
+
+  const handleSavePdEdit = useCallback((payload) => {
+    if (!payload?.id) return;
+
+    const nextPd = {
+      ...pdRef.current,
+      persons: (pdRef.current.persons || []).map(person => {
+        if (person.id !== payload.id) return person;
+        const fullName = normalizePdText(payload.fullName || person.fullName);
+        return {
+          ...person,
+          fullName,
+          role: payload.role ?? person.role ?? '',
+          mentions: dedupeMentions(payload.mentions?.length ? payload.mentions : [fullName, ...(person.mentions || [])]),
+        };
+      }),
+      otherPD: (pdRef.current.otherPD || []).map(item => {
+        if (item.id !== payload.id) return item;
+        const value = normalizePdText(payload.value || item.value);
+        return {
+          ...item,
+          type: payload.type || item.type,
+          value,
+          replacement: payload.replacement || item.replacement || '[ПД]',
+          mentions: dedupeMentions(payload.mentions?.length ? payload.mentions : [value, ...(item.mentions || [])]),
+        };
+      }),
+    };
+
+    pdRef.current = nextPd;
+    setPersonalData(nextPd);
+    setEditingPdId(null);
+
+    const updatedItem = nextPd.otherPD.find(item => item.id === payload.id);
+    if (updatedItem && anonRef.current[payload.id]) {
+      patchPdMarks(editorDomRef.current, payload.id, true, null, updatedItem.replacement);
+    }
+
+    const newHtml = editorDomRef.current?.innerHTML ?? editorHtml;
+    setEditorHtml(newHtml);
+    const changed = annotatePdMentionsInEditor(nextPd, payload.id);
+    const finalHtml = changed ? (editorDomRef.current?.innerHTML ?? newHtml) : newHtml;
+    setEditorHtml(finalHtml);
+    pushSnap({ html: finalHtml, pd: nextPd, anon: anonRef.current });
+  }, [annotatePdMentionsInEditor, editorHtml]);
+
+  const handleSavePdFragmentEdit = useCallback((payload) => {
+    if (!payload?.id) return;
+    const dom = editorDomRef.current;
+    if (!dom) return;
+
+    const nextText = normalizePdText(payload.text);
+    if (!nextText) return;
+
+    const marks = Array.from(dom.querySelectorAll(`mark[data-pd-id="${payload.id}"]`));
+    const targetMark = marks.find(mark => normalizePdText(mark.dataset.original || mark.textContent) === normalizePdText(editingPdFragment?.text))
+      || marks[0];
+    if (!targetMark) return;
+
+    targetMark.dataset.original = nextText;
+    if (!targetMark.classList.contains('anon')) {
+      targetMark.textContent = nextText;
+    }
+
+    const nextPd = {
+      ...pdRef.current,
+      persons: (pdRef.current.persons || []).map(item => item.id === payload.id
+        ? { ...item, mentions: dedupeMentions([...(item.mentions || []), nextText, item.fullName]) }
+        : item),
+      otherPD: (pdRef.current.otherPD || []).map(item => item.id === payload.id
+        ? { ...item, mentions: dedupeMentions([...(item.mentions || []), nextText, item.value]) }
+        : item),
+    };
+
+    pdRef.current = nextPd;
+    setPersonalData(nextPd);
+    setEditingPdFragment(null);
+
+    const html = dom.innerHTML;
+    setEditorHtml(html);
+    pushSnap({ html, pd: nextPd, anon: anonRef.current });
+  }, [editingPdFragment]);
+
   // ── Re-annotate otherPD after uncertain mark is resolved ──────────────────
   const handleUncertainResolved = useCallback(() => {
     if (!editorDomRef.current) return;
@@ -1700,14 +1922,16 @@ export default function App() {
         const text = node.textContent;
         const allMatches = [];
         for (const item of unmarked) {
-          if (!item.value) continue;
-          try {
-            const re = new RegExp(buildPattern(item.value), 'gi');
-            let m;
-            while ((m = re.exec(text)) !== null) {
-              allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], item });
-            }
-          } catch {}
+          const values = getOtherPdMentions(item);
+          for (const value of values) {
+            try {
+              const re = new RegExp(buildPattern(value), 'gi');
+              let m;
+              while ((m = re.exec(text)) !== null) {
+                allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], item });
+              }
+            } catch {}
+          }
         }
         if (allMatches.length === 0) return;
         allMatches.sort((a, b) => a.start - b.start);
@@ -2015,6 +2239,17 @@ ${content}
     other: 'Прочее',
   };
   const hasPD = privatePersons.length > 0 || profPersons.length > 0 || otherPD.length > 0;
+  const currentEditingPd = editingPdId
+    ? (personalData.persons?.find(p => p.id === editingPdId) || personalData.otherPD?.find(p => p.id === editingPdId) || null)
+    : null;
+  const currentEditingPdFragment = editingPdFragment
+    ? {
+        ...editingPdFragment,
+        pdItem: personalData.persons?.find(p => p.id === editingPdFragment.id)
+          || personalData.otherPD?.find(p => p.id === editingPdFragment.id)
+          || null,
+      }
+    : null;
 
   // Documents not belonging to any project — shown on main page history
   const freeHistory = history.filter(h => !h.projectId);
@@ -2416,6 +2651,22 @@ ${content}
         )}
 
         {/* ════ CREATE PROJECT MODAL ════ */}
+        {currentEditingPd && (
+          <PdRecordEditorModal
+            pdItem={currentEditingPd}
+            onClose={() => setEditingPdId(null)}
+            onSave={handleSavePdEdit}
+          />
+        )}
+        {currentEditingPdFragment && (
+          <PdFragmentEditorModal
+            fragment={currentEditingPdFragment}
+            onClose={() => setEditingPdFragment(null)}
+            onSave={handleSavePdFragmentEdit}
+          />
+        )}
+
+        {/* ════ CREATE PROJECT MODAL ════ */}
         {showCreateProject && (
           <div className="modal-overlay">
             <div className="modal">
@@ -2725,6 +2976,7 @@ ${content}
                                 <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
                               </span>
                             )}
+                            <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(p.id); }} title="Редактировать запись ПД">Изм.</button>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
@@ -2756,6 +3008,7 @@ ${content}
                                 <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
                               </span>
                             )}
+                            <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(p.id); }} title="Редактировать запись ПД">Изм.</button>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
@@ -2786,6 +3039,7 @@ ${content}
                                 <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
                               </span>
                             )}
+                            <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(item.id); }} title="Редактировать запись ПД">Изм.</button>
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
                           </span>
                           <span className="pd-item-role">→ {item.replacement}</span>
@@ -2877,6 +3131,8 @@ ${content}
                 onHtmlChange={handleEditorHtmlChange}
                 onPdClick={handlePdClick}
                 onRemovePdMark={handleRemovePdMark}
+                onEditPdMark={openPdEditor}
+                onEditPdTextMark={openPdFragmentEditor}
                 onAttachPdMark={handleAttachPdMark}
                 onAddPdMark={handleAddPdMark}
                 onRemoveAmbiguousMark={handleRemoveAmbiguousMark}
@@ -2998,4 +3254,155 @@ ${content}
 function formatDate(date) {
   if (!(date instanceof Date) || isNaN(date)) return '';
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+const OTHER_PD_TYPE_OPTIONS = [
+  { value: 'address', label: 'Адрес' },
+  { value: 'phone', label: 'Телефон' },
+  { value: 'passport', label: 'Паспорт' },
+  { value: 'zagranpassport', label: 'Загранпаспорт' },
+  { value: 'inn', label: 'ИНН' },
+  { value: 'snils', label: 'СНИЛС' },
+  { value: 'card', label: 'Банковская карта' },
+  { value: 'email', label: 'Email' },
+  { value: 'dob', label: 'Дата рождения' },
+  { value: 'birthplace', label: 'Место рождения' },
+  { value: 'vehicle_plate', label: 'Госномер' },
+  { value: 'vehicle_vin', label: 'VIN' },
+  { value: 'driver_license', label: 'Водительское удостоверение' },
+  { value: 'military_id', label: 'Военный билет' },
+  { value: 'oms_policy', label: 'Полис ОМС' },
+  { value: 'birth_certificate', label: 'Свидетельство о рождении' },
+  { value: 'imei', label: 'IMEI' },
+  { value: 'other', label: 'Прочее' },
+];
+
+function PdRecordEditorModal({ pdItem, onClose, onSave }) {
+  const isPerson = Object.prototype.hasOwnProperty.call(pdItem || {}, 'fullName');
+  const [fullName, setFullName] = useState(pdItem?.fullName || '');
+  const [role, setRole] = useState(pdItem?.role || '');
+  const [type, setType] = useState(pdItem?.type || 'other');
+  const [value, setValue] = useState(pdItem?.value || '');
+  const [replacement, setReplacement] = useState(pdItem?.replacement || '');
+  const [mentionsText, setMentionsText] = useState(
+    (isPerson ? getPersonMentions(pdItem) : getOtherPdMentions(pdItem)).join('\n')
+  );
+
+  const handleSave = () => {
+    const mentions = dedupeMentions(
+      mentionsText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+    );
+
+    if (isPerson) {
+      const nextFullName = normalizePdText(fullName);
+      if (!nextFullName) return;
+      onSave({
+        id: pdItem.id,
+        fullName: nextFullName,
+        role,
+        mentions: dedupeMentions([nextFullName, ...mentions]),
+      });
+      return;
+    }
+
+    const nextValue = normalizePdText(value);
+    if (!nextValue) return;
+    onSave({
+      id: pdItem.id,
+      type,
+      value: nextValue,
+      replacement: normalizePdText(replacement) || '[ПД]',
+      mentions: dedupeMentions([nextValue, ...mentions]),
+    });
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-title">Редактирование ПД</div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {isPerson ? (
+            <>
+              <div>
+                <label className="modal-label">ФИО</label>
+                <input className="modal-input" value={fullName} onChange={e => setFullName(e.target.value)} />
+              </div>
+              <div>
+                <label className="modal-label">Роль</label>
+                <input className="modal-input" value={role} onChange={e => setRole(e.target.value)} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="modal-label">Тип ПД</label>
+                <select className="modal-input" value={type} onChange={e => setType(e.target.value)}>
+                  {OTHER_PD_TYPE_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="modal-label">Основное значение</label>
+                <input className="modal-input" value={value} onChange={e => setValue(e.target.value)} />
+              </div>
+              <div>
+                <label className="modal-label">Замена при обезличивании</label>
+                <input className="modal-input" value={replacement} onChange={e => setReplacement(e.target.value)} />
+              </div>
+            </>
+          )}
+          <div>
+            <label className="modal-label">Варианты в тексте / mentions</label>
+            <textarea
+              className="modal-input"
+              style={{ minHeight: 140, resize: 'vertical' }}
+              value={mentionsText}
+              onChange={e => setMentionsText(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="btn-primary btn-sm" onClick={handleSave}>Сохранить</button>
+          <button className="btn-tool" onClick={onClose}>Отмена</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PdFragmentEditorModal({ fragment, onClose, onSave }) {
+  const [text, setText] = useState(fragment?.text || '');
+
+  const handleSave = () => {
+    const nextText = normalizePdText(text);
+    if (!nextText) return;
+    onSave({ id: fragment.id, text: nextText });
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-title">Исправить текст фрагмента</div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label className="modal-label">Текст в документе</label>
+            <input className="modal-input" value={text} onChange={e => setText(e.target.value)} autoFocus />
+          </div>
+          {fragment?.pdItem && (
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+              Изменение будет применено к текущему фрагменту и добавлено в mentions этой записи ПД.
+            </div>
+          )}
+        </div>
+        <div className="modal-actions">
+          <button className="btn-primary btn-sm" onClick={handleSave}>Сохранить</button>
+          <button className="btn-tool" onClick={onClose}>Отмена</button>
+        </div>
+      </div>
+    </div>
+  );
 }

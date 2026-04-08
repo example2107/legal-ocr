@@ -167,6 +167,19 @@ function buildAmbiguousPersonPattern(value) {
   return `(?<![A-Za-zА-Яа-яЁё])${base}(?![A-Za-zА-Яа-яЁё])`;
 }
 
+function getOtherPdMentions(item) {
+  const seen = new Set();
+  return [item?.value, ...(item?.mentions || [])]
+    .map(value => String(value || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter(value => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function annotateAmbiguousPersonsHtml(html, ambiguousPersons) {
   if (!ambiguousPersons || ambiguousPersons.length === 0) return html;
 
@@ -367,7 +380,9 @@ function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
     }
   }
   for (const it of otherPD) {
-    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
+    for (const mention of getOtherPdMentions(it)) {
+      marks.push({ txt: mention, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
+    }
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
@@ -451,7 +466,9 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
     }
   }
   for (const it of otherPD) {
-    if (it.value) marks.push({ txt: it.value, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
+    for (const mention of getOtherPdMentions(it)) {
+      marks.push({ txt: mention, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
+    }
   }
   marks.sort((a, b) => b.txt.length - a.txt.length);
 
@@ -872,7 +889,7 @@ function AddPdForm({ x, y, onAdd, onClose, categories = ['private', 'professiona
 }
 
 // ── Контекстное меню редактора ───────────────────────────────────────────────
-function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
+function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onRemovePd, onEditPd, onEditPdText, onRemoveUncertain, onApplySuggestion, onAttachPd, onAddNewPd, onClose }) {
   const menuRef = React.useRef(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
 
@@ -912,9 +929,17 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
       onMouseDown={e => e.stopPropagation()}
     >
       {type === 'pd' && (
-        <div className="ctx-menu-item ctx-menu-item-danger" onClick={onRemovePd}>
-          Не является ПД
-        </div>
+        <>
+          <div className="ctx-menu-item" onClick={() => { onEditPdText?.(pdId, mark); onClose(); }}>
+            Исправить текст фрагмента
+          </div>
+          <div className="ctx-menu-item" onClick={() => { onEditPd?.(pdId); onClose(); }}>
+            Редактировать запись ПД
+          </div>
+          <div className="ctx-menu-item ctx-menu-item-danger" onClick={onRemovePd}>
+            Не является ПД
+          </div>
+        </>
       )}
       {type === 'uncertain' && (
         <>
@@ -1015,7 +1040,7 @@ function EditorContextMenu({ x, y, type, suggestion, existingPD, onRemovePd, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onEditPdMark, onEditPdTextMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -1307,8 +1332,12 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAt
           y={ctxMenu.y}
           type={ctxMenu.type}
           suggestion={ctxMenu.mark?.dataset?.suggestion || ''}
+          pdId={ctxMenu.mark?.dataset?.pdId || ''}
+          mark={ctxMenu.mark || null}
           existingPD={existingPD}
           onRemovePd={removePdMark}
+          onEditPd={onEditPdMark}
+          onEditPdText={onEditPdTextMark}
           onRemoveUncertain={ctxMenu.type === 'ambiguous' ? removeAmbiguousMark : removeUncertainMark}
           onApplySuggestion={applyUncertainSuggestion}
           onAttachPd={attachPdMark}

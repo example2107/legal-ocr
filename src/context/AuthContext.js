@@ -17,6 +17,11 @@ const defaultAuthContext = {
 
 const AuthContext = createContext(defaultAuthContext);
 
+function getEmailRedirectUrl() {
+  if (typeof window === 'undefined' || !window.location?.origin) return undefined;
+  return `${window.location.origin}/`;
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
@@ -60,7 +65,13 @@ export function AuthProvider({ children }) {
     },
     signUpWithPassword: async ({ email, password }) => {
       if (!supabase) throw new Error('Supabase не настроен');
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: getEmailRedirectUrl(),
+        },
+      });
       if (error) throw error;
     },
     signOut: async () => {
