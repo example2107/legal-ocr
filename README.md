@@ -91,6 +91,11 @@ npm run deps:check
 npm run dupcheck
 ```
 
+Важно:
+
+- production build намеренно запускается с `CI=false`, чтобы `CRA` не валил deploy на `eslint` warnings;
+- строгие проверки качества для разработки и рефакторинга запускаются отдельно через `lint` и `test:ci`.
+
 Точечный прогон ключевых тестов:
 
 ```bash
