@@ -1,27 +1,28 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { getPdfPageCount, pdfToImages, pdfToImagesRange, imageFileToBase64 } from './utils/pdfUtils';
+import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import AuthScreen from './components/AuthScreen';
 import { RichEditor, buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { useAuth } from './context/AuthContext';
+import { useStoredData } from './hooks/useStoredData';
+import { buildLoadedDocumentState, getClearedWorkspaceState } from './utils/documentViewState';
 import { generateId, exportDocument, importDocument } from './utils/history';
+import { getProjectSummaryDocEntry, mergeProjectDocument, saveProjectSummaryDocument } from './utils/projectDocumentOps';
 import {
   addDocumentToProjectRecord,
   buildSourceFileKey,
   createProjectRecord,
   deleteDocumentRecord,
   deleteProjectRecord,
-  listDocuments,
-  listProjects,
   removeDocumentFromProjectRecord,
   saveDocumentRecord,
   saveProjectRecord,
   updateProjectBatchSessionRecord,
-  updateProjectSharedPDRecord,
   uploadSourceFile,
 } from './utils/dataStore';
-import { PROJECT_PDF_CHUNK_SIZE, createProjectPdfBatchSession, formatProjectChunkPageRange, formatProjectChunkTitle, getProjectPdfChunkEnd, isSameProjectPdfBatchFile, updateProjectPdfBatchSession } from './utils/projectBatch';
+import { PROJECT_PDF_CHUNK_SIZE, formatProjectChunkPageRange, getProjectPdfChunkEnd } from './utils/projectBatch';
+import { runProjectBatchRecognition } from './utils/runProjectBatchRecognition';
 import './App.css';
 
 const ALPHA_PRIVATE = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ'.split('').map(l => l + '.');
@@ -166,10 +167,8 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [provider, setProvider] = useState('claude');
-  const [dataLoading, setDataLoading] = useState(isConfigured);
 
   // ── Projects ──────────────────────────────────────────────────────────────
-  const [projects, setProjects] = useState([]);
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
@@ -188,6 +187,7 @@ export default function App() {
   const [originalPage, setOriginalPage] = useState(0);
   const [zoomActive, setZoomActive] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
+  const [, setZoomOffset] = useState({ x: 0, y: 0 });
   const [viewerTip, setViewerTip] = useState(null); // null или {x, y}
   const viewerBodyRef = useRef(null);
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
@@ -238,7 +238,6 @@ export default function App() {
   const [anonymized, setAnonymized] = useState({});
   const [lastSavedState, setLastSavedState] = useState(null);
 
-  const [history, setHistory] = useState([]);
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
   const [showUncertainWarning, setShowUncertainWarning] = useState(false);
@@ -253,7 +252,30 @@ export default function App() {
   const projectImportRef = useRef();
   const dragFileIdx = useRef(null);
   const uploadedFilesRef = useRef(new Map());
-  const hasHydratedCloudDataRef = useRef(false);
+
+  const handleStoredDataError = useCallback((message) => {
+    setError(message);
+  }, []);
+
+  const handleStoredDataSignedOut = useCallback(() => {
+    setCurrentProjectId(null);
+    uploadedFilesRef.current.clear();
+  }, []);
+
+  const {
+    dataLoading,
+    history,
+    projects,
+    refreshHistory,
+    refreshProjects,
+    setProjects,
+  } = useStoredData({
+    authLoading,
+    isConfigured,
+    userId,
+    onError: handleStoredDataError,
+    onSignedOut: handleStoredDataSignedOut,
+  });
 
   const removeAmbiguousEntry = useCallback((pd, markEl) => {
     if (!markEl) return pd;
@@ -497,76 +519,6 @@ export default function App() {
     el.addEventListener('wheel', handler, { passive: false });
   }, []);
 
-  const refreshHistory = useCallback(async () => {
-    const docs = await listDocuments(userId ? { id: userId } : null);
-    setHistory(docs);
-    return docs;
-  }, [userId]);
-
-  const refreshProjects = useCallback(async () => {
-    const nextProjects = await listProjects(userId ? { id: userId } : null);
-    setProjects(nextProjects);
-    return nextProjects;
-  }, [userId]);
-
-  useEffect(() => {
-    if (authLoading) return;
-
-    if (!isConfigured) {
-      let active = true;
-
-      Promise.all([listDocuments(null), listProjects(null)])
-        .then(([docs, nextProjects]) => {
-          if (!active) return;
-          setHistory(docs);
-          setProjects(nextProjects);
-          hasHydratedCloudDataRef.current = true;
-          setDataLoading(false);
-        })
-        .catch((err) => {
-          if (!active) return;
-          setError(err.message || 'Ошибка загрузки данных');
-          setDataLoading(false);
-        });
-
-      return () => {
-        active = false;
-      };
-    }
-
-    if (!userId) {
-      setHistory([]);
-      setProjects([]);
-      setCurrentProjectId(null);
-      hasHydratedCloudDataRef.current = false;
-      setDataLoading(false);
-      uploadedFilesRef.current.clear();
-      return;
-    }
-
-    let active = true;
-    const shouldBlockUi = !hasHydratedCloudDataRef.current;
-    if (shouldBlockUi) setDataLoading(true);
-
-    Promise.all([listDocuments({ id: userId }), listProjects({ id: userId })])
-      .then(([docs, nextProjects]) => {
-        if (!active) return;
-        setHistory(docs);
-        setProjects(nextProjects);
-        hasHydratedCloudDataRef.current = true;
-        setDataLoading(false);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setError(err.message || 'Ошибка загрузки данных');
-        if (shouldBlockUi) setDataLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [authLoading, isConfigured, userId]);
-
   useEffect(() => {
     if (currentProjectId && !projects.some((item) => item.id === currentProjectId)) {
       setCurrentProjectId(null);
@@ -715,132 +667,18 @@ export default function App() {
     loadDoc(entry);
   };
 
-  // Мёржит ПД документа с накопленной базой проекта, пересобирает HTML, сохраняет
   const mergeDocIntoProject = async (docEntry) => {
-    const projectDocs = getProjectDocs();
-    let existingPD = null;
-    if (projectDocs.length > 0) {
-      const lastDoc = projectDocs[projectDocs.length - 1];
-      if (lastDoc.personalData) existingPD = lastDoc.personalData;
-    }
-
-    let pd;
-    if (existingPD) {
-      const merged = mergePD(existingPD, docEntry.personalData || { persons: [], otherPD: [] });
-      pd = assignLetters(merged, existingPD);
-    } else {
-      pd = assignLetters(docEntry.personalData || { persons: [], otherPD: [] });
-    }
-
-    const initialAnon = docEntry.anonymized || {};
-
-    // Use editedHtml if available (preserves user edits like uncertain mark resolutions),
-    // otherwise build from raw text
-    let html;
-    if (docEntry.editedHtml) {
-      // Start from the user-edited HTML and re-annotate with new PD from project base
-      html = docEntry.editedHtml;
-
-      // Find new PD entries that aren't already marked in the HTML
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      const markedIds = new Set();
-      tmp.querySelectorAll('mark[data-pd-id]').forEach(el => markedIds.add(el.dataset.pdId));
-
-      // Annotate new persons
-      const newPersons = pd.persons.filter(p => !markedIds.has(p.id));
-      const newOtherPD = pd.otherPD.filter(it => !markedIds.has(it.id));
-
-      if (newPersons.length > 0 || newOtherPD.length > 0) {
-        const escReLocal = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const buildPatternLocal = (value) => {
-          const parts = value.trim().split(/\s+/).filter(Boolean);
-          if (parts.length === 0) return escReLocal(value);
-          return parts.map(p => escReLocal(p)).join('[\\s\\n]+');
-        };
-
-        function annotateNewInNode(node) {
-          if (node.nodeType === 3) {
-            const text = node.textContent;
-            const allMatches = [];
-
-            // Search for new persons
-            for (const p of newPersons) {
-              for (const mention of (p.mentions || [p.fullName])) {
-                if (!mention || mention.length < 2) continue;
-                try {
-                  // Simple pattern: escape + case insensitive
-                  const re = new RegExp(escReLocal(mention), 'gi');
-                  let m;
-                  while ((m = re.exec(text)) !== null) {
-                    const cat = p.category === 'professional' ? 'prof' : 'priv';
-                    allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], id: p.id, cat, letter: p.letter, isAnon: !!initialAnon[p.id], type: 'person' });
-                  }
-                } catch {}
-              }
-            }
-
-            // Search for new otherPD
-            for (const item of newOtherPD) {
-              for (const mention of getOtherPdMentions(item)) {
-                try {
-                  const re = new RegExp(buildPatternLocal(mention), 'gi');
-                  let m;
-                  while ((m = re.exec(text)) !== null) {
-                    allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], id: item.id, cat: 'oth', replacement: item.replacement, isAnon: !!initialAnon[item.id], type: 'other' });
-                  }
-                } catch {}
-              }
-            }
-
-            if (allMatches.length === 0) return;
-            allMatches.sort((a, b) => a.start - b.start);
-            const filtered = [];
-            let lastEnd = 0;
-            for (const m of allMatches) {
-              if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
-            }
-
-            const fragment = document.createDocumentFragment();
-            let lastIdx = 0;
-            for (const match of filtered) {
-              if (match.start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, match.start)));
-              const el = document.createElement('mark');
-              el.className = 'pd ' + match.cat + (match.isAnon ? ' anon' : '');
-              el.dataset.pdId = match.id;
-              el.dataset.original = match.mt;
-              el.contentEditable = 'false';
-              el.title = match.isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
-              el.textContent = match.isAnon ? (match.type === 'person' ? match.letter : match.replacement) : match.mt;
-              fragment.appendChild(el);
-              lastIdx = match.end;
-            }
-            if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
-            node.parentNode.replaceChild(fragment, node);
-          } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
-            Array.from(node.childNodes).forEach(annotateNewInNode);
-          }
-        }
-        Array.from(tmp.childNodes).forEach(annotateNewInNode);
-        html = tmp.innerHTML;
-      }
-    } else {
-      html = buildAnnotatedHtml(docEntry.text || '', pd, initialAnon);
-    }
-
-    const updatedDoc = {
-      ...docEntry,
-      personalData: pd,
-      editedHtml: html,
-      projectId: currentProjectId,
-      savedAt: new Date().toISOString(),
-    };
-    await saveDocumentRecord(user, updatedDoc);
-    await addDocumentToProjectRecord(user, currentProjectId, updatedDoc.id);
-    await updateProjectSharedPDRecord(user, currentProjectId, pd);
-    await refreshHistory();
-    await refreshProjects();
-    return updatedDoc;
+    return mergeProjectDocument({
+      user,
+      currentProjectId,
+      docEntry,
+      projectDocs: getProjectDocs(),
+      mergePD,
+      assignLetters,
+      getOtherPdMentions,
+      refreshHistory,
+      refreshProjects,
+    });
   };
 
   const handleAddDocFromHistory = async (docId) => {
@@ -868,66 +706,19 @@ export default function App() {
   // ── Project summary document ────────────────────────────────────────────────
   const getProjectSummaryDoc = () => {
     if (!currentProject) return null;
-    return history.find(h => h.projectId === currentProjectId && h.isProjectSummary) || null;
+    return getProjectSummaryDocEntry(history, currentProjectId);
   };
 
   const buildProjectSummary = async () => {
-    if (!currentProjectId) return;
-    const docs = getProjectDocs();
-    if (docs.length === 0) return;
-
-    // Merge all editedHtml with part separators between them
-    const htmlParts = docs.map((doc, idx) => {
-      const docHtml = doc.editedHtml || '';
-      if (idx === 0) return docHtml;
-      const separator = `<div class="part-separator" contenteditable="false"><span class="part-separator-line"></span><span class="part-separator-label">Часть ${idx + 1}: ${doc.title || ''}</span><span class="part-separator-line"></span></div>`;
-      return separator + docHtml;
+    return saveProjectSummaryDocument({
+      user,
+      currentProject,
+      currentProjectId,
+      docs: getProjectDocs(),
+      history,
+      refreshHistory,
+      refreshProjects,
     });
-    const mergedHtml = htmlParts.join('');
-
-    // Take PD from last doc (cumulative)
-    const lastDoc = docs[docs.length - 1];
-    const pd = lastDoc.personalData || { persons: [], otherPD: [] };
-
-    // Merge anonymized from all docs
-    const mergedAnon = {};
-    docs.forEach(doc => {
-      Object.entries(doc.anonymized || {}).forEach(([id, val]) => {
-        if (val) mergedAnon[id] = true;
-      });
-    });
-
-    // Merge rawText
-    const mergedText = docs.map((doc, idx) => {
-      const text = doc.text || '';
-      if (idx === 0) return text;
-      return '\n[PART:' + (idx + 1) + ']\n' + text;
-    }).join('');
-
-    const summaryId = generateId();
-    const summaryDoc = {
-      id: summaryId,
-      title: '📋 Итоговый документ — ' + (currentProject.title || 'Проект'),
-      originalFileName: '',
-      text: mergedText,
-      editedHtml: mergedHtml,
-      personalData: pd,
-      anonymized: mergedAnon,
-      source: 'project-summary',
-      projectId: currentProjectId,
-      isProjectSummary: true,
-      savedAt: new Date().toISOString(),
-    };
-
-    // Remove old summary if exists
-    const oldSummary = getProjectSummaryDoc();
-    if (oldSummary) {
-      await deleteDocumentRecord(user, oldSummary.id);
-    }
-
-    await saveDocumentRecord(user, summaryDoc);
-    await refreshHistory();
-    await refreshProjects();
   };
 
   const handleBuildSummary = () => {
@@ -959,13 +750,6 @@ export default function App() {
     setFiles(prev => [...prev, ...valid]);
   }, []);
 
-  const getProjectBatchOverallPercent = (completedChunks, totalChunks, chunkPercent = 0) => {
-    const safeTotal = Math.max(1, totalChunks);
-    const base = 6 + (completedChunks / safeTotal) * 90;
-    const current = (chunkPercent / 100) * (90 / safeTotal);
-    return Math.max(2, Math.min(98, Math.round(base + current)));
-  };
-
   const ensureUploadedSourceFile = useCallback(async (file, projectId = null) => {
     if (!user || !file) return null;
     const key = buildSourceFileKey(file);
@@ -978,179 +762,32 @@ export default function App() {
   }, [user]);
 
   const handleProjectRecognize = async () => {
-    if (!apiKey.trim()) { setError('Введите API ключ'); return; }
-    if (files.length === 0) { setError('Добавьте хотя бы один PDF-файл'); return; }
-    if (!currentProjectId) return;
-
-    setError(null);
-    await cleanupDuplicateProjectChunkDocs(currentProjectId);
-    setView(VIEW_PROCESSING);
-
-    try {
-      const liveProject = projects.find((item) => item.id === currentProjectId) || null;
-      const activeBatchSession = liveProject?.batchSession || null;
-      let jobs = [];
-
-      if (activeBatchSession && activeBatchSession.status !== 'completed') {
-        if (files.length !== 1) {
-          throw new Error('Для продолжения выберите только тот PDF-файл, обработка которого была прервана.');
-        }
-        if (!isSameProjectPdfBatchFile(activeBatchSession, files[0])) {
-          throw new Error('Для продолжения выберите тот же PDF-файл, который обрабатывался ранее. Если хотите начать другой файл, сначала сбросьте незавершённую обработку.');
-        }
-        jobs = [{
-          file: files[0],
-          totalPages: activeBatchSession.totalPages,
-          session: updateProjectPdfBatchSession(activeBatchSession, { status: 'running', error: '' }),
-        }];
-      } else {
-        setProgress({ percent: 2, message: 'Подсчёт страниц PDF...' });
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          const totalPages = await getPdfPageCount(file);
-          setProgress({
-            percent: Math.round(2 + ((i + 1) / files.length) * 8),
-            message: `Подсчёт страниц: ${file.name} (${totalPages} стр.)`,
-          });
-          jobs.push({ file, totalPages, session: null });
-        }
-      }
-
-      let totalChunks = jobs.reduce((sum, job) => {
-        const startPage = job.session?.nextPage || 1;
-        return sum + Math.ceil(Math.max(0, job.totalPages - startPage + 1) / PROJECT_PDF_CHUNK_SIZE);
-      }, 0);
-      totalChunks = Math.max(1, totalChunks);
-
-      let completedChunks = 0;
-      let existingPD = getProjectExistingPD();
-      let nextDocumentNumber = activeBatchSession?.nextDocumentNumber || (getProjectDocs().length + 1);
-      let lastSavedDoc = null;
-      let lastChunkImages = [];
-      let failedSession = null;
-
-      for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
-        const { file, totalPages } = jobs[jobIndex];
-        const uploadedSourceFile = await ensureUploadedSourceFile(file, currentProjectId);
-        let session = jobs[jobIndex].session || createProjectPdfBatchSession(file, totalPages, nextDocumentNumber);
-        session = updateProjectPdfBatchSession(session, { status: 'running', error: '' });
-        await saveProjectBatchSessionState(session);
-
-        for (let pageFrom = session.nextPage || 1; pageFrom <= session.totalPages; pageFrom += session.chunkSize || PROJECT_PDF_CHUNK_SIZE) {
-          const pageTo = getProjectPdfChunkEnd(pageFrom, session.totalPages, session.chunkSize || PROJECT_PDF_CHUNK_SIZE);
-          session = updateProjectPdfBatchSession(session, {
-            status: 'running',
-            error: '',
-            nextPage: pageFrom,
-            nextDocumentNumber,
-            currentPageFrom: pageFrom,
-            currentPageTo: pageTo,
-          });
-          failedSession = session;
-          await saveProjectBatchSessionState(session);
-
-          const rangeLabel = formatProjectChunkPageRange(pageFrom, pageTo, session.totalPages);
-          setProgress({
-            percent: getProjectBatchOverallPercent(completedChunks, totalChunks, 0),
-            message: `${file.name}: подготовка ${rangeLabel}...`,
-          });
-
-          const chunkImages = await pdfToImagesRange(file, pageFrom, pageTo, (pageNumInFile) => {
-            const rendered = Math.max(0, pageNumInFile - pageFrom + 1);
-            const innerPercent = Math.round((rendered / (pageTo - pageFrom + 1)) * 18);
-            setProgress({
-              percent: getProjectBatchOverallPercent(completedChunks, totalChunks, innerPercent),
-              message: `${file.name}: рендер ${rangeLabel} (${rendered}/${pageTo - pageFrom + 1})...`,
-            });
-          });
-          lastChunkImages = chunkImages;
-
-          const result = await recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
-            const chunkPercent = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-            const percent = getProjectBatchOverallPercent(completedChunks, totalChunks, Math.max(20, chunkPercent));
-            setProgress(prev => prev && prev.percent > percent
-              ? { ...prev, message: `${file.name}: ${p.message} (${rangeLabel})` }
-              : { percent, message: `${file.name}: ${p.message} (${rangeLabel})` }
-            );
-          }, existingPD);
-
-          const pd = existingPD
-            ? assignLetters(mergePD(existingPD, result.personalData), existingPD)
-            : assignLetters(result.personalData);
-
-          const initialAnon = {};
-          const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-          const currentProjectDocs = getProjectDocs();
-          const chunkMatches = currentProjectDocs.filter(doc =>
-            doc.batchFileName === file.name &&
-            Number(doc.pageFrom || 0) === pageFrom &&
-            Number(doc.pageTo || 0) === pageTo
-          );
-          const primaryChunkDoc = chunkMatches[0] || null;
-          if (chunkMatches.length > 1) {
-            for (const doc of chunkMatches.slice(1)) {
-              await removeDocumentFromProjectRecord(user, currentProjectId, doc.id);
-              await deleteDocumentRecord(user, doc.id);
-            }
-          }
-          const docEntry = await saveDocumentRecord(user, {
-            id: primaryChunkDoc?.id || generateId(),
-            title: primaryChunkDoc?.title || formatProjectChunkTitle(nextDocumentNumber, file.name),
-            originalFileName: file.name,
-            text: result.text,
-            editedHtml: html,
-            personalData: pd,
-            anonymized: initialAnon,
-            source: 'ocr',
-            projectId: currentProjectId,
-            pageFrom,
-            pageTo,
-            totalPages: session.totalPages,
-            chunkIndex: Math.ceil(pageFrom / (session.chunkSize || PROJECT_PDF_CHUNK_SIZE)),
-            chunkSize: session.chunkSize || PROJECT_PDF_CHUNK_SIZE,
-            batchFileName: file.name,
-            sourceFiles: uploadedSourceFile ? [uploadedSourceFile] : [],
-          });
-          await addDocumentToProjectRecord(user, currentProjectId, docEntry.id);
-          await updateProjectSharedPDRecord(user, currentProjectId, pd);
-          await refreshHistory();
-          await refreshProjects();
-
-          lastSavedDoc = docEntry;
-          existingPD = pd;
-          nextDocumentNumber += 1;
-          completedChunks += 1;
-
-          session = updateProjectPdfBatchSession(session, {
-            nextPage: pageTo + 1,
-            nextDocumentNumber,
-            status: pageTo >= session.totalPages ? 'completed' : 'running',
-            error: '',
-            currentPageFrom: pageFrom,
-            currentPageTo: pageTo,
-          });
-          await saveProjectBatchSessionState(pageTo >= session.totalPages ? null : session);
-          failedSession = pageTo >= session.totalPages ? null : session;
-        }
-      }
-
-      stopProgressCreep();
-      await saveProjectBatchSessionState(null);
-      setFiles([]);
-      if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, lastChunkImages);
-      setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
-    } catch (err) {
-      stopProgressCreep();
-      if (failedSession) {
-        await saveProjectBatchSessionState(updateProjectPdfBatchSession(failedSession, {
-          status: 'failed',
-          error: err.message || 'Произошла ошибка',
-        }));
-      }
-      setError(err.message || 'Произошла ошибка');
-      setView(VIEW_PROJECT);
-      setProgress(null);
-    }
+    await runProjectBatchRecognition({
+      apiKey,
+      files,
+      currentProjectId,
+      projects,
+      provider,
+      user,
+      cleanupDuplicateProjectChunkDocs,
+      saveProjectBatchSessionState,
+      getProjectExistingPD,
+      getProjectDocs,
+      ensureUploadedSourceFile,
+      mergePD,
+      assignLetters,
+      refreshHistory,
+      refreshProjects,
+      openRecognizedDocResult,
+      stopProgressCreep,
+      setError,
+      setView,
+      setFiles,
+      setProgress,
+      viewProcessing: VIEW_PROCESSING,
+      viewProject: VIEW_PROJECT,
+      viewResult: VIEW_RESULT,
+    });
   };
 
   // ── Import .юрдок file ──────────────────────────────────────────────────────
@@ -1170,28 +807,33 @@ export default function App() {
   };
 
   const openRecognizedDocResult = useCallback((entry, images = []) => {
-    const pd = entry.personalData || { persons: [], otherPD: [], ambiguousPersons: [] };
-    const anon = entry.anonymized || {};
-    const html = entry.editedHtml || buildAnnotatedHtml(entry.text || '', pd, anon);
+    const nextState = buildLoadedDocumentState({
+      entry,
+      images,
+      currentProjectId,
+      buildAnnotatedHtml,
+      extractPdIdsFromHtml,
+      shouldShowLongDocWarningForEntry,
+    });
 
-    setDocId(entry.id);
-    setDocTitle(entry.title || '');
-    setOriginalFileName(entry.originalFileName || '');
-    setSourceFiles(entry.sourceFiles || []);
-    setRawText(entry.text || '');
-    setEditorHtml(html);
-    setOriginalImages(images);
-    setShowOriginal(images.length > 0);
-    setOriginalPage(0);
-    setPdIdsInDoc(currentProjectId ? extractPdIdsFromHtml(html) : null);
-    pdRef.current = pd;
-    anonRef.current = anon;
-    setPersonalData(pd);
-    setAnonymized(anon);
-    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anon), html }));
-    undoStackRef.current = [{ html, pd, anon }];
+    setDocId(nextState.docId);
+    setDocTitle(nextState.docTitle);
+    setOriginalFileName(nextState.originalFileName);
+    setSourceFiles(nextState.sourceFiles);
+    setRawText(nextState.rawText);
+    setEditorHtml(nextState.editorHtml);
+    setOriginalImages(nextState.originalImages);
+    setShowOriginal(nextState.showOriginal);
+    setOriginalPage(nextState.originalPage);
+    setPdIdsInDoc(nextState.pdIdsInDoc);
+    pdRef.current = nextState.personalData;
+    anonRef.current = nextState.anonymized;
+    setPersonalData(nextState.personalData);
+    setAnonymized(nextState.anonymized);
+    setLastSavedState(nextState.lastSavedState);
+    undoStackRef.current = [nextState.initialUndoSnapshot];
     undoIndexRef.current = 0;
-    setShowLongDocWarning(shouldShowLongDocWarningForEntry(entry));
+    setShowLongDocWarning(nextState.showLongDocWarning);
   }, [currentProjectId, shouldShowLongDocWarningForEntry]);
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
@@ -1223,40 +865,33 @@ export default function App() {
     }
   };
 
+  const resetWorkingDocumentState = useCallback(() => {
+    const cleared = getClearedWorkspaceState();
+    setFiles(cleared.files);
+    setPastedText(cleared.pastedText);
+    setOriginalImages(cleared.originalImages);
+    setShowOriginal(cleared.showOriginal);
+    setOriginalPage(cleared.originalPage);
+    setZoomActive(cleared.zoomActive);
+    setZoomScale(cleared.zoomScale);
+    setZoomOffset(cleared.zoomOffset);
+    setOriginalFileName(cleared.originalFileName);
+    setSourceFiles(cleared.sourceFiles);
+    setError(cleared.error);
+    setProgress(cleared.progress);
+    setShowUnsaved(cleared.showUnsaved);
+  }, []);
+
   const doGoBackToProject = () => {
     setView(VIEW_PROJECT);
-    setFiles([]);
-    setPastedText('');
-    setOriginalImages([]);
-    setShowOriginal(false);
-    setOriginalPage(0);
-    setZoomActive(false);
-    setZoomScale(1);
-    setZoomOffset({ x: 0, y: 0 });
-    setOriginalFileName('');
-    setSourceFiles([]);
-    setError(null);
-    setProgress(null);
-    setShowUnsaved(false);
+    resetWorkingDocumentState();
     void refreshHistory();
     void refreshProjects();
   };
 
   const doGoHome = () => {
     setView(VIEW_HOME);
-    setFiles([]);
-    setPastedText('');
-    setOriginalImages([]);
-    setShowOriginal(false);
-    setOriginalPage(0);
-    setZoomActive(false);
-    setZoomScale(1);
-    setZoomOffset({ x: 0, y: 0 });
-    setOriginalFileName('');
-    setSourceFiles([]);
-    setError(null);
-    setProgress(null);
-    setShowUnsaved(false);
+    resetWorkingDocumentState();
     setCurrentProjectId(null);
     void refreshHistory();
     void refreshProjects();

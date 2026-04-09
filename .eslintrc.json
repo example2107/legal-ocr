@@ -1,0 +1,43 @@
+{
+  "extends": [
+    "react-app",
+    "react-app/jest"
+  ],
+  "rules": {
+    "complexity": [
+      "warn",
+      15
+    ],
+    "max-depth": [
+      "warn",
+      4
+    ],
+    "max-lines": [
+      "warn",
+      {
+        "max": 500,
+        "skipBlankLines": true,
+        "skipComments": true
+      }
+    ],
+    "max-params": [
+      "warn",
+      5
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.js",
+        "**/*.integration.test.js"
+      ],
+      "rules": {
+        "import/first": "off",
+        "testing-library/await-async-query": "off",
+        "testing-library/no-unnecessary-act": "off",
+        "testing-library/prefer-screen-queries": "off",
+        "testing-library/render-result-naming-convention": "off"
+      }
+    }
+  ]
+}

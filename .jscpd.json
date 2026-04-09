@@ -1,0 +1,16 @@
+{
+  "path": [
+    "src"
+  ],
+  "ignore": [
+    "**/*.test.js",
+    "**/*.integration.test.js",
+    "**/*.css"
+  ],
+  "minLines": 8,
+  "minTokens": 60,
+  "threshold": 3,
+  "reporters": [
+    "console"
+  ]
+}
