@@ -16,7 +16,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "cross-env CI=false react-scripts build",
     "test": "react-scripts test",
     "test:ci": "cross-env CI=true react-scripts test --watchAll=false",
     "coverage": "cross-env CI=true react-scripts test --watchAll=false --coverage",
