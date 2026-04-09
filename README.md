@@ -81,6 +81,16 @@ npm run build
 npm test
 ```
 
+Дополнительные проверки качества:
+
+```bash
+npm run lint
+npm run test:ci
+npm run coverage
+npm run deps:check
+npm run dupcheck
+```
+
 Точечный прогон ключевых тестов:
 
 ```bash
@@ -102,16 +112,24 @@ src/
 │   ├── RichEditor.css
 │   └── RichEditor.person-regression.test.js
 ├── context/
-│   └── AuthContext.js
+│   ├── AuthContext.js
+│   └── AuthContext.test.js
+├── hooks/
+│   └── useStoredData.js
 └── utils/
     ├── claudeApi.js
     ├── claudeApi.ambiguous.test.js
     ├── dataStore.js
+    ├── dataStore.test.js
+    ├── documentViewState.js
     ├── docxParser.js
     ├── history.js
     ├── pdfUtils.js
     ├── projectBatch.js
     ├── projectBatch.test.js
+    ├── projectDocumentOps.js
+    ├── richEditorAnnotations.js
+    ├── runProjectBatchRecognition.js
     └── supabaseClient.js
 
 supabase/
@@ -141,6 +159,22 @@ supabase/
 
 Если нужно понять общий flow, почти всегда начинать нужно с `src/App.js`.
 
+Важно:
+
+- `App.js` всё ещё остаётся главным hotspot проекта;
+- но часть orchestration уже вынесена в отдельные модули, поэтому новую логику лучше добавлять не прямо в этот файл, а в соответствующий util или hook.
+
+### 1.1. `useStoredData.js`
+
+Хук для загрузки и обновления основных данных приложения.
+
+Сейчас он отвечает за:
+
+- первичную загрузку `history` и `projects`;
+- `dataLoading`;
+- `refreshHistory()` и `refreshProjects()`;
+- auth-aware hydration и очистку данных при выходе пользователя.
+
 ### 2. `RichEditor.js`
 
 Это ядро разметки и интерактивной работы с текстом.
@@ -157,6 +191,25 @@ supabase/
 - вспомогательная логика редактора.
 
 Если проблема связана с тем, что что-то не подсветилось или подсветилось неправильно, смотреть нужно сюда.
+
+Важно:
+
+- pure annotation/matching логика уже вынесена из `RichEditor.js`;
+- сам файл теперь в первую очередь отвечает за UI редактора, DOM patching и контекстные действия.
+
+### 2.1. `richEditorAnnotations.js`
+
+Отдельный util для pure-логики разметки.
+
+Там сейчас находятся:
+
+- regex-паттерны для `persons` и `otherPD`;
+- адресный matcher;
+- построение annotated HTML;
+- разметка `ambiguousPersons`;
+- `htmlToPlainText()`.
+
+Если задача связана именно с тем, как текст размечается и где ищутся ПД-совпадения, сначала смотреть нужно сюда.
 
 ### 3. `claudeApi.js`
 
@@ -192,6 +245,13 @@ supabase/
 - загружает исходные файлы в `Supabase Storage`.
 
 Если вопрос про то, где теперь реально живут документы и проекты, смотреть сначала сюда.
+
+Важно:
+
+- это основной persistence-слой приложения;
+- `Supabase` на free-tier уже является базовым рабочим режимом;
+- fallback в `history.js` нужен для режима без cloud-настроек и для совместимости;
+- этот слой теперь прикрыт отдельными тестами.
 
 ### 5. `history.js`
 
@@ -244,6 +304,37 @@ supabase/
 - метаданные batch-сессии;
 - resume-сопоставление файла;
 - форматирование названий и диапазонов страниц.
+
+### 8.1. `runProjectBatchRecognition.js`
+
+Отдельный orchestration util для batch-распознавания больших PDF в проекте.
+
+Он держит:
+
+- проход по батчам;
+- обновление `batchSession`;
+- вызов OCR/persistence-слоя;
+- логику resume и очистку дублей батчей.
+
+### 8.2. `projectDocumentOps.js`
+
+Service-слой для project-level операций над документами.
+
+Сейчас там живут:
+
+- merge документа в проект;
+- построение summary-документа;
+- сохранение `project-summary`.
+
+### 8.3. `documentViewState.js`
+
+Небольшой util для сборки и очистки рабочего состояния документа.
+
+Он используется для:
+
+- загрузки документа в result-view;
+- reset рабочего документа;
+- возврата на проект и домой без ручного раскладывания множества setter'ов в `App.js`.
 
 ## Экраны приложения
 
@@ -565,10 +656,12 @@ supabase/
 
 ### Где смотреть
 
-- orchestration: [src/App.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/App.js)
-- helpers: [src/utils/projectBatch.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/projectBatch.js)
-- PDF page-range rendering: [src/utils/pdfUtils.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/pdfUtils.js)
-- project storage: [src/utils/history.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/history.js)
+- orchestration: [src/App.js](C:/Users/lebed/Desktop/legal-ocr/src/App.js)
+- batch runner: [src/utils/runProjectBatchRecognition.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/runProjectBatchRecognition.js)
+- helpers: [src/utils/projectBatch.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/projectBatch.js)
+- PDF page-range rendering: [src/utils/pdfUtils.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/pdfUtils.js)
+- project/document persistence: [src/utils/dataStore.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/dataStore.js)
+- local fallback: [src/utils/history.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/history.js)
 
 ### Что важно помнить
 
@@ -622,6 +715,16 @@ supabase/
 
 ## Тесты
 
+### Покрытие безопасного refactor-слоя
+
+В проект уже добавлены проверки, которые важны именно для дальнейшей безопасной разработки:
+
+- `src/context/AuthContext.test.js` — auth/session lifecycle, signup redirect, cloud-mode auth flow;
+- `src/utils/dataStore.test.js` — `Supabase` persistence, local fallback, source-file upload;
+- `npm run deps:check` — проверка циклических зависимостей через `madge`;
+- `npm run dupcheck` — контроль явного copy-paste через `jscpd`;
+- `npm run lint` — guardrails по сложности, размеру файлов и базовым ошибкам.
+
 ### `src/components/RichEditor.person-regression.test.js`
 
 Покрывает:
@@ -654,6 +757,29 @@ supabase/
 - attach existing person для ambiguous-метки;
 - `Ctrl+Z`;
 - `Ctrl+Shift+Z`.
+
+## Текущее состояние code health
+
+После последних безопасных рефакторингов проект лучше подготовлен для дальнейшей разработки, но hotspots всё ещё есть.
+
+Что уже сделано:
+
+- добавлены quality guardrails (`eslint`, `madge`, `jscpd`);
+- добавлены тесты на `Supabase/Auth` и persistence-слой;
+- часть orchestration уже вынесена из `App.js`;
+- pure annotation-слой вынесен из `RichEditor.js`.
+
+Что остаётся главным источником сложности:
+
+- `src/App.js`;
+- `src/components/RichEditor.js`;
+- `src/utils/claudeApi.js`.
+
+Практический вывод:
+
+- новые крупные задачи лучше делать малыми шагами;
+- перед заметной правкой стоит прогонять `lint`, целевые тесты и `build`;
+- если появляется ещё один большой поток изменений, лучше снова выносить его в отдельный util/hook, а не раздувать `App.js`.
 
 ## Следующая главная задача
 
@@ -793,14 +919,17 @@ Batch-проект уже создаёт основу:
 - cloud-режим сейчас построен на `Supabase` free-tier, поэтому при работе с файлами и будущими page-assets важно учитывать ограниченный storage;
 - `localStorage` больше не является основной моделью хранения, но всё ещё важен как fallback и как legacy-слой совместимости;
 - любые крупные изменения в редакторе лучше проверять не только unit-тестами regex, но и хотя бы одним интеграционным сценарием;
+- для нового рефакторинга уже есть базовые guardrails: `lint`, `deps:check`, `dupcheck`, `test:ci`;
 - если продолжение работы идёт в новом чате, почти всегда начинать нужно с чтения:
-  - [src/App.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/App.js)
-  - [src/components/RichEditor.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/components/RichEditor.js)
-  - [src/utils/claudeApi.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/claudeApi.js)
-  - [src/utils/dataStore.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/dataStore.js)
-  - [src/context/AuthContext.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/context/AuthContext.js)
-  - [src/utils/supabaseClient.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/supabaseClient.js)
-  - [supabase/schema.sql](/Users/lebedev/Desktop/GitHub/legal-ocr/supabase/schema.sql)
-  - [src/utils/history.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/history.js)
-  - [src/utils/pdfUtils.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/pdfUtils.js)
-  - [src/utils/projectBatch.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/utils/projectBatch.js)
+  - [src/App.js](C:/Users/lebed/Desktop/legal-ocr/src/App.js)
+  - [src/components/RichEditor.js](C:/Users/lebed/Desktop/legal-ocr/src/components/RichEditor.js)
+  - [src/utils/richEditorAnnotations.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/richEditorAnnotations.js)
+  - [src/utils/claudeApi.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/claudeApi.js)
+  - [src/utils/dataStore.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/dataStore.js)
+  - [src/hooks/useStoredData.js](C:/Users/lebed/Desktop/legal-ocr/src/hooks/useStoredData.js)
+  - [src/context/AuthContext.js](C:/Users/lebed/Desktop/legal-ocr/src/context/AuthContext.js)
+  - [src/utils/supabaseClient.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/supabaseClient.js)
+  - [supabase/schema.sql](C:/Users/lebed/Desktop/legal-ocr/supabase/schema.sql)
+  - [src/utils/projectDocumentOps.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/projectDocumentOps.js)
+  - [src/utils/runProjectBatchRecognition.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/runProjectBatchRecognition.js)
+  - [src/utils/documentViewState.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/documentViewState.js)
