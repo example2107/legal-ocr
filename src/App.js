@@ -344,6 +344,7 @@ export default function App() {
   const projectFileInputRef = useRef();
   const projectImportRef = useRef();
   const editorPageInputRef = useRef(null);
+  const editorNavigatingPageRef = useRef(null);
   const dragFileIdx = useRef(null);
   const uploadedFilesRef = useRef(new Map());
 
@@ -661,12 +662,21 @@ export default function App() {
     const el = titleRowRef.current;
     if (!el) return;
     const update = () => {
-      document.documentElement.style.setProperty('--titlerow-h', el.offsetHeight + 'px');
+      const height = el.offsetHeight;
+      document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
+      const bottom = Math.round(el.getBoundingClientRect().bottom);
+      document.documentElement.style.setProperty('--toolbar-top', `${bottom + 2}px`);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
   }, []);
 
   useEffect(() => {
@@ -1466,6 +1476,7 @@ export default function App() {
     if (!targetPage || !editorDomRef.current) return false;
     const targetSeparator = editorDomRef.current.querySelector(`.page-separator[data-page="${targetPage}"]`);
     if (!targetSeparator) return false;
+    editorNavigatingPageRef.current = targetPage;
     setEditorCurrentPage(targetPage);
     setEditorPageInput(String(targetPage));
     const imageIndex = getOriginalImageIndexForPage(originalImages, targetPage);
@@ -1479,6 +1490,11 @@ export default function App() {
         behavior: 'smooth',
       });
     });
+    window.setTimeout(() => {
+      if (editorNavigatingPageRef.current === targetPage) {
+        editorNavigatingPageRef.current = null;
+      }
+    }, 450);
     return true;
   }, [getEditorScrollOffset, originalImages]);
 
@@ -1505,12 +1521,25 @@ export default function App() {
     if (view !== VIEW_RESULT) return;
     let rafId = null;
     const syncPageInput = () => {
-      const currentPage = getCurrentEditorPageNumber();
+      const navigatingPage = editorNavigatingPageRef.current;
+      const currentPage = navigatingPage || getCurrentEditorPageNumber();
       const totalPages = getEditorTotalPages();
       setEditorCurrentPage(currentPage || (totalPages ? 1 : null));
       setEditorTotalPages(totalPages || null);
       if (currentPage) {
         setEditorPageInput(String(currentPage));
+      }
+      if (!navigatingPage) return;
+      const targetSeparator = editorDomRef.current?.querySelector(`.page-separator[data-page="${navigatingPage}"]`);
+      if (!targetSeparator) {
+        editorNavigatingPageRef.current = null;
+        return;
+      }
+      const threshold = getEditorScrollOffset();
+      const rect = targetSeparator.getBoundingClientRect();
+      const nearDocumentBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      if (rect.top <= threshold + 6 || nearDocumentBottom) {
+        editorNavigatingPageRef.current = null;
       }
     };
     const handleScroll = () => {
@@ -1525,7 +1554,7 @@ export default function App() {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleScroll);
     };
-  }, [editorHtml, getCurrentEditorPageNumber, getEditorTotalPages, view]);
+  }, [editorHtml, getCurrentEditorPageNumber, getEditorScrollOffset, getEditorTotalPages, view]);
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   const countUncertain = () => {
