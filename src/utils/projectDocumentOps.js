@@ -1,6 +1,19 @@
 import { buildAnnotatedHtml } from '../components/RichEditor';
 import { addDocumentToProjectRecord, deleteDocumentRecord, saveDocumentRecord, updateProjectSharedPDRecord } from './dataStore';
+import { mergeDocumentCoordinateLayer } from './documentCoordinateLayer';
+import { mergeDocumentPageMetadata } from './documentPageMetadata';
 import { generateId } from './history';
+
+function mergeSourceFiles(existingFiles = [], nextFiles = []) {
+  const files = [...(existingFiles || []), ...(nextFiles || [])];
+  const seen = new Set();
+  return files.filter((file, index) => {
+    const key = file?.storagePath || file?.name || `file_${index}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function annotateMergedDocumentHtml({ html, pd, initialAnon, getOtherPdMentions }) {
   const tmp = document.createElement('div');
@@ -214,6 +227,8 @@ export async function saveProjectSummaryDocument({
     source: 'project-summary',
     projectId: currentProjectId,
     isProjectSummary: true,
+    pageMetadata: mergeDocumentPageMetadata(docs),
+    coordinateLayer: mergeDocumentCoordinateLayer(docs),
     savedAt: new Date().toISOString(),
   };
 
@@ -226,4 +241,64 @@ export async function saveProjectSummaryDocument({
   await refreshHistory();
   await refreshProjects();
   return summaryDoc;
+}
+
+export function buildProjectBatchDocumentEntry({
+  existingDoc = null,
+  pageEntry,
+  currentProjectId,
+  pd,
+  getOtherPdMentions,
+} = {}) {
+  if (!pageEntry) return null;
+
+  const mergedAnon = {
+    ...(existingDoc?.anonymized || {}),
+    ...(pageEntry?.anonymized || {}),
+  };
+  const existingHtml = existingDoc?.editedHtml
+    ? annotateMergedDocumentHtml({
+        html: existingDoc.editedHtml,
+        pd,
+        initialAnon: mergedAnon,
+        getOtherPdMentions,
+      })
+    : '';
+  const nextPageHtml = pageEntry.editedHtml
+    ? annotateMergedDocumentHtml({
+        html: pageEntry.editedHtml,
+        pd,
+        initialAnon: mergedAnon,
+        getOtherPdMentions,
+      })
+    : buildAnnotatedHtml(pageEntry.text || '', pd, mergedAnon);
+  const documentsToMerge = [existingDoc, pageEntry].filter(Boolean);
+  const pageMetadata = mergeDocumentPageMetadata(documentsToMerge);
+  const primarySource = pageMetadata?.sources?.[0] || null;
+
+  return {
+    ...(existingDoc || {}),
+    ...pageEntry,
+    id: existingDoc?.id || pageEntry.id || generateId(),
+    title: existingDoc?.title || pageEntry.originalFileName || pageEntry.batchFileName || pageEntry.title || 'PDF-документ',
+    originalFileName: pageEntry.originalFileName || existingDoc?.originalFileName || '',
+    text: [existingDoc?.text || '', pageEntry.text || ''].filter(Boolean).join('\n'),
+    editedHtml: [existingHtml, nextPageHtml].filter(Boolean).join(''),
+    personalData: pd,
+    anonymized: mergedAnon,
+    source: 'project-batch',
+    projectId: currentProjectId || pageEntry.projectId || existingDoc?.projectId || null,
+    pageFrom: existingDoc?.pageFrom || pageEntry.pageFrom || primarySource?.pageFrom || null,
+    pageTo: pageEntry.pageTo || existingDoc?.pageTo || primarySource?.pageTo || null,
+    totalPages: pageEntry.totalPages || existingDoc?.totalPages || primarySource?.totalPages || null,
+    chunkIndex: null,
+    chunkSize: 1,
+    batchFileName: pageEntry.batchFileName || existingDoc?.batchFileName || '',
+    sourceFiles: mergeSourceFiles(existingDoc?.sourceFiles, pageEntry.sourceFiles),
+    pageMetadata,
+    coordinateLayer: mergeDocumentCoordinateLayer(documentsToMerge),
+    patchLayer: existingDoc?.patchLayer || null,
+    isProjectSummary: false,
+    savedAt: new Date().toISOString(),
+  };
 }

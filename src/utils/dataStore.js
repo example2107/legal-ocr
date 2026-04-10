@@ -13,6 +13,9 @@ import {
   STORAGE_BUCKET_SOURCE_FILES,
   supabase,
 } from './supabaseClient';
+import { normalizeDocumentCoordinateLayer } from './documentCoordinateLayer';
+import { normalizeDocumentPatchLayer } from './documentPatchLayer';
+import { normalizeDocumentPageMetadata } from './documentPageMetadata';
 
 function canUseCloud(user) {
   return Boolean(user?.id && isSupabaseConfigured && supabase);
@@ -48,7 +51,7 @@ function projectToRow(userId, project) {
 }
 
 function mapDocumentRow(row) {
-  return {
+  const entry = {
     id: row.id,
     title: row.title,
     originalFileName: row.original_file_name || '',
@@ -68,9 +71,38 @@ function mapDocumentRow(row) {
     sourceFiles: row.source_files || [],
     savedAt: row.saved_at || row.updated_at,
   };
+
+  const pageMetadata = normalizeDocumentPageMetadata({
+    ...entry,
+    pageMetadata: row.page_metadata || null,
+  });
+  const coordinateLayer = normalizeDocumentCoordinateLayer({
+    ...entry,
+    coordinateLayer: row.coordinate_layer || null,
+  });
+  const patchLayer = normalizeDocumentPatchLayer({
+    ...entry,
+    patchLayer: row.patch_layer || null,
+  });
+  const primarySource = pageMetadata?.sources?.[0] || null;
+
+  return {
+    ...entry,
+    pageFrom: entry.pageFrom || primarySource?.pageFrom || null,
+    pageTo: entry.pageTo || primarySource?.pageTo || null,
+    totalPages: entry.totalPages || primarySource?.totalPages || null,
+    pageMetadata,
+    coordinateLayer,
+    patchLayer,
+  };
 }
 
 function documentToRow(userId, doc) {
+  const pageMetadata = normalizeDocumentPageMetadata(doc);
+  const coordinateLayer = normalizeDocumentCoordinateLayer(doc);
+  const patchLayer = normalizeDocumentPatchLayer(doc);
+  const primarySource = pageMetadata?.sources?.[0] || null;
+
   return {
     id: doc.id,
     user_id: userId,
@@ -83,13 +115,16 @@ function documentToRow(userId, doc) {
     source: doc.source || 'ocr',
     project_id: doc.projectId || null,
     is_project_summary: !!doc.isProjectSummary,
-    page_from: doc.pageFrom || null,
-    page_to: doc.pageTo || null,
-    total_pages: doc.totalPages || null,
+    page_from: doc.pageFrom || primarySource?.pageFrom || null,
+    page_to: doc.pageTo || primarySource?.pageTo || null,
+    total_pages: doc.totalPages || primarySource?.totalPages || null,
     chunk_index: doc.chunkIndex || null,
     chunk_size: doc.chunkSize || null,
     batch_file_name: doc.batchFileName || '',
     source_files: doc.sourceFiles || [],
+    page_metadata: pageMetadata,
+    coordinate_layer: coordinateLayer,
+    patch_layer: patchLayer,
     saved_at: doc.savedAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

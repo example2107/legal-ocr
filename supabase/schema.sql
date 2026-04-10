@@ -37,10 +37,22 @@ create table if not exists public.documents (
   chunk_size integer,
   batch_file_name text not null default '',
   source_files jsonb not null default '[]'::jsonb,
+  page_metadata jsonb,
+  coordinate_layer jsonb,
+  patch_layer jsonb,
   saved_at timestamptz not null default timezone('utc', now()),
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table if exists public.documents
+  add column if not exists page_metadata jsonb;
+
+alter table if exists public.documents
+  add column if not exists coordinate_layer jsonb;
+
+alter table if exists public.documents
+  add column if not exists patch_layer jsonb;
 
 create index if not exists projects_user_id_idx on public.projects(user_id);
 create index if not exists documents_user_id_idx on public.documents(user_id);

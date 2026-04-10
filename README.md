@@ -17,18 +17,24 @@
 - загружать `PDF`, изображения (`JPG`, `PNG`, `WEBP`) и `DOCX`;
 - принимать цифровой текст через отдельную вкладку `Текст`;
 - распознавать текст через `Claude`, `OpenAI` или `Gemini`;
+- перед OCR осторожно автообрезать изображение по границе основной страницы, если границы найдены уверенно;
 - делать консервативный post-OCR quality check для явных OCR-сбоев;
 - извлекать персональные данные и хранить их в структурированном виде;
 - показывать результат в редакторе с интерактивными маркерами;
 - обезличивать найденные ПД прямо в редакторе;
 - редактировать запись ПД из панели ПД;
+- удалять конкретную запись ПД из панели ПД;
 - быстро исправлять конкретный фрагмент ПД в тексте через ПКМ;
 - применять к конкретному маркеру канонический вид из панели ПД;
 - показывать uncertain-маркеры `НЕТОЧНО` / `НЕЧИТАЕМО` с вариантами исправления через ПКМ;
 - вести историю документов;
 - работать с проектами, где несколько частей документа используют общую накопительную базу ПД;
-- распознавать большие PDF в проекте по частям;
+- распознавать большие PDF в проекте постранично с возможностью продолжения после остановки;
+- автоматически собирать постраничное распознавание большого PDF в один накапливаемый документ проекта;
 - собирать итоговый документ проекта;
+- показывать оригинальные страницы PDF и локально накладывать на них preview правок;
+- сохранять локальные PDF-патчи как отдельный слой документа;
+- экспортировать `PDF` с учётом локальных `ready`-патчей поверх оригинальных страниц;
 - экспортировать результат в `PDF`, `DOCX` и формат `.юрдок`.
 
 ## Технологический стек
@@ -99,7 +105,7 @@ npm run dupcheck
 Точечный прогон ключевых тестов:
 
 ```bash
-CI=true npm test -- --watchAll=false --runInBand src/components/RichEditor.person-regression.test.js src/utils/claudeApi.ambiguous.test.js src/utils/projectBatch.test.js src/App.ambiguous-undo.integration.test.js
+CI=true npm test -- --watchAll=false --runInBand src/components/RichEditor.person-regression.test.js src/utils/claudeApi.ambiguous.test.js src/utils/projectBatch.test.js src/utils/projectDocumentOps.test.js src/utils/documentPageMetadata.test.js src/utils/documentCoordinateLayer.test.js src/utils/documentCoordinateMatcher.test.js src/utils/documentPatchRegion.test.js src/utils/documentPatchPlan.test.js src/utils/documentPatchLayer.test.js src/utils/documentPageCompositor.test.js src/utils/documentImageCrop.test.js src/App.ambiguous-undo.integration.test.js
 ```
 
 ## Общая структура проекта
@@ -112,7 +118,13 @@ src/
 ├── index.css
 ├── components/
 │   ├── AuthScreen.js
+│   ├── DocumentPatchList.js
 │   ├── DocumentRenderer.js
+│   ├── DocumentTitleActions.js
+│   ├── OriginalViewerPanel.js
+│   ├── PdFragmentEditorModal.js
+│   ├── PdFragmentPatchDetails.js
+│   ├── PdfPatchExportPreviewModal.js
 │   ├── RichEditor.js
 │   ├── RichEditor.css
 │   └── RichEditor.person-regression.test.js
@@ -120,19 +132,43 @@ src/
 │   ├── AuthContext.js
 │   └── AuthContext.test.js
 ├── hooks/
+│   ├── usePatchedViewerPages.js
+│   ├── usePdFragmentPatchPreview.js
+│   ├── usePdfExportFlow.js
 │   └── useStoredData.js
 └── utils/
     ├── claudeApi.js
     ├── claudeApi.ambiguous.test.js
     ├── dataStore.js
     ├── dataStore.test.js
+    ├── documentCoordinateLayer.js
+    ├── documentCoordinateLayer.test.js
+    ├── documentCoordinateMatcher.js
+    ├── documentCoordinateMatcher.test.js
+    ├── documentImageCrop.js
+    ├── documentImageCrop.test.js
+    ├── documentPageCompositor.js
+    ├── documentPageCompositor.test.js
+    ├── documentPageMetadata.js
+    ├── documentPageMetadata.test.js
+    ├── documentPatchLayer.js
+    ├── documentPatchLayer.test.js
+    ├── documentPatchPlan.js
+    ├── documentPatchPlan.test.js
+    ├── documentPatchRegion.js
+    ├── documentPatchRegion.test.js
     ├── documentViewState.js
     ├── docxParser.js
     ├── history.js
+    ├── originalImagePages.js
+    ├── originalViewerFiles.js
     ├── pdfUtils.js
+    ├── pdfExportFlow.js
+    ├── pdfPatchExport.js
     ├── projectBatch.js
     ├── projectBatch.test.js
     ├── projectDocumentOps.js
+    ├── projectDocumentOps.test.js
     ├── richEditorAnnotations.js
     ├── runProjectBatchRecognition.js
     └── supabaseClient.js
@@ -167,7 +203,7 @@ supabase/
 Важно:
 
 - `App.js` всё ещё остаётся главным hotspot проекта;
-- но часть orchestration уже вынесена в отдельные модули, поэтому новую логику лучше добавлять не прямо в этот файл, а в соответствующий util или hook.
+- но часть orchestration уже вынесена в отдельные модули, поэтому новую логику лучше добавлять не прямо в этот файл, а в соответствующий util, hook или компонент.
 
 ### 1.1. `useStoredData.js`
 
@@ -286,18 +322,106 @@ supabase/
 
 Если проблема связана с регистрацией, логином, сессией или тем, почему приложение ушло в local fallback, смотреть сначала сюда.
 
-### 7. `pdfUtils.js`
+### 7. PDF / patch pipeline
 
-Это слой работы с PDF через `pdf.js`.
+#### `pdfUtils.js`
 
 Сейчас умеет:
 
 - считать число страниц;
 - рендерить весь PDF в изображения;
 - рендерить только диапазон страниц;
+- сохранять размеры страниц и render-метаданные;
+- извлекать text-layer для digital PDF;
 - сжимать страницы до безопасного размера base64.
 
 Это критично для batch-обработки больших PDF.
+
+#### `documentImageCrop.js`
+
+Осторожная автообрезка изображения перед OCR.
+
+Сейчас util:
+
+- пытается найти главный прямоугольник страницы по яркости и форме;
+- убирает узкие боковые фрагменты соседних страниц;
+- обрезает изображение только если уверенность достаточная;
+- при сомнительном результате оставляет исходную картинку без изменений.
+
+Это нужно, чтобы OCR не захватывал текст с соседней страницы или фона снимка.
+
+#### `documentPageMetadata.js`
+
+Отдельный слой метаданных исходных страниц.
+
+Сейчас там:
+
+- связь документа с исходным PDF и страницами;
+- размеры страниц и диапазоны;
+- merge page metadata для batch-документов и итоговых документов.
+
+#### `documentCoordinateLayer.js`
+
+Координатный слой PDF.
+
+Он хранит:
+
+- страницы;
+- text spans / fragments;
+- bounding boxes для digital PDF text-layer;
+- merge и normalization для persistence.
+
+#### `documentCoordinateMatcher.js`
+
+Сопоставляет текст редактора с `coordinateLayer`.
+
+Возвращает:
+
+- страницу;
+- диапазон span-ов;
+- bbox найденной области;
+- тип совпадения.
+
+#### `documentPatchRegion.js` / `documentPatchPlan.js`
+
+Подготавливают будущую локальную замену на странице.
+
+Сейчас считают:
+
+- область замены;
+- эвристическую проверку, поместится ли новый текст;
+- `patchPlan` со статусом `ready` / `review_required` / `unavailable`.
+
+#### `documentPageCompositor.js`
+
+MVP-композитор страницы.
+
+Он умеет:
+
+- собирать preview локальной замены на canvas;
+- применять локальный патч к странице в viewer;
+- отдавать картинку страницы для patched PDF export.
+
+#### `documentPatchLayer.js`
+
+Persistence-слой локальных PDF-правок документа.
+
+Там сейчас:
+
+- хранение патчей;
+- удаление отдельных патчей;
+- список экспортируемых и пропускаемых патчей.
+
+#### `pdfPatchExport.js` / `pdfExportFlow.js` / `usePdfExportFlow.js`
+
+PDF export flow с поддержкой локальных патчей.
+
+Сейчас он:
+
+- показывает preview перед export;
+- отделяет `ready`-патчи от `review_required`;
+- собирает patched PDF из оригинальных страниц, если они загружены;
+- падает обратно в старый текстовый PDF export, если патчей нет.
 
 ### 8. `projectBatch.js`
 
@@ -305,7 +429,7 @@ supabase/
 
 Там лежат:
 
-- размер батча;
+- постраничный размер batch;
 - метаданные batch-сессии;
 - resume-сопоставление файла;
 - форматирование названий и диапазонов страниц.
@@ -316,10 +440,11 @@ supabase/
 
 Он держит:
 
-- проход по батчам;
+- постраничный проход по PDF;
 - обновление `batchSession`;
 - вызов OCR/persistence-слоя;
-- логику resume и очистку дублей батчей.
+- логику resume;
+- автоматическую сборку страниц в один накапливаемый документ проекта.
 
 ### 8.2. `projectDocumentOps.js`
 
@@ -327,7 +452,7 @@ Service-слой для project-level операций над документа
 
 Сейчас там живут:
 
-- merge документа в проект;
+- merge страниц большого PDF в один `project-batch` документ;
 - построение summary-документа;
 - сохранение `project-summary`.
 
@@ -373,6 +498,13 @@ Service-слой для project-level операций над документа
 - batch-обработка больших PDF;
 - кнопка сборки итогового документа.
 
+Важно:
+
+- большой PDF теперь распознаётся по `1` странице;
+- пользователь при этом не получает отдельный документ на каждую страницу;
+- страницы автоматически объединяются в один накапливаемый документ этого PDF;
+- если процесс остановился, продолжение идёт с первой необработанной страницы того же файла.
+
 Если Supabase настроен, проект и документы привязаны к текущему пользователю.
 
 ### `processing`
@@ -394,6 +526,8 @@ Service-слой для project-level операций над документа
 - редактор;
 - панель персональных данных;
 - опциональный viewer оригинала;
+- список локальных PDF-правок;
+- preview модалку экспорта patched PDF;
 - экспорт;
 - сохранение.
 
@@ -512,11 +646,12 @@ Service-слой для project-level операций над документа
 Для PDF и изображений сейчас flow такой:
 
 1. страницы переводятся в изображения;
-2. OCR идёт постранично;
-3. текст страниц склеивается с маркерами `[PAGE:N]`;
-4. quality-check исправляет явные OCR-ошибки;
-5. PD extraction возвращает JSON;
-6. редактор строит HTML-маркировку.
+2. при необходимости изображение осторожно обрезается по границе основной страницы;
+3. OCR идёт постранично;
+4. текст страниц склеивается с маркерами `[PAGE:N]`;
+5. quality-check исправляет явные OCR-ошибки;
+6. PD extraction возвращает JSON;
+7. редактор строит HTML-маркировку.
 
 Для DOCX:
 
@@ -552,7 +687,7 @@ Service-слой для project-level операций над документа
 
 - если документ длиннее этого лимита, часть ПД после лимита может не попасть в PD analysis;
 - в UI для таких документов показывается предупреждение;
-- для `project-summary` это предупреждение отключено, потому что итоговый документ не анализируется как один длинный запрос.
+- для `project-summary` и `project-batch` это предупреждение отключено, потому что эти документы не должны вводить пользователя в заблуждение длиной уже собранного результата.
 
 ### 2. `Supabase` + локальный fallback
 
@@ -584,14 +719,17 @@ Service-слой для project-level операций над документа
 
 ### 4. Текущий экспорт PDF
 
-Экспорт в PDF сейчас не восстанавливает оригинал.
+Экспорт в PDF теперь работает в двух режимах:
 
-Он фактически создаёт итог из HTML/редакторского представления. Это означает:
+- если локальных PDF-патчей нет, остаётся старый текстовый export;
+- если есть `ready`-патчи и загружен оригинал, приложение собирает patched PDF из оригинальных страниц с локальными заменами.
 
-- теряется достоверность оригинального изображения;
-- подписи, печати, фон бумаги и другие визуальные признаки оригинала в итоговом PDF не сохраняются как “реальный скан”.
+Важно понимать ограничения текущего MVP:
 
-Это и есть следующая главная задача проекта.
+- это не полноценное редактирование внутренней структуры PDF;
+- в export попадают только патчи со статусом `ready`;
+- `review_required`-патчи сейчас только показываются в preview и не применяются автоматически;
+- качество замены зависит от canvas-композитора и может отличаться от оригинальной типографики.
 
 ## Проекты
 
@@ -630,20 +768,22 @@ Service-слой для project-level операций над документа
 - `chunkIndex`
 - `chunkSize`
 - `batchFileName`
+- `pageMetadata`
+- `coordinateLayer`
+- `patchLayer`
 
-Эти поля уже важны для следующей задачи обратной сборки оригинального PDF.
+Эти поля уже используются в текущем MVP patched PDF export и остаются важны для дальнейшего усиления этого pipeline.
 
 ### Итоговый документ проекта
 
 `buildProjectSummary()`:
 
 - склеивает `editedHtml` частей;
-- вставляет `part-separator`;
 - берёт накопленный `personalData`;
 - мёржит `anonymized`;
 - создаёт документ с `source = 'project-summary'`.
 
-`project-summary` сейчас полезен как общий результат по проекту, но ещё не является “оригинальным обезличенным PDF”.
+`project-summary` сейчас полезен как общий результат по проекту, но он всё ещё остаётся логическим сводным документом, а не восстановленным исходным PDF.
 
 ## Batch-обработка больших PDF в проекте
 
@@ -651,22 +791,24 @@ Service-слой для project-level операций над документа
 
 ### Текущее поведение
 
-- большой PDF в проекте обрабатывается батчами по `5` страниц;
-- каждый батч сохраняется как отдельный документ проекта;
-- ПД мёржатся от батча к батчу через `sharedPD` / `existingPD`;
+- большой PDF в проекте обрабатывается по `1` странице;
+- каждая новая страница сразу подшивается в один накапливаемый `project-batch` документ;
+- пользователь не получает отдельный документ на каждую страницу;
+- ПД мёржатся от страницы к странице через `sharedPD` / `existingPD`;
 - если обработка прервалась, её можно продолжить;
-- продолжение идёт с начала незавершённого батча того же PDF;
+- продолжение идёт с первой необработанной страницы того же PDF;
 - для resume пользователь должен заново выбрать тот же файл;
-- дубли батчей по одному и тому же диапазону страниц автоматически чистятся.
+- нумерация страниц в тексте и page metadata теперь сквозная по исходному PDF;
+- старый пользовательский `part-separator` между batch-кусками больше не используется.
 
 ### Где смотреть
 
-- orchestration: [src/App.js](C:/Users/lebed/Desktop/legal-ocr/src/App.js)
-- batch runner: [src/utils/runProjectBatchRecognition.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/runProjectBatchRecognition.js)
-- helpers: [src/utils/projectBatch.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/projectBatch.js)
-- PDF page-range rendering: [src/utils/pdfUtils.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/pdfUtils.js)
-- project/document persistence: [src/utils/dataStore.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/dataStore.js)
-- local fallback: [src/utils/history.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/history.js)
+- orchestration: [src/App.js](/Users/lebedev/Desktop/legal-ocr/src/App.js)
+- batch runner: [src/utils/runProjectBatchRecognition.js](/Users/lebedev/Desktop/legal-ocr/src/utils/runProjectBatchRecognition.js)
+- helpers: [src/utils/projectBatch.js](/Users/lebedev/Desktop/legal-ocr/src/utils/projectBatch.js)
+- PDF page-range rendering: [src/utils/pdfUtils.js](/Users/lebedev/Desktop/legal-ocr/src/utils/pdfUtils.js)
+- project/document persistence: [src/utils/dataStore.js](/Users/lebedev/Desktop/legal-ocr/src/utils/dataStore.js)
+- local fallback: [src/utils/history.js](/Users/lebedev/Desktop/legal-ocr/src/utils/history.js)
 
 ### Что важно помнить
 
@@ -678,7 +820,7 @@ Service-слой для project-level операций над документа
 
 Это нормальное поведение для браузера и текущей архитектуры.
 
-## Viewer оригинала
+## Viewer оригинала и PDF-патчи
 
 В result-view есть показ оригинала через `originalImages`.
 
@@ -686,10 +828,12 @@ Service-слой для project-level операций над документа
 
 - `originalImages` живут только в runtime state;
 - это не долговременное хранение оригинала;
-- для batch-документов это только изображение текущего обработанного куска;
-- итоговый документ проекта не хранит полноценную связь с исходным PDF на уровне долгоживущего asset storage.
+- поверх них теперь можно накладывать локальные viewer-патчи из `patchLayer`;
+- список активных патчей доступен прямо в UI;
+- patched PDF export опирается на эти страницы и текущий patch pipeline;
+- если оригинальные страницы не загружены, patched export невозможен и приложение честно предупреждает об этом.
 
-Это критичный технический фактор для следующей задачи.
+Это остаётся критичным ограничением текущего MVP.
 
 ## Undo / redo
 
@@ -701,7 +845,7 @@ Service-слой для project-level операций над документа
 
 Покрыто интеграционным тестом:
 
-- [src/App.ambiguous-undo.integration.test.js](/Users/lebedev/Desktop/GitHub/legal-ocr/src/App.ambiguous-undo.integration.test.js)
+- [src/App.ambiguous-undo.integration.test.js](/Users/lebedev/Desktop/legal-ocr/src/App.ambiguous-undo.integration.test.js)
 
 ## Импорт / экспорт `.юрдок`
 
@@ -714,7 +858,10 @@ Service-слой для project-level операций над документа
 - ПД;
 - anonymized-state;
 - источник;
-- batch-метаданные страниц и файла.
+- batch-метаданные страниц и файла;
+- `pageMetadata`;
+- `coordinateLayer`;
+- `patchLayer`.
 
 Это полезно и для дебага, и для переноса кейсов между сессиями.
 
@@ -753,7 +900,21 @@ Service-слой для project-level операций над документа
 
 - построение batch-сессии;
 - resume-сопоставление файла;
-- helpers по chunk-range.
+- helpers по single-page range.
+
+### Новые PDF / patch tests
+
+Покрывают:
+
+- `src/utils/projectDocumentOps.test.js` — сборку одного накапливаемого `project-batch` документа;
+- `src/utils/documentPageMetadata.test.js` — merge и normalization page metadata;
+- `src/utils/documentCoordinateLayer.test.js` — координатный слой и merge страниц;
+- `src/utils/documentCoordinateMatcher.test.js` — сопоставление текста с PDF-координатами;
+- `src/utils/documentPatchRegion.test.js` — расчёт области замены;
+- `src/utils/documentPatchPlan.test.js` — статус и структура `patchPlan`;
+- `src/utils/documentPatchLayer.test.js` — хранение и фильтрация локальных патчей;
+- `src/utils/documentPageCompositor.test.js` — preview/compositor логика;
+- `src/utils/documentImageCrop.test.js` — автообрезка страницы перед OCR.
 
 ### `src/App.ambiguous-undo.integration.test.js`
 
@@ -773,6 +934,7 @@ Service-слой для project-level операций над документа
 - добавлены тесты на `Supabase/Auth` и persistence-слой;
 - часть orchestration уже вынесена из `App.js`;
 - pure annotation-слой вынесен из `RichEditor.js`.
+- PDF export / viewer / patch flow уже в значительной части вынесен в отдельные util, hook и component-модули.
 
 Что остаётся главным источником сложности:
 
@@ -786,135 +948,35 @@ Service-слой для project-level операций над документа
 - перед заметной правкой стоит прогонять `lint`, целевые тесты и `build`;
 - если появляется ещё один большой поток изменений, лучше снова выносить его в отдельный util/hook, а не раздувать `App.js`.
 
-## Следующая главная задача
+## Текущее состояние PDF-редактирования и что ещё осталось
 
-### Внесение правок из редактора обратно в оригинальный PDF в рамках проекта
+### Что уже реализовано
 
-Это по-прежнему основной следующий этап разработки, но сейчас его лучше считать не готовой спецификацией, а рабочим направлением проектирования.
+Сейчас в проекте уже есть рабочий MVP-конвейер внесения правок обратно в оригинальные страницы PDF:
 
-Цель:
+1. у документа сохраняются `pageMetadata`;
+2. для digital PDF сохраняется `coordinateLayer`;
+3. текстовый фрагмент редактора можно сопоставить с областью страницы;
+4. для замены строится `patchPlan`;
+5. можно собрать preview локальной замены;
+6. локальный патч можно применить в viewer;
+7. патчи сохраняются в `patchLayer`;
+8. перед export показывается preview, какие патчи попадут в PDF;
+9. `ready`-патчи можно экспортировать в patched PDF поверх оригинальных страниц.
 
-- не просто обезличивать текст в HTML-представлении;
-- а иметь возможность возвращать изменения из редактора обратно в оригинальные страницы PDF так, чтобы сохранялись:
-  - визуальная достоверность документа;
-  - ощущение реального скана;
-  - подписи;
-  - печати;
-  - фон бумаги;
-  - артефакты сканирования;
-  - все остальные неизменённые части документа.
+### Что ещё не считается полностью закрытым
 
-Практически это означает: итоговый PDF желательно собирать не из HTML, а из модифицированных оригинальных страниц.
+MVP уже рабочий, но задача ещё не завершена на 100%.
 
-### Почему это отдельная сложная задача
+Что ещё нужно для более надёжного продакшн-качества:
 
-Текущий редактор работает на текстовом / HTML-уровне.
+- прогнать patched export на большем наборе реальных документов;
+- улучшить типографику и качество локальной замены на странице;
+- решить, что делать с `review_required`-патчами;
+- усилить кейсы длинных замен, которые могут не помещаться в исходную область;
+- при необходимости улучшать работу со scan-only PDF, где нет полноценного text-layer.
 
-Для обратной записи в оригинал нужен другой уровень данных:
-
-- нужно знать, где именно на странице находится конкретный фрагмент текста;
-- нужно уметь сопоставлять редакторские изменения с координатами на оригинальной странице;
-- нужно собирать итоговый PDF из модифицированных оригинальных страниц, а не из HTML.
-
-При этом текущая договорённость по scope такая:
-
-- в MVP стоит поддержать обезличивание ПД;
-- в MVP стоит поддержать небольшие обычные правки текста, в основном OCR-исправления;
-- не стоит сразу пытаться поддержать произвольную полную перевёрстку длинных абзацев и перенос текста между страницами.
-
-### Технические детали, которые уже важны для реализации
-
-1. Batch-обработка уже режет PDF по страницам и сохраняет:
-- `pageFrom`
-- `pageTo`
-- `chunkIndex`
-- `chunkSize`
-- `batchFileName`
-
-Это полезно, потому что future pipeline уже знает, какой редакторский кусок относится к каким страницам оригинала.
-
-2. В runtime уже существует `originalImages` для текущего открытого документа.
-
-Но этого недостаточно, потому что:
-
-- они не живут долговременно;
-- они не покрывают весь проектный оригинал как persistent asset;
-- итоговый документ проекта не имеет прямого долгоживущего page-image store.
-
-3. Текущий экспорт PDF не решает эту задачу.
-
-То есть нельзя просто “улучшить текущий экспорт” маленьким патчем. Нужен отдельный pipeline.
-
-### Возможный рабочий план реализации
-
-Это не финальная архитектура, а наиболее реалистичный на текущий момент вариант.
-
-1. Сохранять исходный PDF как отдельный source-file в `Supabase Storage`.
-2. Привязать source-file к документу / batch-частям в `Postgres`.
-3. Добавить слой page-assets / page metadata:
-- документ;
-- источник;
-- номер страницы;
-- page-range;
-- размеры страницы;
-- при необходимости ссылку на производный page-image.
-4. Добавить слой координат текста:
-- page blocks;
-- line boxes;
-- text spans / fragments;
-- mapping между editor fragment и page fragment.
-5. Реализовать page compositor:
-- взять оригинальную страницу;
-- очистить нужную область;
-- нарисовать replacement поверх;
-- собрать итоговые страницы в новый PDF.
-
-Для MVP наиболее реалистичен именно локальный redraw небольших текстовых областей, а не полный layout engine.
-
-### Главный технический вопрос этой задачи
-
-Откуда брать координаты текста на странице.
-
-Вероятные варианты:
-
-- брать координаты из OCR/vision pipeline с bounding boxes;
-- использовать отдельный координатный слой поверх исходных страниц;
-- для digital PDF рассматривать вариант извлечения текстового слоя / координат отдельно от сканов;
-- сопоставлять editor fragments <-> OCR fragments на уровне блоков, строк и токенов.
-
-Пока это лучше рассматривать как набор вариантов для spike, а не как уже принятую реализацию.
-
-### Что важно не делать наивно
-
-Не стоит:
-
-- пытаться хранить весь оригинальный PDF целиком в `localStorage`;
-- пытаться решать задачу только на уровне HTML;
-- терять связь между проектными батчами и исходными страницами;
-- делать итоговый PDF из текста вместо оригинальных page-images.
-
-Также не стоит сразу строить полную систему переразметки страниц. Для этого продукта разумнее сначала доказать MVP на локальных правках.
-
-### Практический смысл текущих batch-доработок для этой задачи
-
-Batch-проект уже создаёт основу:
-
-- документ дробится на page-ranges;
-- каждая часть имеет метаданные страниц;
-- есть проектная структура;
-- есть итоговый summary как логический результат.
-
-Следующий шаг — добавить рядом с этой логической структурой надёжную page-image/coordinate layer.
-
-### Практический MVP, который сейчас выглядит реалистично
-
-Если продолжать эту задачу в новом чате, разумный MVP выглядит так:
-
-1. Поддерживать обезличивание ПД поверх оригинальной страницы.
-2. Поддерживать только небольшие обычные текстовые правки, которые помещаются в исходную строку или небольшой блок.
-3. Если новая фраза не помещается в исходную область, не пытаться автоматически перестраивать страницу, а явно считать это неподдерживаемым кейсом.
-
-Это важно, потому что иначе задача быстро превращается в полноценный page layout engine.
+То есть задача перешла из стадии “надо спроектировать pipeline” в стадию “pipeline уже есть, его нужно усиливать и проверять на реальных кейсах”.
 
 ## Что ещё стоит учитывать
 
@@ -926,15 +988,21 @@ Batch-проект уже создаёт основу:
 - любые крупные изменения в редакторе лучше проверять не только unit-тестами regex, но и хотя бы одним интеграционным сценарием;
 - для нового рефакторинга уже есть базовые guardrails: `lint`, `deps:check`, `dupcheck`, `test:ci`;
 - если продолжение работы идёт в новом чате, почти всегда начинать нужно с чтения:
-  - [src/App.js](C:/Users/lebed/Desktop/legal-ocr/src/App.js)
-  - [src/components/RichEditor.js](C:/Users/lebed/Desktop/legal-ocr/src/components/RichEditor.js)
-  - [src/utils/richEditorAnnotations.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/richEditorAnnotations.js)
-  - [src/utils/claudeApi.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/claudeApi.js)
-  - [src/utils/dataStore.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/dataStore.js)
-  - [src/hooks/useStoredData.js](C:/Users/lebed/Desktop/legal-ocr/src/hooks/useStoredData.js)
-  - [src/context/AuthContext.js](C:/Users/lebed/Desktop/legal-ocr/src/context/AuthContext.js)
-  - [src/utils/supabaseClient.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/supabaseClient.js)
-  - [supabase/schema.sql](C:/Users/lebed/Desktop/legal-ocr/supabase/schema.sql)
-  - [src/utils/projectDocumentOps.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/projectDocumentOps.js)
-  - [src/utils/runProjectBatchRecognition.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/runProjectBatchRecognition.js)
-  - [src/utils/documentViewState.js](C:/Users/lebed/Desktop/legal-ocr/src/utils/documentViewState.js)
+  - [src/App.js](/Users/lebedev/Desktop/legal-ocr/src/App.js)
+  - [src/components/RichEditor.js](/Users/lebedev/Desktop/legal-ocr/src/components/RichEditor.js)
+  - [src/utils/richEditorAnnotations.js](/Users/lebedev/Desktop/legal-ocr/src/utils/richEditorAnnotations.js)
+  - [src/utils/claudeApi.js](/Users/lebedev/Desktop/legal-ocr/src/utils/claudeApi.js)
+  - [src/utils/dataStore.js](/Users/lebedev/Desktop/legal-ocr/src/utils/dataStore.js)
+  - [src/utils/projectDocumentOps.js](/Users/lebedev/Desktop/legal-ocr/src/utils/projectDocumentOps.js)
+  - [src/utils/runProjectBatchRecognition.js](/Users/lebedev/Desktop/legal-ocr/src/utils/runProjectBatchRecognition.js)
+  - [src/utils/documentPageMetadata.js](/Users/lebedev/Desktop/legal-ocr/src/utils/documentPageMetadata.js)
+  - [src/utils/documentCoordinateLayer.js](/Users/lebedev/Desktop/legal-ocr/src/utils/documentCoordinateLayer.js)
+  - [src/utils/documentPatchPlan.js](/Users/lebedev/Desktop/legal-ocr/src/utils/documentPatchPlan.js)
+  - [src/utils/documentPageCompositor.js](/Users/lebedev/Desktop/legal-ocr/src/utils/documentPageCompositor.js)
+  - [src/utils/pdfPatchExport.js](/Users/lebedev/Desktop/legal-ocr/src/utils/pdfPatchExport.js)
+  - [src/utils/documentImageCrop.js](/Users/lebedev/Desktop/legal-ocr/src/utils/documentImageCrop.js)
+  - [src/hooks/usePdfExportFlow.js](/Users/lebedev/Desktop/legal-ocr/src/hooks/usePdfExportFlow.js)
+  - [src/hooks/usePatchedViewerPages.js](/Users/lebedev/Desktop/legal-ocr/src/hooks/usePatchedViewerPages.js)
+  - [src/context/AuthContext.js](/Users/lebedev/Desktop/legal-ocr/src/context/AuthContext.js)
+  - [src/utils/supabaseClient.js](/Users/lebedev/Desktop/legal-ocr/src/utils/supabaseClient.js)
+  - [supabase/schema.sql](/Users/lebedev/Desktop/legal-ocr/supabase/schema.sql)

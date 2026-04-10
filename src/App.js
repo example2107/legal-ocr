@@ -3,11 +3,23 @@ import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
 import { recognizeDocument, analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import AuthScreen from './components/AuthScreen';
+import DocumentPatchList from './components/DocumentPatchList';
+import DocumentTitleActions from './components/DocumentTitleActions';
+import OriginalViewerPanel from './components/OriginalViewerPanel';
+import PdFragmentEditorModal from './components/PdFragmentEditorModal';
+import PdfPatchExportPreviewModal from './components/PdfPatchExportPreviewModal';
 import { RichEditor, buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { useAuth } from './context/AuthContext';
+import { usePdfExportFlow } from './hooks/usePdfExportFlow';
+import { usePatchedViewerPages } from './hooks/usePatchedViewerPages';
 import { useStoredData } from './hooks/useStoredData';
+import { buildDocumentCoordinateLayer } from './utils/documentCoordinateLayer';
+import { findBestCoordinateMatch } from './utils/documentCoordinateMatcher';
+import { normalizeDocumentPatchLayer } from './utils/documentPatchLayer';
 import { buildLoadedDocumentState, getClearedWorkspaceState } from './utils/documentViewState';
+import { buildDocumentPageMetadata } from './utils/documentPageMetadata';
 import { generateId, exportDocument, importDocument } from './utils/history';
+import { getOriginalImageForPage, getOriginalImageIndexForPage } from './utils/originalImagePages';
 import { getProjectSummaryDocEntry, mergeProjectDocument, saveProjectSummaryDocument } from './utils/projectDocumentOps';
 import {
   addDocumentToProjectRecord,
@@ -21,7 +33,7 @@ import {
   updateProjectBatchSessionRecord,
   uploadSourceFile,
 } from './utils/dataStore';
-import { PROJECT_PDF_CHUNK_SIZE, formatProjectChunkPageRange, getProjectPdfChunkEnd } from './utils/projectBatch';
+import { formatProjectChunkPageRange, getProjectPdfChunkEnd } from './utils/projectBatch';
 import { runProjectBatchRecognition } from './utils/runProjectBatchRecognition';
 import './App.css';
 
@@ -84,6 +96,33 @@ function buildCanonicalPersonMentions(fullName) {
     initialsText ? `${surname} ${initialsText}` : '',
     initialsText ? `${initialsText} ${surname}` : '',
   ]);
+}
+
+function getPreferredPdfPageForMark(editorEl, markEl, pageMetadata, coordinateLayer) {
+  if (!editorEl || !markEl?.isConnected) return null;
+
+  const separators = Array.from(editorEl.querySelectorAll('.page-separator[data-page]'));
+  let relativePage = 1;
+  for (const separator of separators) {
+    if (separator === markEl) continue;
+    if (separator.compareDocumentPosition(markEl) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      relativePage = Number(separator.dataset.page || relativePage);
+    } else {
+      break;
+    }
+  }
+
+  const absoluteStartPage = pageMetadata?.sources?.[0]?.pageFrom
+    || coordinateLayer?.pages?.[0]?.pageNumber
+    || 1;
+
+  return absoluteStartPage + relativePage - 1;
+}
+
+function truncatePatchText(value, maxLength = 72) {
+  const text = normalizePdText(value);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 function assignLetters(personalData, existingPD) {
@@ -188,11 +227,6 @@ export default function App() {
   const [zoomActive, setZoomActive] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [, setZoomOffset] = useState({ x: 0, y: 0 });
-  const [viewerTip, setViewerTip] = useState(null); // null или {x, y}
-  const viewerBodyRef = useRef(null);
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
-  const zoomActiveRef = useRef(false);
-  const tipTimerRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
 
 
@@ -230,6 +264,9 @@ export default function App() {
   const [docTitle, setDocTitle] = useState('');
   const [originalFileName, setOriginalFileName] = useState('');
   const [sourceFiles, setSourceFiles] = useState([]);
+  const [pageMetadata, setPageMetadata] = useState(null);
+  const [coordinateLayer, setCoordinateLayer] = useState(null);
+  const [patchLayer, setPatchLayer] = useState(null);
   const [rawText, setRawText] = useState('');
   // editorHtml is only used for initial load and save/export — NOT rebuilt on every anonymize
   const [editorHtml, setEditorHtml] = useState('');
@@ -246,7 +283,6 @@ export default function App() {
   const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
   const pendingNavRef = useRef(null);
   const fileInputRef = useRef();
-  const viewerFileInputRef = useRef();
   const importInputRef = useRef();
   const projectFileInputRef = useRef();
   const projectImportRef = useRef();
@@ -261,6 +297,44 @@ export default function App() {
     setCurrentProjectId(null);
     uploadedFilesRef.current.clear();
   }, []);
+
+  const resetOriginalViewerTransform = useCallback(() => {
+    setZoomScale(1);
+    setZoomActive(false);
+  }, []);
+
+  const handleOpenOriginalPageNumber = useCallback((pageNumber) => {
+    const imageIndex = getOriginalImageIndexForPage(originalImages, pageNumber);
+    if (imageIndex < 0) return;
+    setShowOriginal(true);
+    setOriginalPage(imageIndex);
+    resetOriginalViewerTransform();
+  }, [originalImages, resetOriginalViewerTransform]);
+
+  const handleToggleOriginalViewer = useCallback(() => {
+    setShowOriginal((visible) => !visible);
+    setOriginalPage(0);
+  }, []);
+
+  const {
+    clearPatchedViewerPages,
+    handleApplyPdFragmentPreview,
+    handleRemovePatchEntry,
+    patchedViewerPageCount,
+    viewerImages,
+  } = usePatchedViewerPages({
+    originalImages,
+    patchLayer,
+    setPatchLayer,
+    onOpenOriginalPageNumber: handleOpenOriginalPageNumber,
+  });
+
+  const handleLoadOriginalViewerImages = useCallback((allImages) => {
+    setOriginalImages(allImages);
+    clearPatchedViewerPages();
+    setShowOriginal(true);
+    setOriginalPage(0);
+  }, [clearPatchedViewerPages]);
 
   const {
     dataLoading,
@@ -339,6 +413,24 @@ export default function App() {
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
 
+  const {
+    activePatchEntries,
+    canProceedPdfPatchExport,
+    exportReadyPatchEntries,
+    handleClosePdfPatchPreview,
+    handleConfirmPdfPatchExport,
+    handleDownloadPdf,
+    nonExportablePatchEntries,
+    showPdfPatchPreview,
+  } = usePdfExportFlow({
+    patchLayer,
+    originalImages,
+    docTitle,
+    originalFileName,
+    editorHtml,
+    editorDomRef,
+  });
+
   // Global Ctrl-Z / Ctrl-Shift-Z / Ctrl-Y — works regardless of which element has focus
   useEffect(() => {
     const handler = (e) => {
@@ -376,7 +468,7 @@ export default function App() {
     pdPanelRef.current = el;
     if (!el) return;
     const handler = (e) => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
+      const { scrollHeight, clientHeight } = el;
       const isScrollable = scrollHeight > clientHeight;
       // Panel fits entirely → let page scroll normally
       if (!isScrollable) return;
@@ -495,30 +587,6 @@ export default function App() {
     return () => ro.disconnect();
   }, []);
 
-  // Wheel вешаем через callback-ref на viewer-body — срабатывает когда элемент реально появился
-  const setViewerBodyRef = useCallback((el) => {
-    if (viewerBodyRef.current) {
-      viewerBodyRef.current.removeEventListener('wheel', viewerBodyRef._wheelHandler);
-    }
-    viewerBodyRef.current = el;
-    if (!el) return;
-    const handler = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (zoomActiveRef.current) {
-        setZoomScale(s => {
-          const delta = e.deltaY > 0 ? -0.1 : 0.1;
-          return Math.min(4, Math.max(0.5, +(s + delta).toFixed(2)));
-        });
-      } else {
-        el.scrollTop += e.deltaY;
-        el.scrollLeft += e.deltaX;
-      }
-    };
-    viewerBodyRef._wheelHandler = handler;
-    el.addEventListener('wheel', handler, { passive: false });
-  }, []);
-
   useEffect(() => {
     if (currentProjectId && !projects.some((item) => item.id === currentProjectId)) {
       setCurrentProjectId(null);
@@ -549,7 +617,11 @@ export default function App() {
     const timer = setTimeout(() => {
       if (editorDomRef.current && lastSavedState) {
         const realHtml = editorDomRef.current.innerHTML;
-        setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anonymized), html: realHtml }));
+        setLastSavedState(JSON.stringify({
+          anonymized: JSON.stringify(anonymized),
+          html: realHtml,
+          patchLayer: JSON.stringify(normalizeDocumentPatchLayer({ patchLayer })),
+        }));
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -592,7 +664,7 @@ export default function App() {
 
   const shouldShowLongDocWarningForEntry = useCallback((entry) => {
     if (!entry) return false;
-    if (entry.isProjectSummary || entry.source === 'project-summary') return false;
+    if (entry.isProjectSummary || entry.source === 'project-summary' || entry.source === 'project-batch') return false;
     return (entry.text || '').replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT;
   }, []);
 
@@ -820,9 +892,13 @@ export default function App() {
     setDocTitle(nextState.docTitle);
     setOriginalFileName(nextState.originalFileName);
     setSourceFiles(nextState.sourceFiles);
+    setPageMetadata(nextState.pageMetadata);
+    setCoordinateLayer(nextState.coordinateLayer);
+    setPatchLayer(nextState.patchLayer);
     setRawText(nextState.rawText);
     setEditorHtml(nextState.editorHtml);
     setOriginalImages(nextState.originalImages);
+    clearPatchedViewerPages();
     setShowOriginal(nextState.showOriginal);
     setOriginalPage(nextState.originalPage);
     setPdIdsInDoc(nextState.pdIdsInDoc);
@@ -834,7 +910,7 @@ export default function App() {
     undoStackRef.current = [nextState.initialUndoSnapshot];
     undoIndexRef.current = 0;
     setShowLongDocWarning(nextState.showLongDocWarning);
-  }, [currentProjectId, shouldShowLongDocWarningForEntry]);
+  }, [clearPatchedViewerPages, currentProjectId, shouldShowLongDocWarningForEntry]);
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
   const isDirty = () => {
@@ -843,6 +919,7 @@ export default function App() {
     const saved = JSON.parse(lastSavedState);
     if (JSON.stringify(anonymized) !== saved.anonymized) return true;
     if (currentHtml !== saved.html) return true;
+    if (JSON.stringify(normalizeDocumentPatchLayer({ patchLayer })) !== (saved.patchLayer || 'null')) return true;
     return false;
   };
 
@@ -870,6 +947,7 @@ export default function App() {
     setFiles(cleared.files);
     setPastedText(cleared.pastedText);
     setOriginalImages(cleared.originalImages);
+    clearPatchedViewerPages();
     setShowOriginal(cleared.showOriginal);
     setOriginalPage(cleared.originalPage);
     setZoomActive(cleared.zoomActive);
@@ -877,10 +955,13 @@ export default function App() {
     setZoomOffset(cleared.zoomOffset);
     setOriginalFileName(cleared.originalFileName);
     setSourceFiles(cleared.sourceFiles);
+    setPageMetadata(cleared.pageMetadata);
+    setCoordinateLayer(cleared.coordinateLayer);
+    setPatchLayer(cleared.patchLayer);
     setError(cleared.error);
     setProgress(cleared.progress);
     setShowUnsaved(cleared.showUnsaved);
-  }, []);
+  }, [clearPatchedViewerPages]);
 
   const doGoBackToProject = () => {
     setView(VIEW_PROJECT);
@@ -934,11 +1015,13 @@ export default function App() {
 
     try {
       let result;
+      let renderedInputPages = [];
       const hasPastedText = !!pastedText.trim();
       const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
 
       if (hasPastedText) {
         setOriginalImages([]);
+        clearPatchedViewerPages();
         setProgress({ percent: 10, message: 'Подготовка текста...' });
         animateTo(85, null);
         result = await analyzePastedText(pastedText.trim(), apiKey.trim(), provider, p => {
@@ -977,7 +1060,9 @@ export default function App() {
             allImages.push(await imageFileToBase64(file));
           }
         }
+        renderedInputPages = allImages;
         setOriginalImages(allImages);
+        clearPatchedViewerPages();
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
           setProgress(prev => prev && prev.percent > pct
@@ -1005,6 +1090,29 @@ export default function App() {
       const uploadedSourceFiles = hasPastedText
         ? []
         : (await Promise.all(files.map(file => ensureUploadedSourceFile(file)))).filter(Boolean);
+      const nextPageMetadata = !hasPastedText
+        && !isDocx
+        && files.length === 1
+        && files[0].type === 'application/pdf'
+        && renderedInputPages.length > 0
+        ? buildDocumentPageMetadata({
+            sourceFile: uploadedSourceFiles[0] || null,
+            batchFileName: files[0].name,
+            pageFrom: renderedInputPages[0]?.pageNum || 1,
+            pageTo: renderedInputPages[renderedInputPages.length - 1]?.pageNum || renderedInputPages.length,
+            totalPages: renderedInputPages[0]?.totalPages || renderedInputPages.length,
+            pages: renderedInputPages,
+          })
+        : null;
+      const nextCoordinateLayer = !hasPastedText
+        && !isDocx
+        && files.length === 1
+        && files[0].type === 'application/pdf'
+        && renderedInputPages.length > 0
+        ? buildDocumentCoordinateLayer({
+            pages: renderedInputPages,
+          })
+        : null;
 
       // Auto-save immediately after recognition
       await saveDocumentRecord(user, {
@@ -1017,19 +1125,28 @@ export default function App() {
         anonymized: initialAnon,
         source: hasPastedText ? 'paste' : (files.length === 1 && files[0].name.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr'),
         sourceFiles: uploadedSourceFiles,
+        pageMetadata: nextPageMetadata,
+        coordinateLayer: nextCoordinateLayer,
       });
 
       setDocId(newDocId);
       setDocTitle(title);
       setOriginalFileName(origName);
       setSourceFiles(uploadedSourceFiles);
+      setPageMetadata(nextPageMetadata);
+      setCoordinateLayer(nextCoordinateLayer);
+      setPatchLayer(null);
       setRawText(result.text);
       setEditorHtml(html);
       pdRef.current   = pd;
       anonRef.current = initialAnon;
       setPersonalData(pd);
       setAnonymized(initialAnon);
-      setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(initialAnon), html }));
+      setLastSavedState(JSON.stringify({
+        anonymized: JSON.stringify(initialAnon),
+        html,
+        patchLayer: 'null',
+      }));
       undoStackRef.current = [{ html, pd, anon: initialAnon }];
       undoIndexRef.current = 0;
       setShowLongDocWarning(result.text.replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
@@ -1061,6 +1178,19 @@ export default function App() {
     if (!editorDomRef.current) return 0;
     return editorDomRef.current.querySelectorAll('.page-separator, .part-separator').length;
   };
+
+  const formatPatchEntryText = useCallback((patchEntry) => (
+    truncatePatchText(
+      patchEntry?.patchPlan?.replacementText
+      || patchEntry?.patchPlan?.region?.replacementText
+      || patchEntry?.patchPlan?.originalText
+      || ''
+    )
+  ), []);
+
+  const canOpenOriginalPatchPage = useCallback((pageNumber) => (
+    getOriginalImageIndexForPage(originalImages, pageNumber) >= 0
+  ), [originalImages]);
 
   const triggerExport = (action) => {
     const uncertainCount = countUncertain();
@@ -1115,6 +1245,9 @@ export default function App() {
       title: docTitle,
       originalFileName,
       sourceFiles,
+      pageMetadata,
+      coordinateLayer,
+      patchLayer,
       text: rawText,
       editedHtml: currentHtml,
       personalData,
@@ -1130,7 +1263,11 @@ export default function App() {
     } else {
       await saveDocumentRecord(user, docData);
     }
-    setLastSavedState(JSON.stringify({ anonymized: JSON.stringify(anonymized), html: currentHtml }));
+    setLastSavedState(JSON.stringify({
+      anonymized: JSON.stringify(anonymized),
+      html: currentHtml,
+      patchLayer: JSON.stringify(normalizeDocumentPatchLayer({ patchLayer })),
+    }));
     await refreshHistory();
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
@@ -1138,13 +1275,6 @@ export default function App() {
 
   // ── Anonymize — KEY FIX: patch DOM directly, don't rebuild HTML ───────────────
   // ── Undo helpers ─────────────────────────────────────────────────────────────
-
-  // Read current state synchronously (refs are always up to date)
-  const snap = () => ({
-    html: editorDomRef.current?.innerHTML ?? '',
-    pd:   pdRef.current,
-    anon: anonRef.current,
-  });
 
   // Push snapshot onto stack, discarding any redo entries above current index
   const pushSnap = (s) => {
@@ -1278,6 +1408,60 @@ export default function App() {
     });
   }, []);
 
+  const handleDeletePdEntry = useCallback((id) => {
+    if (!id) return;
+    if (pdCleanupTimerRef.current) {
+      clearTimeout(pdCleanupTimerRef.current);
+      pdCleanupTimerRef.current = null;
+    }
+
+    const dom = editorDomRef.current;
+    if (dom) {
+      dom.querySelectorAll(`mark[data-pd-id="${id}"]`).forEach((mark) => {
+        const text = document.createTextNode(mark.dataset.original || mark.textContent || '');
+        const parent = mark.parentNode;
+        if (!parent) return;
+        parent.replaceChild(text, mark);
+        parent.normalize?.();
+      });
+    }
+
+    const nextPd = {
+      ...pdRef.current,
+      persons: (pdRef.current.persons || []).filter((item) => item.id !== id),
+      otherPD: (pdRef.current.otherPD || []).filter((item) => item.id !== id),
+    };
+    const nextAnon = { ...anonRef.current };
+    delete nextAnon[id];
+
+    if (pdNavTimerRef.current[id]) {
+      clearTimeout(pdNavTimerRef.current[id]);
+      delete pdNavTimerRef.current[id];
+    }
+    delete pdNavIndexRef.current[id];
+
+    pdRef.current = nextPd;
+    anonRef.current = nextAnon;
+    setPersonalData(nextPd);
+    setAnonymized(nextAnon);
+    setPdNavState((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setPdIdsInDoc((prev) => {
+      if (!prev || !prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+    const newHtml = dom?.innerHTML ?? editorHtml;
+    setEditorHtml(newHtml);
+    pushSnap({ html: newHtml, pd: nextPd, anon: nextAnon });
+  }, [editorHtml]);
+
   // Called from RichEditor when user attaches selection to existing PD
   const handleAttachPdMark = useCallback((id, markEl, ambiguousMarkEl) => {
     // Fix DOM class synchronously
@@ -1368,7 +1552,7 @@ export default function App() {
     const newHtml = editorDomRef.current?.innerHTML ?? '';
     setEditorHtml(newHtml);
     replaceTopSnap({ html: newHtml, pd: nextPd, anon: anonRef.current });
-  }, [anonymized, removeAmbiguousEntry]);
+  }, [removeAmbiguousEntry]);
 
   const handleRemoveAmbiguousMark = useCallback((markEl) => {
     if (pdCleanupTimerRef.current) { clearTimeout(pdCleanupTimerRef.current); pdCleanupTimerRef.current = null; }
@@ -1465,18 +1649,38 @@ export default function App() {
 
   const openPdFragmentEditor = useCallback((id, markEl) => {
     if (!id || !markEl) return;
+    const fragmentText = normalizePdText(markEl.dataset.original || markEl.textContent || '');
+    const preferredPageNumber = getPreferredPdfPageForMark(editorDomRef.current, markEl, pageMetadata, coordinateLayer);
+    const coordinateMatch = fragmentText && coordinateLayer
+      ? findBestCoordinateMatch({
+          fragmentText,
+          coordinateLayer,
+          preferredPageNumber,
+        })
+      : null;
+
     setEditingPdFragment({
       id,
-      text: normalizePdText(markEl.dataset.original || markEl.textContent || ''),
+      text: fragmentText,
       markEl,
+      preferredPageNumber,
+      coordinateMatch,
+      hasCoordinateLayer: !!coordinateLayer,
+      pageMetadataSource: pageMetadata?.sources?.[0] || null,
     });
-  }, []);
+  }, [coordinateLayer, pageMetadata]);
+
+  const handleRevealPdFragmentMatch = useCallback((match) => {
+    if (!match) return;
+    const imageIndex = getOriginalImageIndexForPage(originalImages, match.pageNumber);
+    if (imageIndex < 0) return;
+    setShowOriginal(true);
+    setOriginalPage(imageIndex);
+    resetOriginalViewerTransform();
+  }, [originalImages, resetOriginalViewerTransform]);
 
   const handleSavePdEdit = useCallback((payload) => {
     if (!payload?.id) return;
-
-    const currentPerson = (pdRef.current.persons || []).find(person => person.id === payload.id) || null;
-    const currentOther = (pdRef.current.otherPD || []).find(item => item.id === payload.id) || null;
 
     const nextPd = {
       ...pdRef.current,
@@ -1855,56 +2059,6 @@ ${paras}
     URL.revokeObjectURL(url);
   };
 
-    const handleDownloadPdf = () => {
-    const content = (editorDomRef.current?.innerHTML || editorHtml)
-      .replace(/<mark class="pd[^"]*"[^>]*>/g, '<span class="pd-export">')
-      .replace(/<mark class="uncertain[^"]*"[^>]*>/g, '<span class="uncertain-export">')
-      .replace(/<\/mark>/g, '</span>');
-
-    const pdfTitle = 'ЮрДок_' + (docTitle || originalFileName || 'документ').replace(/\.pdf$/i, '').replace(/\.docx$/i, '').replace(/\.jpg$/i, '').replace(/\.png$/i, '').replace(/\.webp$/i, '');
-    const printHtml = `<!DOCTYPE html>
-<html lang="ru"><head><meta charset="utf-8"/><title>${pdfTitle}</title>
-<style>
-  @page { size: A4; margin: 20mm 25mm; }
-  body {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 14pt;
-    line-height: 1.7;
-    color: #000;
-    margin: 0;
-    width: 160mm;
-  }
-  h1 { font-size: 14pt; font-weight: 700; text-align: center; margin: 0; line-height: 1.7; }
-  h2 { font-size: 14pt; font-weight: 600; text-align: center; margin: 0; line-height: 1.7; }
-  h3 { font-size: 14pt; font-weight: 600; margin: 0; }
-  div { min-height: 1.7em; margin: 0; padding: 0; text-align: justify; }
-  p { text-indent: 1.5em; margin: 0; padding: 0; text-align: justify; }
-  .right-block { margin-left: 55%; text-align: justify; min-height: 1.7em; }
-  .page-separator { display: none; }
-  .lr-row { display: flex; justify-content: space-between; align-items: baseline; text-align: left; }
-  .lr-row span:last-child { text-align: right; }
-  hr { border: none; border-top: 1px solid #ccc; margin: 6pt 0; }
-  ol, ul { padding-left: 2em; }
-  .pd-export { font-weight: bold; }
-  .uncertain-export { text-decoration: underline dotted; }
-
-</style></head>
-<body>
-${content}
-</body></html>`;
-
-    const w = window.open('', '_blank', 'width=850,height=950');
-    if (!w) { alert('Разрешите всплывающие окна для скачивания PDF'); return; }
-    w.document.write(printHtml);
-    w.document.close();
-    setTimeout(() => {
-      w.print();
-      // afterprint не срабатывает в Chrome при сохранении PDF
-      // закрываем окно через 3 секунды — диалог к этому моменту уже открылся
-      setTimeout(() => w.close(), 1000);
-    }, 500);
-  };
-
   // ── Derived ───────────────────────────────────────────────────────────────────
   const privatePersons = personalData.persons?.filter(p => p.category === 'private') || [];
   const profPersons = personalData.persons?.filter(p => p.category === 'professional') || [];
@@ -2100,6 +2254,19 @@ ${content}
           </div>
         </div>
       )}
+
+      <PdfPatchExportPreviewModal
+        open={showPdfPatchPreview}
+        exportReadyPatchEntries={exportReadyPatchEntries}
+        nonExportablePatchEntries={nonExportablePatchEntries}
+        hasOriginalImages={originalImages.length > 0}
+        canProceed={canProceedPdfPatchExport}
+        onClose={handleClosePdfPatchPreview}
+        onConfirm={handleConfirmPdfPatchExport}
+        onOpenPage={handleOpenOriginalPageNumber}
+        canOpenPage={(pageNumber) => getOriginalImageIndexForPage(originalImages, pageNumber) >= 0}
+        formatPatchText={truncatePatchText}
+      />
 
       {/* ── SAVE TOAST ── */}
       {savedMsg && (
@@ -2363,6 +2530,10 @@ ${content}
             fragment={currentEditingPdFragment}
             onClose={() => setEditingPdFragment(null)}
             onSave={handleSavePdFragmentEdit}
+            onRevealMatch={handleRevealPdFragmentMatch}
+            canRevealMatch={getOriginalImageIndexForPage(originalImages, currentEditingPdFragment.coordinateMatch?.pageNumber) >= 0}
+            previewPageImage={getOriginalImageForPage(viewerImages, currentEditingPdFragment.coordinateMatch?.pageNumber)}
+            onApplyPreview={handleApplyPdFragmentPreview}
           />
         )}
 
@@ -2494,7 +2665,7 @@ ${content}
                 <input ref={projectFileInputRef} type="file" multiple accept=".pdf,application/pdf" className="visually-hidden" onChange={e => { handleProjectFiles(e.target.files); e.target.value = ''; }} />
                 <div className="dropzone-icon">📄</div>
                 <div className="dropzone-text"><strong>Перетащите PDF-файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                <div className="dropzone-hint">PDF · Большие файлы автоматически обрабатываются частями по {PROJECT_PDF_CHUNK_SIZE} страниц.</div>
+                <div className="dropzone-hint">PDF · Большие файлы автоматически обрабатываются постранично.</div>
               </div>
               {files.length > 0 && (
                 <div className="file-list">
@@ -2677,6 +2848,7 @@ ${content}
                               </span>
                             )}
                             <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(p.id); }} title="Редактировать запись ПД">Изм.</button>
+                            <button className="pd-item-delete" onClick={e => { e.stopPropagation(); handleDeletePdEntry(p.id); }} title="Удалить запись ПД">✕</button>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
@@ -2709,6 +2881,7 @@ ${content}
                               </span>
                             )}
                             <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(p.id); }} title="Редактировать запись ПД">Изм.</button>
+                            <button className="pd-item-delete" onClick={e => { e.stopPropagation(); handleDeletePdEntry(p.id); }} title="Удалить запись ПД">✕</button>
                             <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
                           </span>
                           {p.role && <span className="pd-item-role">{p.role}</span>}
@@ -2740,6 +2913,7 @@ ${content}
                               </span>
                             )}
                             <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(item.id); }} title="Редактировать запись ПД">Изм.</button>
+                            <button className="pd-item-delete" onClick={e => { e.stopPropagation(); handleDeletePdEntry(item.id); }} title="Удалить запись ПД">✕</button>
                             <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
                           </span>
                           <span className="pd-item-role">→ {item.replacement}</span>
@@ -2773,50 +2947,15 @@ ${content}
                   placeholder="Название документа"
                   spellCheck={false}
                 />
-                <div className="doc-title-actions">
-                  {originalImages.length > 0 && (
-                    <button
-                      className={'btn-tool btn-original' + (showOriginal ? ' active' : '')}
-                      onClick={() => { setShowOriginal(v => !v); setOriginalPage(0); }}
-                    >👁 Оригинал</button>
-                  )}
-                  {originalImages.length === 0 && (
-                    <button
-                      className="btn-tool btn-original"
-                      onClick={() => viewerFileInputRef.current?.click()}
-                      title="Загрузите оригинал для просмотра рядом с текстом"
-                    >👁 Загрузить оригинал</button>
-                  )}
-                  <input
-                    ref={viewerFileInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*,.pdf"
-                    className="visually-hidden"
-                    onChange={async (e) => {
-                      const newFiles = Array.from(e.target.files);
-                      e.target.value = '';
-                      if (!newFiles.length) return;
-                      const allImages = [];
-                      for (const file of newFiles) {
-                        if (file.type === 'application/pdf') {
-                          const { pdfToImages } = await import('./utils/pdfUtils');
-                          const pages = await pdfToImages(file, () => {});
-                          allImages.push(...pages);
-                        } else {
-                          const { imageFileToBase64 } = await import('./utils/pdfUtils');
-                          allImages.push(await imageFileToBase64(file));
-                        }
-                      }
-                      setOriginalImages(allImages);
-                      setShowOriginal(true);
-                      setOriginalPage(0);
-                    }}
-                  />
-                  <button className="btn-tool btn-save" onClick={() => triggerExport('save')}>💾 Сохранить</button>
-                  <button className="btn-tool" onClick={() => triggerExport('docx')}>⬇ DOCX</button>
-                  <button className="btn-tool" onClick={() => triggerExport('pdf')}>⬇ PDF</button>
-                </div>
+                <DocumentTitleActions
+                  hasOriginalImages={originalImages.length > 0}
+                  showOriginal={showOriginal}
+                  onToggleOriginal={handleToggleOriginalViewer}
+                  onOriginalImagesLoaded={handleLoadOriginalViewerImages}
+                  onSave={() => triggerExport('save')}
+                  onExportDocx={() => triggerExport('docx')}
+                  onExportPdf={() => triggerExport('pdf')}
+                />
               </div>
 
               {showLongDocWarning && (
@@ -2825,6 +2964,15 @@ ${content}
                   <button className="long-doc-close" onClick={() => setShowLongDocWarning(false)}>✕</button>
                 </div>
               )}
+
+              <DocumentPatchList
+                activePatchEntries={activePatchEntries}
+                canOpenPage={canOpenOriginalPatchPage}
+                onOpenPage={handleOpenOriginalPageNumber}
+                onRemovePatch={handleRemovePatchEntry}
+                onClearAll={() => clearPatchedViewerPages({ clearPatchLayer: true })}
+                formatPatchText={formatPatchEntryText}
+              />
 
               <RichEditor
                 html={editorHtml}
@@ -2846,98 +2994,20 @@ ${content}
 
 
             {showOriginal && originalImages.length > 0 && (
-              <div className="panel-resizer" onMouseDown={startResize('viewer')}><span className="panel-resizer-icon">‹<br/>›</span></div>
-            )}
-            {showOriginal && originalImages.length > 0 && (
-              <div className={"viewer-panel" + (zoomActive ? " viewer-zoom-mode" : "")} style={{ width: viewerWidth, flexShrink: 0 }}>
-                <div className="viewer-header">
-                  <span className="viewer-title">Оригинальный файл</span>
-                  <div className="viewer-nav">
-                    <button
-                      className="viewer-nav-btn"
-                      disabled={originalPage === 0}
-                      onClick={() => { setOriginalPage(p => Math.max(0, p - 1)); setZoomScale(1); zoomActiveRef.current = false; setZoomActive(false); }}
-                    >←</button>
-                    <span className="viewer-page-info">{originalPage + 1} / {originalImages.length}</span>
-                    <button
-                      className="viewer-nav-btn"
-                      disabled={originalPage === originalImages.length - 1}
-                      onClick={() => { setOriginalPage(p => Math.min(originalImages.length - 1, p + 1)); setZoomScale(1); zoomActiveRef.current = false; setZoomActive(false); }}
-                    >→</button>
-                  </div>
-                  <div className="viewer-zoom-controls">
-                    <button className="viewer-nav-btn" onClick={() => setZoomScale(s => Math.max(0.5, +(s - 0.25).toFixed(2)))} title="Отдалить">−</button>
-                    <span className="viewer-page-info" style={{minWidth: 40}}>{Math.round(zoomScale * 100)}%</span>
-                    <button className="viewer-nav-btn" onClick={() => setZoomScale(s => Math.min(4, +(s + 0.25).toFixed(2)))} title="Приблизить">+</button>
-                    <button className="viewer-nav-btn" onClick={() => { setZoomScale(1); zoomActiveRef.current = false; setZoomActive(false); }} title="Сбросить">↺</button>
-                  </div>
-                  <button className="viewer-close" onClick={() => { setShowOriginal(false); zoomActiveRef.current = false; setZoomActive(false); setZoomScale(1); }}>✕ Скрыть</button>
-                </div>
-                <div
-                  ref={setViewerBodyRef}
-                  className={"viewer-body" + (zoomActive ? " zoom-active" : "")}
-                  onMouseUp={() => { dragRef.current.dragging = false; }}
-                  onMouseLeave={() => {
-                    dragRef.current.dragging = false;
-                    setViewerTip(null);
-                    if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
-                  }}
-                >
-                  <img
-                    src={'data:' + (originalImages[originalPage]?.mediaType || 'image/jpeg') + ';base64,' + originalImages[originalPage]?.base64}
-                    alt={'Страница ' + (originalPage + 1)}
-                    className="viewer-img"
-                    style={{
-                      transform: `scale(${zoomScale})`,
-                      transformOrigin: 'top left',
-                      cursor: zoomActive ? 'grab' : 'default',
-                      userSelect: 'none',
-                      transition: 'transform 0.15s ease',
-                    }}
-                    onMouseDown={(e) => {
-                      if (e.button !== 0) return;
-                      dragRef.current = { dragging: false, startX: e.clientX, startY: e.clientY, scrollLeft: viewerBodyRef.current?.scrollLeft || 0, scrollTop: viewerBodyRef.current?.scrollTop || 0 };
-                    }}
-                    onMouseMove={(e) => {
-                      // Tooltip — сбрасываем и перезапускаем таймер
-                      setViewerTip(null);
-                      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
-                      tipTimerRef.current = setTimeout(() => setViewerTip({ x: e.clientX, y: e.clientY }), 600);
-                      // Drag — только в активном режиме с зажатой кнопкой
-                      if (!zoomActive || e.buttons !== 1) return;
-                      const d = dragRef.current;
-                      if (!d.dragging && (Math.abs(e.clientX - d.startX) > 5 || Math.abs(e.clientY - d.startY) > 5)) {
-                        d.dragging = true;
-                      }
-                      if (!d.dragging) return;
-                      const el = viewerBodyRef.current;
-                      el.scrollLeft = d.scrollLeft - (e.clientX - d.startX);
-                      el.scrollTop  = d.scrollTop  - (e.clientY - d.startY);
-                    }}
-                    onDoubleClick={() => {
-                      if (dragRef.current?.dragging) return;
-                      const next = !zoomActive;
-                      zoomActiveRef.current = next;
-                      setZoomActive(next);
-                    }}
-                    onMouseLeave={() => {
-                      setViewerTip(null);
-                      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
-                    }}
-                    draggable={false}
-                  />
-                  {viewerTip && (
-                    <div className="viewer-tooltip" style={{
-                      left: Math.min(viewerTip.x + 16, window.innerWidth - 276),
-                      top: viewerTip.y + 16,
-                    }}>
-                      {zoomActive
-                        ? <><span>🖱 Колесико — зум</span><span>✊ Зажать и тянуть — переместить</span><span>🔍 Двойной клик — выйти из зума</span></>
-                        : <span>🔍 Двойной клик — включить зум и перетаскивание</span>}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <OriginalViewerPanel
+                images={viewerImages}
+                currentPage={originalPage}
+                setCurrentPage={setOriginalPage}
+                zoomActive={zoomActive}
+                setZoomActive={setZoomActive}
+                zoomScale={zoomScale}
+                setZoomScale={setZoomScale}
+                width={viewerWidth}
+                patchedViewerPageCount={patchedViewerPageCount}
+                onResizeStart={startResize('viewer')}
+                onClearPatches={() => clearPatchedViewerPages({ clearPatchLayer: true })}
+                onClose={() => setShowOriginal(false)}
+              />
             )}
 
           </div>
@@ -2956,27 +3026,6 @@ function formatDate(date) {
   if (!(date instanceof Date) || isNaN(date)) return '';
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
-
-const OTHER_PD_TYPE_OPTIONS = [
-  { value: 'address', label: 'Адрес' },
-  { value: 'phone', label: 'Телефон' },
-  { value: 'passport', label: 'Паспорт' },
-  { value: 'zagranpassport', label: 'Загранпаспорт' },
-  { value: 'inn', label: 'ИНН' },
-  { value: 'snils', label: 'СНИЛС' },
-  { value: 'card', label: 'Банковская карта' },
-  { value: 'email', label: 'Email' },
-  { value: 'dob', label: 'Дата рождения' },
-  { value: 'birthplace', label: 'Место рождения' },
-  { value: 'vehicle_plate', label: 'Госномер' },
-  { value: 'vehicle_vin', label: 'VIN' },
-  { value: 'driver_license', label: 'Водительское удостоверение' },
-  { value: 'military_id', label: 'Военный билет' },
-  { value: 'oms_policy', label: 'Полис ОМС' },
-  { value: 'birth_certificate', label: 'Свидетельство о рождении' },
-  { value: 'imei', label: 'IMEI' },
-  { value: 'other', label: 'Прочее' },
-];
 
 function PdRecordEditorModal({ pdItem, onClose, onSave }) {
   const isPerson = Object.prototype.hasOwnProperty.call(pdItem || {}, 'fullName');
@@ -3027,39 +3076,6 @@ function PdRecordEditorModal({ pdItem, onClose, onSave }) {
                 <input className="modal-input" value={value} onChange={e => setValue(e.target.value)} />
               </div>
             </>
-          )}
-        </div>
-        <div className="modal-actions">
-          <button className="btn-primary btn-sm" onClick={handleSave}>Сохранить</button>
-          <button className="btn-tool" onClick={onClose}>Отмена</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PdFragmentEditorModal({ fragment, onClose, onSave }) {
-  const [text, setText] = useState(fragment?.text || '');
-
-  const handleSave = () => {
-    const nextText = normalizePdText(text);
-    if (!nextText) return;
-    onSave({ id: fragment.id, text: nextText });
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 520 }}>
-        <div className="modal-title">Исправить текст фрагмента</div>
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label className="modal-label">Текст в документе</label>
-            <input className="modal-input" value={text} onChange={e => setText(e.target.value)} autoFocus />
-          </div>
-          {fragment?.pdItem && (
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Изменение будет применено к текущему фрагменту и добавлено в mentions этой записи ПД.
-            </div>
           )}
         </div>
         <div className="modal-actions">

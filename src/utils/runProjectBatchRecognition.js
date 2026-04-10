@@ -1,11 +1,11 @@
 import { getPdfPageCount, pdfToImagesRange } from './pdfUtils';
 import { recognizeDocument } from './claudeApi';
 import { buildAnnotatedHtml } from '../components/RichEditor';
+import { buildDocumentCoordinateLayer } from './documentCoordinateLayer';
+import { buildDocumentPageMetadata } from './documentPageMetadata';
 import { generateId } from './history';
 import {
   addDocumentToProjectRecord,
-  deleteDocumentRecord,
-  removeDocumentFromProjectRecord,
   saveDocumentRecord,
   updateProjectSharedPDRecord,
 } from './dataStore';
@@ -13,11 +13,11 @@ import {
   PROJECT_PDF_CHUNK_SIZE,
   createProjectPdfBatchSession,
   formatProjectChunkPageRange,
-  formatProjectChunkTitle,
   getProjectPdfChunkEnd,
   isSameProjectPdfBatchFile,
   updateProjectPdfBatchSession,
 } from './projectBatch';
+import { buildProjectBatchDocumentEntry } from './projectDocumentOps';
 
 export async function runProjectBatchRecognition({
   apiKey,
@@ -98,9 +98,10 @@ export async function runProjectBatchRecognition({
 
     let completedChunks = 0;
     let existingPD = getProjectExistingPD();
-    let nextDocumentNumber = activeBatchSession?.nextDocumentNumber || (getProjectDocs().length + 1);
+    let activeBatchDoc = activeBatchSession?.documentId
+      ? (getProjectDocs().find((doc) => doc.id === activeBatchSession.documentId) || null)
+      : null;
     let lastSavedDoc = null;
-    let lastChunkImages = [];
 
     const getOverallPercent = (chunkPercent = 0) => {
       const safeTotal = Math.max(1, totalChunks);
@@ -112,7 +113,7 @@ export async function runProjectBatchRecognition({
     for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
       const { file, totalPages } = jobs[jobIndex];
       const uploadedSourceFile = await ensureUploadedSourceFile(file, currentProjectId);
-      let session = jobs[jobIndex].session || createProjectPdfBatchSession(file, totalPages, nextDocumentNumber);
+      let session = jobs[jobIndex].session || createProjectPdfBatchSession(file, totalPages, getProjectDocs().length + 1);
       session = updateProjectPdfBatchSession(session, { status: 'running', error: '' });
       await saveProjectBatchSessionState(session);
 
@@ -122,7 +123,6 @@ export async function runProjectBatchRecognition({
           status: 'running',
           error: '',
           nextPage: pageFrom,
-          nextDocumentNumber,
           currentPageFrom: pageFrom,
           currentPageTo: pageTo,
         });
@@ -143,16 +143,38 @@ export async function runProjectBatchRecognition({
             message: `${file.name}: рендер ${rangeLabel} (${rendered}/${pageTo - pageFrom + 1})...`,
           });
         });
-        lastChunkImages = chunkImages;
 
-        const result = await recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
-          const chunkPercent = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          const percent = getOverallPercent(Math.max(20, chunkPercent));
-          setProgress(prev => prev && prev.percent > percent
-            ? { ...prev, message: `${file.name}: ${p.message} (${rangeLabel})` }
-            : { percent, message: `${file.name}: ${p.message} (${rangeLabel})` }
-          );
-        }, existingPD);
+        let result;
+        try {
+          result = await recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
+            const chunkPercent = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
+            const percent = getOverallPercent(Math.max(20, chunkPercent));
+            setProgress(prev => prev && prev.percent > percent
+              ? { ...prev, message: `${file.name}: ${p.message} (${rangeLabel})` }
+              : { percent, message: `${file.name}: ${p.message} (${rangeLabel})` }
+            );
+          }, existingPD);
+        } catch (error) {
+          console.error('Project batch recognition failed', {
+            provider,
+            projectId: currentProjectId,
+            fileName: file.name,
+            rangeLabel,
+            pageFrom,
+            pageTo,
+            totalPages: session.totalPages,
+            chunkIndex: Math.ceil(pageFrom / (session.chunkSize || PROJECT_PDF_CHUNK_SIZE)),
+            chunkSize: session.chunkSize || PROJECT_PDF_CHUNK_SIZE,
+            renderedPages: chunkImages.map((image) => ({
+              pageNum: image.pageNum,
+              base64Length: image.base64?.length || 0,
+              mediaType: image.mediaType || '',
+              textSource: image.textSource || '',
+            })),
+            errorMessage: error?.message || String(error),
+          });
+          throw error;
+        }
 
         const pd = existingPD
           ? assignLetters(mergePD(existingPD, result.personalData), existingPD)
@@ -160,23 +182,11 @@ export async function runProjectBatchRecognition({
 
         const initialAnon = {};
         const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-        const currentProjectDocs = getProjectDocs();
-        const chunkMatches = currentProjectDocs.filter(doc =>
-          doc.batchFileName === file.name &&
-          Number(doc.pageFrom || 0) === pageFrom &&
-          Number(doc.pageTo || 0) === pageTo
-        );
-        const primaryChunkDoc = chunkMatches[0] || null;
-        if (chunkMatches.length > 1) {
-          for (const doc of chunkMatches.slice(1)) {
-            await removeDocumentFromProjectRecord(user, currentProjectId, doc.id);
-            await deleteDocumentRecord(user, doc.id);
-          }
-        }
+        const existingBatchDoc = activeBatchDoc;
 
-        const docEntry = await saveDocumentRecord(user, {
-          id: primaryChunkDoc?.id || generateId(),
-          title: primaryChunkDoc?.title || formatProjectChunkTitle(nextDocumentNumber, file.name),
+        const pageDocEntry = {
+          id: generateId(),
+          title: file.name,
           originalFileName: file.name,
           text: result.text,
           editedHtml: html,
@@ -191,20 +201,44 @@ export async function runProjectBatchRecognition({
           chunkSize: session.chunkSize || PROJECT_PDF_CHUNK_SIZE,
           batchFileName: file.name,
           sourceFiles: uploadedSourceFile ? [uploadedSourceFile] : [],
+          pageMetadata: buildDocumentPageMetadata({
+            sourceFile: uploadedSourceFile,
+            batchFileName: file.name,
+            projectId: currentProjectId,
+            pageFrom,
+            pageTo,
+            totalPages: session.totalPages,
+            pages: chunkImages,
+          }),
+          coordinateLayer: buildDocumentCoordinateLayer({
+            pages: chunkImages,
+          }),
+        };
+
+        const nextDocEntry = buildProjectBatchDocumentEntry({
+          existingDoc: existingBatchDoc,
+          pageEntry: pageDocEntry,
+          currentProjectId,
+          pd,
+          getOtherPdMentions: (item) => [item?.value, ...(item?.mentions || [])].filter(Boolean),
         });
-        await addDocumentToProjectRecord(user, currentProjectId, docEntry.id);
+        const docEntry = await saveDocumentRecord(user, nextDocEntry);
+        if (!existingBatchDoc) {
+          await addDocumentToProjectRecord(user, currentProjectId, docEntry.id);
+        }
         await updateProjectSharedPDRecord(user, currentProjectId, pd);
         await refreshHistory();
         await refreshProjects();
 
+        activeBatchDoc = docEntry;
         lastSavedDoc = docEntry;
         existingPD = pd;
-        nextDocumentNumber += 1;
         completedChunks += 1;
 
         session = updateProjectPdfBatchSession(session, {
+          documentId: docEntry.id,
+          documentTitle: docEntry.title,
           nextPage: pageTo + 1,
-          nextDocumentNumber,
           status: pageTo >= session.totalPages ? 'completed' : 'running',
           error: '',
           currentPageFrom: pageFrom,
@@ -218,7 +252,7 @@ export async function runProjectBatchRecognition({
     stopProgressCreep();
     await saveProjectBatchSessionState(null);
     setFiles([]);
-    if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, lastChunkImages);
+    if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, []);
     setTimeout(() => {
       setView(viewResult);
       setProgress(null);

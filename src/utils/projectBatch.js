@@ -1,4 +1,4 @@
-export const PROJECT_PDF_CHUNK_SIZE = 5;
+export const PROJECT_PDF_CHUNK_SIZE = 1;
 
 export function getProjectPdfBatchFileMeta(file) {
   return {
@@ -54,8 +54,12 @@ export function formatProjectChunkTitle(sequenceNumber, fileName) {
 
 export function formatProjectChunkPageRange(pageFrom, pageTo, totalPages) {
   if (!pageFrom || !pageTo) return '';
+  if (pageFrom === pageTo) {
+    return totalPages && totalPages > 0
+      ? `стр. ${pageFrom} из ${totalPages}`
+      : `стр. ${pageFrom}`;
+  }
   return totalPages && totalPages > 0
     ? `стр. ${pageFrom}-${pageTo} из ${totalPages}`
     : `стр. ${pageFrom}-${pageTo}`;
 }
-

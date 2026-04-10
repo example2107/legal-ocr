@@ -50,6 +50,24 @@ async function canvasToSafeBase64(canvas) {
   return c3.toDataURL('image/jpeg', 0.75).split(',')[1];
 }
 
+async function extractPdfPageTextItems(page) {
+  try {
+    const textContent = await page.getTextContent();
+    const items = Array.isArray(textContent?.items)
+      ? textContent.items.filter((item) => item && typeof item.str === 'string')
+      : [];
+    return {
+      textSource: items.length > 0 ? 'pdfjs-text-content' : 'missing-text-layer',
+      textItems: items,
+    };
+  } catch {
+    return {
+      textSource: 'text-layer-unavailable',
+      textItems: [],
+    };
+  }
+}
+
 export async function pdfToImages(file, onProgress) {
   const pdf = await loadPdfDocument(file);
   const totalPages = pdf.numPages;
@@ -71,13 +89,28 @@ export async function pdfToImagesRange(file, fromPage, toPage, onProgress, exist
   for (let pageNum = safeFrom; pageNum <= safeTo; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const scale = 1.5; // good OCR quality, reasonable file size
+    const pdfViewport = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale });
+    const textLayer = await extractPdfPageTextItems(page);
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     const base64 = await canvasToSafeBase64(canvas);
-    images.push({ base64, mediaType: 'image/jpeg', pageNum, totalPages });
+    images.push({
+      base64,
+      mediaType: 'image/jpeg',
+      pageNum,
+      totalPages,
+      pdfWidth: pdfViewport.width,
+      pdfHeight: pdfViewport.height,
+      renderWidth: canvas.width,
+      renderHeight: canvas.height,
+      rotation: page.rotate || 0,
+      scale,
+      textSource: textLayer.textSource,
+      textItems: textLayer.textItems,
+    });
     if (onProgress) onProgress(pageNum, safeTo - safeFrom + 1, totalPages);
   }
   return images;

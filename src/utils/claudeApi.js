@@ -1,3 +1,5 @@
+import { autoCropDocumentImage } from './documentImageCrop';
+
 // ── Provider configs ──────────────────────────────────────────────────────────
 export const PROVIDERS = {
   claude: {
@@ -345,14 +347,39 @@ async function callOpenAI(messages, apiKey, system) {
       oaiMessages.push({ role: msg.role, content: msg.content });
     }
   }
+  const payload = { model: PROVIDERS.openai.model, max_completion_tokens: 64000, messages: oaiMessages };
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-    body: JSON.stringify({ model: PROVIDERS.openai.model, max_completion_tokens: 64000, messages: oaiMessages }),
+    body: JSON.stringify(payload),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'Ошибка OpenAI API: ' + resp.status);
+    const rawError = await resp.text().catch(() => '');
+    let err = {};
+    try {
+      err = rawError ? JSON.parse(rawError) : {};
+    } catch {}
+
+    const imageParts = oaiMessages.flatMap((msg) => (
+      Array.isArray(msg.content)
+        ? msg.content.filter((part) => part?.type === 'image_url')
+        : []
+    ));
+    const imageUrlLengths = imageParts.map((part) => part?.image_url?.url?.length || 0);
+    const payloadSize = JSON.stringify(payload).length;
+
+    console.error('OpenAI request failed', {
+      status: resp.status,
+      statusText: resp.statusText,
+      model: PROVIDERS.openai.model,
+      messageCount: oaiMessages.length,
+      imageCount: imageParts.length,
+      imageUrlLengths,
+      payloadSize,
+      rawErrorPreview: rawError.slice(0, 1000),
+    });
+
+    throw new Error(err.error?.message || rawError || 'Ошибка OpenAI API: ' + resp.status);
   }
   const data = await resp.json();
   return data.choices[0].message.content;
@@ -391,8 +418,18 @@ async function callGemini(messages, apiKey, system) {
 
 // ── Image compression ──────────────────────────────────────────────────────────
 async function compressImage(base64, mediaType) {
-  const sizeKb = (base64.length * 3) / 4 / 1024;
-  if (sizeKb <= 3800) return { base64, mediaType: mediaType || 'image/jpeg' };
+  const croppedImage = await autoCropDocumentImage({ base64, mediaType });
+  const sourceBase64 = croppedImage.base64 || base64;
+  const sourceMediaType = croppedImage.mediaType || mediaType || 'image/jpeg';
+  const sizeKb = (sourceBase64.length * 3) / 4 / 1024;
+  if (sizeKb <= 3800) {
+    return {
+      base64: sourceBase64,
+      mediaType: sourceMediaType,
+      cropRect: croppedImage.cropRect,
+      cropped: croppedImage.cropped,
+    };
+  }
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -407,9 +444,14 @@ async function compressImage(base64, mediaType) {
       canvas.width = width;
       canvas.height = height;
       canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-      resolve({ base64: canvas.toDataURL('image/jpeg', 0.80).split(',')[1], mediaType: 'image/jpeg' });
+      resolve({
+        base64: canvas.toDataURL('image/jpeg', 0.80).split(',')[1],
+        mediaType: 'image/jpeg',
+        cropRect: croppedImage.cropRect,
+        cropped: croppedImage.cropped,
+      });
     };
-    img.src = 'data:' + (mediaType || 'image/jpeg') + ';base64,' + base64;
+    img.src = 'data:' + sourceMediaType + ';base64,' + sourceBase64;
   });
 }
 
@@ -436,15 +478,38 @@ export async function recognizeDocument(images, apiKey, provider, onProgress, ex
       message: 'Распознавание страницы ' + (i + 1) + ' из ' + total + '...',
     });
 
-    const { base64, mediaType } = await compressImage(images[i].base64, images[i].mediaType);
+    const { base64, mediaType, cropRect, cropped } = await compressImage(images[i].base64, images[i].mediaType);
 
-    const text = await callApi([{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: 'Распознай текст этого юридического документа.' },
-      ],
-    }], apiKey, SYS_OCR, provider);
+    const actualPageNumber = images[i]?.pageNum || i + 1;
+    let text;
+    try {
+      text = await callApi([{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: 'Распознай текст этого юридического документа.' },
+        ],
+      }], apiKey, SYS_OCR, provider);
+    } catch (error) {
+      console.error('OCR page request failed', {
+        provider,
+        pageIndexInBatch: i + 1,
+        pageNumber: actualPageNumber,
+        totalPagesInBatch: total,
+        totalPagesInDocument: images[i]?.totalPages || null,
+        originalMediaType: images[i]?.mediaType || null,
+        sentMediaType: mediaType,
+        originalBase64Length: images[i]?.base64?.length || 0,
+        compressedBase64Length: base64.length,
+        cropped,
+        cropRect,
+        textSource: images[i]?.textSource || null,
+        renderWidth: images[i]?.renderWidth || null,
+        renderHeight: images[i]?.renderHeight || null,
+        errorMessage: error?.message || String(error),
+      });
+      throw error;
+    }
 
     texts.push(text);
 
@@ -478,7 +543,7 @@ export async function recognizeDocument(images, apiKey, provider, onProgress, ex
     // Если предыдущая страница заканчивается на букву/цифру — склеиваем без пустой строки
     const textSep = /[а-яёА-ЯЁa-zA-Z0-9]/.test(lastChar) ? '\n' : '\n\n';
     // Разделитель страниц — специальный маркер с номером следующей страницы
-    const pageMarker = '\n[PAGE:' + (i + 1) + ']\n';
+    const pageMarker = '\n[PAGE:' + (images[i]?.pageNum || i + 1) + ']\n';
     return prevEnds + pageMarker + page;
   }, '');
 

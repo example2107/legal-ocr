@@ -274,11 +274,15 @@
   border: 1px solid rgba(0,0,0,.08);
   border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,.13), 0 2px 6px rgba(0,0,0,.07);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   width: fit-content;
   white-space: nowrap;
   animation: ctxMenuIn .12s ease;
   transform-origin: top left;
+  max-height: min(70vh, calc(100vh - 16px));
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .ctx-menu-title {
   padding: 8px 12px 6px;
