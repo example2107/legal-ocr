@@ -36,6 +36,7 @@
   /* Layout heights — used for sticky positioning */
   --header-h: 60px;       /* .header height */
   --sticky-gap: 10px;     /* visual breathing room below top header */
+  --header-offset: calc(var(--header-h) + var(--sticky-gap));
   --titlerow-h: 49px;     /* .doc-title-row approximate height (single line) */
   --toolbar-top: calc(var(--header-h) + var(--titlerow-h) + var(--sticky-gap) + 2px); /* rich-toolbar sticky top */
 }
@@ -587,7 +588,7 @@ a { color: var(--accent); }
   background: var(--bg);
   flex-wrap: wrap;
   position: sticky;
-  top: calc(var(--header-h) + var(--sticky-gap));
+  top: var(--header-offset);
   z-index: 51;
   width: 100%;
   box-sizing: border-box;

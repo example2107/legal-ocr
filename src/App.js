@@ -345,6 +345,7 @@ export default function App() {
   const projectImportRef = useRef();
   const editorPageInputRef = useRef(null);
   const editorNavigatingPageRef = useRef(null);
+  const editorPageNavigationTimerRef = useRef(null);
   const dragFileIdx = useRef(null);
   const uploadedFilesRef = useRef(new Map());
 
@@ -540,6 +541,7 @@ export default function App() {
   const undoStackRef  = useRef([]); // array of {html, pd, anon}
   const undoIndexRef  = useRef(-1);
   const MAX_UNDO = 80;
+  const headerRef = useRef(null);
   // Ref to doc-title-row — used to measure its height for --toolbar-top CSS var
   const titleRowRef = useRef(null);
   // Callback-ref for pd-panel — prevents wheel events from bleeding to page scroll
@@ -656,20 +658,26 @@ export default function App() {
     }
   }, []);
 
-  // Keep --titlerow-h CSS variable in sync with actual title-row height
-  // This fixes toolbar sticky top when title row wraps onto two lines
+  // Keep sticky offsets in sync with the real header/title geometry.
   useEffect(() => {
-    const el = titleRowRef.current;
-    if (!el) return;
     const update = () => {
-      const height = el.offsetHeight;
-      document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
-      const bottom = Math.round(el.getBoundingClientRect().bottom);
-      document.documentElement.style.setProperty('--toolbar-top', `${bottom + 2}px`);
+      const headerEl = headerRef.current;
+      const titleEl = titleRowRef.current;
+      if (headerEl) {
+        const headerBottom = Math.round(headerEl.getBoundingClientRect().bottom);
+        document.documentElement.style.setProperty('--header-offset', `${headerBottom + 8}px`);
+      }
+      if (titleEl) {
+        const height = titleEl.offsetHeight;
+        document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
+        const bottom = Math.round(titleEl.getBoundingClientRect().bottom);
+        document.documentElement.style.setProperty('--toolbar-top', `${bottom + 2}px`);
+      }
     };
     update();
     const ro = new ResizeObserver(update);
-    ro.observe(el);
+    if (headerRef.current) ro.observe(headerRef.current);
+    if (titleRowRef.current) ro.observe(titleRowRef.current);
     window.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
     return () => {
@@ -1476,6 +1484,10 @@ export default function App() {
     if (!targetPage || !editorDomRef.current) return false;
     const targetSeparator = editorDomRef.current.querySelector(`.page-separator[data-page="${targetPage}"]`);
     if (!targetSeparator) return false;
+    if (editorPageNavigationTimerRef.current) {
+      clearTimeout(editorPageNavigationTimerRef.current);
+      editorPageNavigationTimerRef.current = null;
+    }
     editorNavigatingPageRef.current = targetPage;
     setEditorCurrentPage(targetPage);
     setEditorPageInput(String(targetPage));
@@ -1490,11 +1502,12 @@ export default function App() {
         behavior: 'smooth',
       });
     });
-    window.setTimeout(() => {
+    editorPageNavigationTimerRef.current = window.setTimeout(() => {
       if (editorNavigatingPageRef.current === targetPage) {
         editorNavigatingPageRef.current = null;
       }
-    }, 450);
+      editorPageNavigationTimerRef.current = null;
+    }, 550);
     return true;
   }, [getEditorScrollOffset, originalImages]);
 
@@ -1522,24 +1535,12 @@ export default function App() {
     let rafId = null;
     const syncPageInput = () => {
       const navigatingPage = editorNavigatingPageRef.current;
-      const currentPage = navigatingPage || getCurrentEditorPageNumber();
+      const currentPage = navigatingPage ?? getCurrentEditorPageNumber();
       const totalPages = getEditorTotalPages();
       setEditorCurrentPage(currentPage || (totalPages ? 1 : null));
       setEditorTotalPages(totalPages || null);
       if (currentPage) {
         setEditorPageInput(String(currentPage));
-      }
-      if (!navigatingPage) return;
-      const targetSeparator = editorDomRef.current?.querySelector(`.page-separator[data-page="${navigatingPage}"]`);
-      if (!targetSeparator) {
-        editorNavigatingPageRef.current = null;
-        return;
-      }
-      const threshold = getEditorScrollOffset();
-      const rect = targetSeparator.getBoundingClientRect();
-      const nearDocumentBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
-      if (rect.top <= threshold + 6 || nearDocumentBottom) {
-        editorNavigatingPageRef.current = null;
       }
     };
     const handleScroll = () => {
@@ -1551,6 +1552,10 @@ export default function App() {
     window.addEventListener('resize', handleScroll);
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
+      if (editorPageNavigationTimerRef.current) {
+        clearTimeout(editorPageNavigationTimerRef.current);
+        editorPageNavigationTimerRef.current = null;
+      }
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleScroll);
     };
@@ -2587,7 +2592,7 @@ ${paras}
   return (
     <div className="app">
 
-      <header className="header">
+      <header className="header" ref={headerRef}>
         <div className="header-inner">
           <div className="header-left" />
           <div className="header-center">
