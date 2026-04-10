@@ -10,21 +10,21 @@ function getPreferredPdfPageForMark(editorEl, markEl, pageMetadata, coordinateLa
   if (!editorEl || !markEl?.isConnected) return null;
 
   const separators = Array.from(editorEl.querySelectorAll('.page-separator[data-page]'));
-  let relativePage = 1;
+  let pageNumber = null;
   for (const separator of separators) {
     if (separator === markEl) continue;
     if (separator.compareDocumentPosition(markEl) & Node.DOCUMENT_POSITION_FOLLOWING) {
-      relativePage = Number(separator.dataset.page || relativePage);
+      pageNumber = Number(separator.dataset.page || pageNumber || 0) || pageNumber;
     } else {
       break;
     }
   }
 
-  const absoluteStartPage = pageMetadata?.sources?.[0]?.pageFrom
+  if (pageNumber) return pageNumber;
+
+  return pageMetadata?.sources?.[0]?.pageFrom
     || coordinateLayer?.pages?.[0]?.pageNumber
     || 1;
-
-  return absoluteStartPage + relativePage - 1;
 }
 
 function getSourceForPage(pageMetadata, pageNumber) {

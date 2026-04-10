@@ -131,6 +131,14 @@ function formatDocumentPageProgress(doc) {
   return `${doc.pageTo}`;
 }
 
+function getBatchStatusTitle(status) {
+  if (status === 'failed') return 'Обработка большого PDF остановлена';
+  if (status === 'paused') return 'Обработка PDF приостановлена';
+  if (status === 'pausing') return 'Приостанавливаем обработку PDF';
+  if (status === 'running') return 'Идёт обработка PDF';
+  return 'Есть незавершённая обработка PDF';
+}
+
 function assignLetters(personalData, existingPD) {
   // Если есть существующая база — продолжаем нумерацию с того места где остановились
   let pi = 0, pf = 0;
@@ -204,6 +212,26 @@ const VIEW_HOME = 'home';
 const VIEW_PROCESSING = 'processing';
 const VIEW_RESULT = 'result';
 const VIEW_PROJECT = 'project';
+const BATCH_PROGRESS_STORAGE_KEY = 'legal_ocr_batch_progress';
+
+function loadBatchProgressSnapshot() {
+  try {
+    const raw = localStorage.getItem(BATCH_PROGRESS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveBatchProgressSnapshot(snapshot) {
+  try {
+    if (!snapshot) {
+      localStorage.removeItem(BATCH_PROGRESS_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(BATCH_PROGRESS_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {}
+}
 
 export default function App() {
   const { user, loading: authLoading, isConfigured, signInWithPassword, signUpWithPassword, signOut } = useAuth();
@@ -237,7 +265,14 @@ export default function App() {
 
 
   const [progress, setProgress] = useState(null);
+  const [activeBatchUiState, setActiveBatchUiState] = useState(null);
+  const [persistedBatchUiState, setPersistedBatchUiState] = useState(() => loadBatchProgressSnapshot());
   const progressCreepRef = useRef(null);
+  const activeBatchControlRef = useRef({
+    projectId: null,
+    pauseRequested: false,
+    targetView: null,
+  });
 
   const setNonDecreasingProgress = useCallback((next) => {
     setProgress(prev => prev && prev.percent > next.percent
@@ -367,6 +402,27 @@ export default function App() {
     onError: handleStoredDataError,
     onSignedOut: handleStoredDataSignedOut,
   });
+
+  useEffect(() => {
+    if (!activeBatchUiState) return;
+    saveBatchProgressSnapshot(activeBatchUiState);
+    setPersistedBatchUiState(activeBatchUiState);
+  }, [activeBatchUiState]);
+
+  useEffect(() => {
+    const handler = () => {
+      if (!activeBatchUiState) return;
+      if (!['running', 'pausing'].includes(activeBatchUiState.status)) return;
+      const pausedSnapshot = {
+        ...activeBatchUiState,
+        status: 'paused',
+        message: activeBatchUiState.message || 'Обработка была приостановлена после обновления страницы.',
+      };
+      saveBatchProgressSnapshot(pausedSnapshot);
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [activeBatchUiState]);
 
   const removeAmbiguousEntry = useCallback((pd, markEl) => {
     if (!markEl) return pd;
@@ -669,10 +725,89 @@ export default function App() {
     : null;
   const currentBatchSession = currentProject?.batchSession || null;
 
+  const getProjectBatchDisplayState = useCallback((project) => {
+    if (!project?.batchSession || project.batchSession.status === 'completed') return null;
+    if (activeBatchUiState?.projectId === project.id) {
+      return activeBatchUiState;
+    }
+    if (persistedBatchUiState?.projectId === project.id) {
+      return {
+        ...project.batchSession,
+        ...persistedBatchUiState,
+        status: persistedBatchUiState.status || project.batchSession.status,
+        error: persistedBatchUiState.error || project.batchSession.error || '',
+      };
+    }
+    return {
+      projectId: project.id,
+      fileName: project.batchSession.fileName || '',
+      totalPages: project.batchSession.totalPages || 0,
+      nextPage: project.batchSession.nextPage || 1,
+      currentPageFrom: project.batchSession.currentPageFrom || null,
+      currentPageTo: project.batchSession.currentPageTo || null,
+      progressPercent: project.batchSession.progressPercent ?? null,
+      message: project.batchSession.progressMessage || '',
+      status: project.batchSession.status || 'paused',
+      error: project.batchSession.error || '',
+    };
+  }, [activeBatchUiState, persistedBatchUiState]);
+
+  const currentBatchDisplayState = currentProject ? getProjectBatchDisplayState(currentProject) : null;
+  const homeBatchProject = projects.find((project) => getProjectBatchDisplayState(project)) || null;
+  const homeBatchDisplayState = homeBatchProject ? getProjectBatchDisplayState(homeBatchProject) : null;
+
+  useEffect(() => {
+    if (!persistedBatchUiState?.projectId) return;
+    const matchingProject = projects.find((project) => project.id === persistedBatchUiState.projectId) || null;
+    if (!matchingProject?.batchSession || matchingProject.batchSession.status === 'completed') {
+      saveBatchProgressSnapshot(null);
+      setPersistedBatchUiState(null);
+      if (activeBatchUiState?.projectId === persistedBatchUiState.projectId) {
+        setActiveBatchUiState(null);
+      }
+    }
+  }, [activeBatchUiState, persistedBatchUiState, projects]);
+
   const getProjectChunkDocKey = useCallback((doc) => {
     if (!doc || doc.isProjectSummary) return '';
     if (!doc.batchFileName || !doc.pageFrom || !doc.pageTo) return '';
     return `${doc.projectId || ''}::${doc.batchFileName}::${doc.pageFrom}::${doc.pageTo}`;
+  }, []);
+
+  const requestPauseActiveBatch = useCallback((targetView = null) => {
+    if (!activeBatchControlRef.current.projectId) return false;
+    activeBatchControlRef.current.pauseRequested = true;
+    if (targetView) {
+      activeBatchControlRef.current.targetView = targetView;
+    }
+    setActiveBatchUiState((prev) => (
+      prev
+        ? {
+            ...prev,
+            status: 'pausing',
+            message: 'Приостанавливаем обработку после текущей страницы...',
+          }
+        : prev
+    ));
+    return true;
+  }, []);
+
+  const consumePauseBatchTargetView = useCallback(() => {
+    const targetView = activeBatchControlRef.current.targetView || null;
+    activeBatchControlRef.current.pauseRequested = false;
+    activeBatchControlRef.current.targetView = null;
+    return targetView;
+  }, []);
+
+  const clearActiveBatchTracking = useCallback(() => {
+    activeBatchControlRef.current = {
+      projectId: null,
+      pauseRequested: false,
+      targetView: null,
+    };
+    setActiveBatchUiState(null);
+    saveBatchProgressSnapshot(null);
+    setPersistedBatchUiState(null);
   }, []);
 
   const getProjectDocs = () => {
@@ -752,6 +887,18 @@ export default function App() {
     if (!currentProjectId) return;
     await updateProjectBatchSessionRecord(user, currentProjectId, null);
     await refreshProjects();
+    if (persistedBatchUiState?.projectId === currentProjectId) {
+      saveBatchProgressSnapshot(null);
+      setPersistedBatchUiState(null);
+    }
+    if (activeBatchUiState?.projectId === currentProjectId) {
+      setActiveBatchUiState(null);
+    }
+    activeBatchControlRef.current = {
+      projectId: null,
+      pauseRequested: false,
+      targetView: null,
+    };
     setError(null);
   };
 
@@ -854,6 +1001,9 @@ export default function App() {
   }, [user]);
 
   const handleProjectRecognize = async () => {
+    activeBatchControlRef.current.projectId = currentProjectId;
+    activeBatchControlRef.current.pauseRequested = false;
+    activeBatchControlRef.current.targetView = null;
     await runProjectBatchRecognition({
       apiKey,
       files,
@@ -871,6 +1021,15 @@ export default function App() {
       refreshHistory,
       refreshProjects,
       openRecognizedDocResult,
+      shouldPauseBatch: () => activeBatchControlRef.current.pauseRequested,
+      consumePauseBatchTargetView,
+      onBatchUiStateChange: (nextState) => {
+        if (nextState?.projectId) {
+          activeBatchControlRef.current.projectId = nextState.projectId;
+        }
+        setActiveBatchUiState(nextState || null);
+      },
+      onBatchUiStateClear: clearActiveBatchTracking,
       stopProgressCreep,
       setError,
       setView,
@@ -948,6 +1107,10 @@ export default function App() {
 
   // ── Navigation ────────────────────────────────────────────────────────────────
   const goHome = () => {
+    if (view === VIEW_PROCESSING && requestPauseActiveBatch(VIEW_HOME)) {
+      doGoHome();
+      return;
+    }
     if (view === VIEW_RESULT && isDirty()) {
       setShowUnsaved(true);
       pendingNavRef.current = 'home';
@@ -957,6 +1120,10 @@ export default function App() {
   };
 
   const goBackToProject = () => {
+    if (view === VIEW_PROCESSING && requestPauseActiveBatch(VIEW_PROJECT)) {
+      doGoBackToProject();
+      return;
+    }
     if (view === VIEW_RESULT && isDirty()) {
       setShowUnsaved(true);
       pendingNavRef.current = 'project';
@@ -2563,6 +2730,37 @@ ${paras}
 
             {error && <div className="error-block">⚠️ {error}</div>}
 
+            {homeBatchProject && homeBatchDisplayState && (
+              <div className={`project-batch-status home-batch-status ${homeBatchDisplayState.status === 'failed' ? 'failed' : ''}`}>
+                <div className="project-batch-status-title">
+                  {getBatchStatusTitle(homeBatchDisplayState.status)}
+                </div>
+                <div className="project-batch-status-body">
+                  <strong>{homeBatchProject.title}</strong>
+                  <span>{homeBatchDisplayState.fileName}</span>
+                  <span>
+                    Следующий запуск начнётся с {formatProjectChunkPageRange(
+                      homeBatchDisplayState.nextPage,
+                      getProjectPdfChunkEnd(homeBatchDisplayState.nextPage, homeBatchDisplayState.totalPages, 1),
+                      homeBatchDisplayState.totalPages
+                    )}.
+                  </span>
+                  {homeBatchDisplayState.message && <span>{homeBatchDisplayState.message}</span>}
+                  {homeBatchDisplayState.error && <span>Последняя ошибка: {homeBatchDisplayState.error}</span>}
+                </div>
+                {Number.isFinite(homeBatchDisplayState.progressPercent) && (
+                  <div className="project-batch-progress">
+                    <div className="project-batch-progress-bar" style={{ width: `${Math.max(0, Math.min(100, Math.round(homeBatchDisplayState.progressPercent)))}%` }} />
+                  </div>
+                )}
+                <div className="project-batch-actions">
+                  <button className="btn-tool" onClick={() => openProject(homeBatchProject.id)}>
+                    Открыть проект
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="home-btn-wrap">
               <button
                 className="btn-primary"
@@ -2817,18 +3015,29 @@ ${paras}
               )}
             </section>
 
-            {currentBatchSession && currentBatchSession.status !== 'completed' && (
-              <div className={`project-batch-status ${currentBatchSession.status === 'failed' ? 'failed' : ''}`}>
+            {currentBatchDisplayState && currentBatchDisplayState.status !== 'completed' && (
+              <div className={`project-batch-status ${currentBatchDisplayState.status === 'failed' ? 'failed' : ''}`}>
                 <div className="project-batch-status-title">
-                  {currentBatchSession.status === 'failed' ? 'Обработка большого PDF остановлена' : 'Есть незавершённая обработка PDF'}
+                  {getBatchStatusTitle(currentBatchDisplayState.status)}
                 </div>
                 <div className="project-batch-status-body">
-                  <strong>{currentBatchSession.fileName}</strong>
-                  <span>Следующий запуск начнётся с {formatProjectChunkPageRange(currentBatchSession.nextPage, getProjectPdfChunkEnd(currentBatchSession.nextPage, currentBatchSession.totalPages, currentBatchSession.chunkSize), currentBatchSession.totalPages)}.</span>
+                  <strong>{currentBatchDisplayState.fileName}</strong>
+                  <span>Следующий запуск начнётся с {formatProjectChunkPageRange(currentBatchDisplayState.nextPage, getProjectPdfChunkEnd(currentBatchDisplayState.nextPage, currentBatchDisplayState.totalPages, currentBatchSession?.chunkSize || 1), currentBatchDisplayState.totalPages)}.</span>
+                  {currentBatchDisplayState.message && <span>{currentBatchDisplayState.message}</span>}
                   <span>Для продолжения выберите тот же PDF-файл заново.</span>
-                  {currentBatchSession.error && <span>Последняя ошибка: {currentBatchSession.error}</span>}
+                  {currentBatchDisplayState.error && <span>Последняя ошибка: {currentBatchDisplayState.error}</span>}
                 </div>
+                {Number.isFinite(currentBatchDisplayState.progressPercent) && (
+                  <div className="project-batch-progress">
+                    <div className="project-batch-progress-bar" style={{ width: `${Math.max(0, Math.min(100, Math.round(currentBatchDisplayState.progressPercent)))}%` }} />
+                  </div>
+                )}
                 <div className="project-batch-actions">
+                  {currentBatchDisplayState.status === 'running' && (
+                    <button className="btn-tool" onClick={() => requestPauseActiveBatch(VIEW_PROJECT)}>
+                      Пауза
+                    </button>
+                  )}
                   <button className="btn-tool" onClick={handleResetProjectBatchSession}>Сбросить незавершённую обработку</button>
                 </div>
               </div>
@@ -2950,6 +3159,11 @@ ${paras}
               <div className="progress-bar" style={{ width: `${Math.round(progress.percent || 0)}%` }} />
             </div>
             <div className="progress-pct">{Math.round(progress.percent || 0)}%</div>
+            <div className="project-batch-actions" style={{ marginTop: 12 }}>
+              <button className="btn-tool" onClick={() => requestPauseActiveBatch(VIEW_PROJECT)}>
+                Пауза
+              </button>
+            </div>
           </div>
         )}
 
@@ -3074,7 +3288,7 @@ ${paras}
               <div className="panel-resizer" onMouseDown={startResize('pd')}><span className="panel-resizer-icon">‹<br/>›</span></div>
             )}
 
-            <div className="doc-card">
+            <div className={`doc-card${editorTotalPages > 1 ? ' doc-card-has-page-nav' : ''}`}>
               <div className="doc-title-row" ref={titleRowRef}>
                 <input
                   className="doc-title-input"

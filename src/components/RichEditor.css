@@ -16,7 +16,7 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   position: sticky;
-  top: var(--toolbar-top);
+  top: calc(var(--toolbar-top) + var(--editor-page-nav-h, 0px));
   z-index: 50;
   flex-shrink: 0;
   width: 100%;

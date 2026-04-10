@@ -36,6 +36,10 @@ export async function runProjectBatchRecognition({
   refreshHistory,
   refreshProjects,
   openRecognizedDocResult,
+  shouldPauseBatch,
+  consumePauseBatchTargetView,
+  onBatchUiStateChange,
+  onBatchUiStateClear,
   stopProgressCreep,
   setError,
   setView,
@@ -60,6 +64,30 @@ export async function runProjectBatchRecognition({
   setView(viewProcessing);
 
   let failedSession = null;
+  const emitBatchUiState = (snapshot) => {
+    onBatchUiStateChange?.(snapshot || null);
+  };
+
+  const buildBatchUiState = ({
+    session = null,
+    fileName = '',
+    progressPercent = null,
+    message = '',
+    status = null,
+    error = '',
+  } = {}) => ({
+    projectId: currentProjectId,
+    fileName: fileName || session?.fileName || '',
+    totalPages: session?.totalPages || 0,
+    nextPage: session?.nextPage || 1,
+    currentPageFrom: session?.currentPageFrom || null,
+    currentPageTo: session?.currentPageTo || null,
+    progressPercent,
+    message,
+    status: status || session?.status || 'running',
+    error: error || session?.error || '',
+  });
+
   try {
     const setNonDecreasingProgress = (next) => {
       setProgress(prev => prev && prev.percent > next.percent
@@ -93,6 +121,12 @@ export async function runProjectBatchRecognition({
           percent: Math.round(2 + ((i + 1) / files.length) * 8),
           message: `Подсчёт страниц: ${file.name} (${totalPages} стр.)`,
         });
+        emitBatchUiState(buildBatchUiState({
+          fileName: file.name,
+          progressPercent: Math.round(2 + ((i + 1) / files.length) * 8),
+          message: `Подсчёт страниц: ${file.name} (${totalPages} стр.)`,
+          status: 'running',
+        }));
         jobs.push({ file, totalPages, session: null });
       }
     }
@@ -117,12 +151,43 @@ export async function runProjectBatchRecognition({
       return Math.max(12, Math.min(98, Math.round(base + current)));
     };
 
+    const pauseBatchIfRequested = async (session, fileName, fallbackView = viewProject) => {
+      if (!shouldPauseBatch?.()) return false;
+      const pausedSession = updateProjectPdfBatchSession(session, {
+        status: 'paused',
+        error: '',
+        progressPercent: getOverallPercent(100),
+        progressMessage: `Обработка приостановлена. Следующий запуск начнётся с ${formatProjectChunkPageRange(session.nextPage, getProjectPdfChunkEnd(session.nextPage, session.totalPages, session.chunkSize), session.totalPages)}.`,
+      });
+      failedSession = pausedSession;
+      await saveProjectBatchSessionState(pausedSession);
+      emitBatchUiState(buildBatchUiState({
+        session: pausedSession,
+        fileName,
+        progressPercent: pausedSession.progressPercent,
+        message: pausedSession.progressMessage,
+        status: 'paused',
+      }));
+      stopProgressCreep();
+      setFiles([]);
+      setProgress(null);
+      setView(consumePauseBatchTargetView?.() || fallbackView);
+      return true;
+    };
+
     for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
       const { file, totalPages } = jobs[jobIndex];
       const uploadedSourceFile = await ensureUploadedSourceFile(file, currentProjectId);
       let session = jobs[jobIndex].session || createProjectPdfBatchSession(file, totalPages, getProjectDocs().length + 1);
       session = updateProjectPdfBatchSession(session, { status: 'running', error: '' });
       await saveProjectBatchSessionState(session);
+      emitBatchUiState(buildBatchUiState({
+        session,
+        fileName: file.name,
+        progressPercent: 12,
+        message: `${file.name}: подготовка...`,
+        status: 'running',
+      }));
 
       for (let pageFrom = session.nextPage || 1; pageFrom <= session.totalPages; pageFrom += session.chunkSize || PROJECT_PDF_CHUNK_SIZE) {
         const pageTo = getProjectPdfChunkEnd(pageFrom, session.totalPages, session.chunkSize || PROJECT_PDF_CHUNK_SIZE);
@@ -141,17 +206,33 @@ export async function runProjectBatchRecognition({
           percent: getOverallPercent(0),
           message: `${file.name}: подготовка ${rangeLabel}...`,
         });
+        emitBatchUiState(buildBatchUiState({
+          session,
+          fileName: file.name,
+          progressPercent: getOverallPercent(0),
+          message: `${file.name}: подготовка ${rangeLabel}...`,
+          status: 'running',
+        }));
 
         const chunkImages = await pdfToImagesRange(file, pageFrom, pageTo, (pageNumInFile) => {
           const rendered = Math.max(0, pageNumInFile - pageFrom + 1);
           const pagesInChunk = Math.max(1, pageTo - pageFrom + 1);
           const innerPercent = Math.round((rendered / pagesInChunk) * 18);
+          const message = pagesInChunk > 1
+            ? `${file.name}: рендер ${rangeLabel} (${rendered}/${pagesInChunk})...`
+            : `${file.name}: рендер ${rangeLabel}...`;
+          const percent = getOverallPercent(innerPercent);
           setNonDecreasingProgress({
-            percent: getOverallPercent(innerPercent),
-            message: pagesInChunk > 1
-              ? `${file.name}: рендер ${rangeLabel} (${rendered}/${pagesInChunk})...`
-              : `${file.name}: рендер ${rangeLabel}...`,
+            percent,
+            message,
           });
+          emitBatchUiState(buildBatchUiState({
+            session,
+            fileName: file.name,
+            progressPercent: percent,
+            message,
+            status: 'running',
+          }));
         });
 
         let result;
@@ -159,10 +240,18 @@ export async function runProjectBatchRecognition({
           result = await recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
             const chunkPercent = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
             const percent = getOverallPercent(Math.max(20, chunkPercent));
+            const message = `${file.name}: ${p.message} (${rangeLabel})`;
             setProgress(prev => prev && prev.percent > percent
-              ? { ...prev, message: `${file.name}: ${p.message} (${rangeLabel})` }
-              : { percent, message: `${file.name}: ${p.message} (${rangeLabel})` }
+              ? { ...prev, message }
+              : { percent, message }
             );
+            emitBatchUiState(buildBatchUiState({
+              session,
+              fileName: file.name,
+              progressPercent: percent,
+              message,
+              status: 'running',
+            }));
           }, existingPD);
         } catch (error) {
           console.error('Project batch recognition failed', {
@@ -253,14 +342,21 @@ export async function runProjectBatchRecognition({
           error: '',
           currentPageFrom: pageFrom,
           currentPageTo: pageTo,
+          progressPercent: getOverallPercent(100),
+          progressMessage: `${file.name}: распознано ${rangeLabel}.`,
         });
         await saveProjectBatchSessionState(pageTo >= session.totalPages ? null : session);
         failedSession = pageTo >= session.totalPages ? null : session;
+
+        if (pageTo < session.totalPages && await pauseBatchIfRequested(session, file.name)) {
+          return;
+        }
       }
     }
 
     stopProgressCreep();
     await saveProjectBatchSessionState(null);
+    onBatchUiStateClear?.();
     setFiles([]);
     if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, []);
     setTimeout(() => {
@@ -271,6 +367,14 @@ export async function runProjectBatchRecognition({
     stopProgressCreep();
     if (failedSession) {
       await saveProjectBatchSessionState(updateProjectPdfBatchSession(failedSession, {
+        status: 'failed',
+        error: err.message || 'Произошла ошибка',
+      }));
+      emitBatchUiState(buildBatchUiState({
+        session: failedSession,
+        fileName: failedSession.fileName || '',
+        progressPercent: failedSession.progressPercent ?? null,
+        message: failedSession.progressMessage || '',
         status: 'failed',
         error: err.message || 'Произошла ошибка',
       }));

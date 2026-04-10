@@ -69,4 +69,37 @@ describe('buildPdfExportPatchEntries', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].patchPlan.status).toBe('unsupported');
   });
+
+  test('uses absolute page number from page separator without adding source offset again', () => {
+    document.body.innerHTML = `
+      <div id="editor">
+        <div class="page-separator" data-page="11">Страница 11</div>
+        <div>Адрес <mark class="pd oth anon" data-pd-id="pd_2" data-original="г. Уфа">[адрес]</mark></div>
+      </div>
+    `;
+
+    const editorEl = document.getElementById('editor');
+    const entries = buildPdfExportPatchEntries({
+      editorEl,
+      anonymized: { pd_2: true },
+      pageMetadata: {
+        sources: [{ pageFrom: 11, pageTo: 11, totalPages: 63 }],
+      },
+      coordinateLayer: {
+        pages: [
+          {
+            pageNumber: 11,
+            spans: [
+              { index: 1, text: 'г.', searchText: 'г.', x: 10, top: 10, right: 18, bottom: 20 },
+              { index: 2, text: 'Уфа', searchText: 'Уфа', x: 20, top: 10, right: 42, bottom: 20 },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].pageNumber).toBe(11);
+    expect(entries[0].patchPlan.status).not.toBe('unsupported');
+  });
 });

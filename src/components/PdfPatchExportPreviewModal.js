@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 export default function PdfPatchExportPreviewModal({
   open,
@@ -12,13 +12,28 @@ export default function PdfPatchExportPreviewModal({
   canOpenPage,
   formatPatchText,
 }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose, open]);
+
   if (!open) return null;
 
   return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 760 }}>
+    <div className="modal-overlay" onMouseDown={() => onClose?.()}>
+      <div
+        className="modal modal-scrollable"
+        style={{ maxWidth: 760 }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-title">Предпросмотр PDF-экспорта</div>
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="modal-body modal-scrollable-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ color: 'var(--text2)' }}>
             Перед сохранением видно, какие локальные правки попадут в PDF, а какие будут пропущены.
           </div>
@@ -104,7 +119,7 @@ export default function PdfPatchExportPreviewModal({
             </div>
           )}
         </div>
-        <div className="modal-actions">
+        <div className="modal-actions modal-scrollable-actions">
           <button className="btn-tool" onClick={onClose}>Отмена</button>
           <button
             className="btn-primary btn-sm"
