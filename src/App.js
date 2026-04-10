@@ -371,6 +371,12 @@ export default function App() {
     resetOriginalViewerTransform();
   }, [originalImages, resetOriginalViewerTransform]);
 
+  const syncOriginalViewerToDocumentPage = useCallback((pageNumber) => {
+    const imageIndex = getOriginalImageIndexForPage(originalImages, pageNumber);
+    if (imageIndex < 0) return;
+    setOriginalPage(imageIndex);
+  }, [originalImages]);
+
   const handleToggleOriginalViewer = useCallback(() => {
     setShowOriginal((visible) => !visible);
     setOriginalPage(0);
@@ -1491,7 +1497,8 @@ export default function App() {
     const resolvedPage = getCurrentEditorPageNumber() || lockedPage;
     setEditorCurrentPage(resolvedPage);
     setEditorPageInput(String(resolvedPage));
-  }, [getCurrentEditorPageNumber]);
+    syncOriginalViewerToDocumentPage(resolvedPage);
+  }, [getCurrentEditorPageNumber, syncOriginalViewerToDocumentPage]);
 
   const goToEditorPage = useCallback((pageNumber) => {
     const targetPage = Number(pageNumber || 0);
@@ -1505,10 +1512,7 @@ export default function App() {
     editorNavigatingPageRef.current = targetPage;
     setEditorCurrentPage(targetPage);
     setEditorPageInput(String(targetPage));
-    const imageIndex = getOriginalImageIndexForPage(originalImages, targetPage);
-    if (imageIndex >= 0) {
-      setOriginalPage(imageIndex);
-    }
+    syncOriginalViewerToDocumentPage(targetPage);
     const targetTop = window.scrollY + targetSeparator.getBoundingClientRect().top - getEditorScrollOffset();
     requestAnimationFrame(() => {
       window.scrollTo({
@@ -1522,7 +1526,7 @@ export default function App() {
       }
     }, 1800);
     return true;
-  }, [getEditorScrollOffset, originalImages, releaseEditorPageNavigationLock]);
+  }, [getEditorScrollOffset, releaseEditorPageNavigationLock, syncOriginalViewerToDocumentPage]);
 
   const handleEditorPageSubmit = useCallback(() => {
     const totalPages = getEditorTotalPages();
@@ -1553,6 +1557,7 @@ export default function App() {
       setEditorTotalPages(totalPages || null);
       if (currentPage) {
         setEditorPageInput(String(currentPage));
+        syncOriginalViewerToDocumentPage(currentPage);
       }
     };
     const syncPageInput = () => {
@@ -1562,6 +1567,7 @@ export default function App() {
       if (navigatingPage != null) {
         setEditorCurrentPage(navigatingPage);
         setEditorPageInput(String(navigatingPage));
+        syncOriginalViewerToDocumentPage(navigatingPage);
         if (editorPageNavigationTimerRef.current) {
           clearTimeout(editorPageNavigationTimerRef.current);
         }
@@ -1588,7 +1594,7 @@ export default function App() {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleScroll);
     };
-  }, [editorHtml, getCurrentEditorPageNumber, getEditorTotalPages, releaseEditorPageNavigationLock, view]);
+  }, [editorHtml, getCurrentEditorPageNumber, getEditorTotalPages, releaseEditorPageNavigationLock, syncOriginalViewerToDocumentPage, view]);
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   const countUncertain = () => {
