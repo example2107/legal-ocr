@@ -665,13 +665,13 @@ export default function App() {
       const titleEl = titleRowRef.current;
       if (headerEl) {
         const headerBottom = Math.round(headerEl.getBoundingClientRect().bottom);
-        document.documentElement.style.setProperty('--header-offset', `${headerBottom + 8}px`);
+        document.documentElement.style.setProperty('--header-offset', `${headerBottom + 2}px`);
       }
       if (titleEl) {
         const height = titleEl.offsetHeight;
         document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
         const bottom = Math.round(titleEl.getBoundingClientRect().bottom);
-        document.documentElement.style.setProperty('--toolbar-top', `${bottom + 2}px`);
+        document.documentElement.style.setProperty('--toolbar-top', `${bottom + 1}px`);
       }
     };
     update();
@@ -1504,10 +1504,16 @@ export default function App() {
     });
     editorPageNavigationTimerRef.current = window.setTimeout(() => {
       if (editorNavigatingPageRef.current === targetPage) {
-        editorNavigatingPageRef.current = null;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (editorNavigatingPageRef.current === targetPage) {
+              editorNavigatingPageRef.current = null;
+            }
+          });
+        });
       }
       editorPageNavigationTimerRef.current = null;
-    }, 550);
+    }, 700);
     return true;
   }, [getEditorScrollOffset, originalImages]);
 
