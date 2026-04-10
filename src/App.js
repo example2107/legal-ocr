@@ -15,7 +15,7 @@ import { usePatchedViewerPages } from './hooks/usePatchedViewerPages';
 import { useStoredData } from './hooks/useStoredData';
 import { buildDocumentCoordinateLayer } from './utils/documentCoordinateLayer';
 import { findBestCoordinateMatch } from './utils/documentCoordinateMatcher';
-import { normalizeDocumentPatchLayer } from './utils/documentPatchLayer';
+import { normalizeDocumentPatchLayer, upsertDocumentPatch } from './utils/documentPatchLayer';
 import { buildLoadedDocumentState, getClearedWorkspaceState } from './utils/documentViewState';
 import { buildDocumentPageMetadata } from './utils/documentPageMetadata';
 import { generateId, exportDocument, importDocument } from './utils/history';
@@ -1203,7 +1203,7 @@ export default function App() {
 
   const countPageSeparators = () => {
     if (!editorDomRef.current) return 0;
-    return editorDomRef.current.querySelectorAll('.page-separator, .part-separator').length;
+    return editorDomRef.current.querySelectorAll('.part-separator').length;
   };
 
   const formatPatchEntryText = useCallback((patchEntry) => (
@@ -1226,9 +1226,9 @@ export default function App() {
       setPendingExportAction(action);
       setShowUncertainWarning(true);
       setHighlightUncertain(true);
-      // Подсвечиваем разделители страниц анимацией
+      // Подсвечиваем разделители частей анимацией
       if (editorDomRef.current) {
-        editorDomRef.current.querySelectorAll('.page-separator, .part-separator').forEach(el => {
+        editorDomRef.current.querySelectorAll('.part-separator').forEach(el => {
           el.classList.add('page-separator-highlight');
         });
       }
@@ -1244,7 +1244,7 @@ export default function App() {
     setHighlightUncertain(false);
     // Убираем подсветку разделителей
     if (editorDomRef.current) {
-      editorDomRef.current.querySelectorAll('.page-separator, .part-separator').forEach(el => {
+      editorDomRef.current.querySelectorAll('.part-separator').forEach(el => {
         el.classList.remove('page-separator-highlight');
       });
     }
@@ -1782,6 +1782,11 @@ export default function App() {
 
     pdRef.current = nextPd;
     setPersonalData(nextPd);
+    setPatchLayer((prev) => upsertDocumentPatch({
+      patchLayer: prev,
+      fragmentId: payload.id,
+      patchPlan: payload.patchPlan || null,
+    }));
     setEditingPdFragment(null);
 
     const html = dom.innerHTML;
@@ -2270,7 +2275,7 @@ ${paras}
                 <div>Найдено <strong>{countUncertain()}</strong> {countUncertain() === 1 ? 'фрагмент' : 'фрагментов'} с неточным распознаванием — выделены двойным подчёркиванием.</div>
               )}
               {countPageSeparators() > 0 && (
-                <div style={{marginTop: countUncertain() > 0 ? 8 : 0}}>Найдено <strong>{countPageSeparators()}</strong> {countPageSeparators() === 1 ? 'разделитель страниц' : 'разделителей страниц'} — они выделены и не должны оставаться в финальном документе.</div>
+                <div style={{marginTop: countUncertain() > 0 ? 8 : 0}}>Найдено <strong>{countPageSeparators()}</strong> {countPageSeparators() === 1 ? 'разделитель частей' : 'разделителей частей'} — они выделены и не должны оставаться в финальном документе.</div>
               )}
               <div style={{marginTop: 10, color: 'var(--text2)'}}>Рекомендуем проверить и исправить их перед сохранением.</div>
             </div>
