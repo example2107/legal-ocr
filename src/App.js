@@ -125,6 +125,12 @@ function truncatePatchText(value, maxLength = 72) {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function formatDocumentPageProgress(doc) {
+  if (!doc?.pageTo) return '';
+  if (doc?.totalPages) return `${doc.pageTo} из ${doc.totalPages}`;
+  return `${doc.pageTo}`;
+}
+
 function assignLetters(personalData, existingPD) {
   // Если есть существующая база — продолжаем нумерацию с того места где остановились
   let pi = 0, pf = 0;
@@ -285,6 +291,9 @@ export default function App() {
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
   const [showUncertainWarning, setShowUncertainWarning] = useState(false);
+  const [editorCurrentPage, setEditorCurrentPage] = useState(null);
+  const [editorTotalPages, setEditorTotalPages] = useState(null);
+  const [editorPageInput, setEditorPageInput] = useState('');
   const [showLongDocWarning, setShowLongDocWarning] = useState(false);
   const [highlightUncertain, setHighlightUncertain] = useState(false);
   const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
@@ -293,6 +302,7 @@ export default function App() {
   const importInputRef = useRef();
   const projectFileInputRef = useRef();
   const projectImportRef = useRef();
+  const editorPageInputRef = useRef(null);
   const dragFileIdx = useRef(null);
   const uploadedFilesRef = useRef(new Map());
 
@@ -431,6 +441,9 @@ export default function App() {
     showPdfPatchPreview,
   } = usePdfExportFlow({
     patchLayer,
+    anonymized,
+    coordinateLayer,
+    pageMetadata,
     originalImages,
     docTitle,
     originalFileName,
@@ -908,6 +921,9 @@ export default function App() {
     clearPatchedViewerPages();
     setShowOriginal(nextState.showOriginal);
     setOriginalPage(nextState.originalPage);
+    setEditorCurrentPage(null);
+    setEditorTotalPages(null);
+    setEditorPageInput('');
     setPdIdsInDoc(nextState.pdIdsInDoc);
     pdRef.current = nextState.personalData;
     anonRef.current = nextState.anonymized;
@@ -1194,6 +1210,94 @@ export default function App() {
     openRecognizedDocResult(entry, []);
     setView(VIEW_RESULT);
   };
+
+  const getEditorPageSeparators = useCallback(() => {
+    if (!editorDomRef.current) return [];
+    return Array.from(editorDomRef.current.querySelectorAll('.page-separator[data-page]'))
+      .map((el) => ({
+        el,
+        pageNumber: Number(el.dataset.page || 0),
+      }))
+      .filter((item) => item.pageNumber > 0);
+  }, []);
+
+  const getCurrentEditorPageNumber = useCallback(() => {
+    const separators = getEditorPageSeparators();
+    if (separators.length === 0) return null;
+
+    let currentPage = separators[0].pageNumber;
+    for (const separator of separators) {
+      const rect = separator.el.getBoundingClientRect();
+      if (rect.top <= 160) {
+        currentPage = separator.pageNumber;
+      } else {
+        break;
+      }
+    }
+    return currentPage;
+  }, [getEditorPageSeparators]);
+
+  const getEditorTotalPages = useCallback(() => {
+    const separators = getEditorPageSeparators();
+    if (separators.length > 0) {
+      return separators[separators.length - 1].pageNumber;
+    }
+    return pageMetadata?.sources?.[0]?.totalPages || pageMetadata?.sources?.[0]?.pageTo || null;
+  }, [getEditorPageSeparators, pageMetadata]);
+
+  const goToEditorPage = useCallback((pageNumber) => {
+    const targetPage = Number(pageNumber || 0);
+    if (!targetPage || !editorDomRef.current) return false;
+    const targetSeparator = editorDomRef.current.querySelector(`.page-separator[data-page="${targetPage}"]`);
+    if (!targetSeparator) return false;
+    const imageIndex = getOriginalImageIndexForPage(originalImages, targetPage);
+    if (imageIndex >= 0) {
+      setOriginalPage(imageIndex);
+    }
+    targetSeparator.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
+  }, [originalImages]);
+
+  const handleEditorPageSubmit = useCallback(() => {
+    const totalPages = getEditorTotalPages();
+    const rawPage = Number(editorPageInput || 0);
+    if (!rawPage) return;
+    const targetPage = totalPages
+      ? Math.max(1, Math.min(totalPages, rawPage))
+      : rawPage;
+    if (!targetPage) return;
+    if (goToEditorPage(targetPage)) {
+      setEditorCurrentPage(targetPage);
+      setEditorPageInput(String(targetPage));
+    }
+  }, [editorPageInput, getEditorTotalPages, goToEditorPage]);
+
+  const handleEditorPageStep = useCallback((direction) => {
+    const currentPage = editorCurrentPage || getCurrentEditorPageNumber();
+    const totalPages = editorTotalPages || getEditorTotalPages();
+    if (!currentPage || !totalPages) return;
+    const nextPage = Math.max(1, Math.min(totalPages, currentPage + direction));
+    if (goToEditorPage(nextPage)) {
+      setEditorCurrentPage(nextPage);
+      setEditorPageInput(String(nextPage));
+    }
+  }, [editorCurrentPage, editorTotalPages, getCurrentEditorPageNumber, getEditorTotalPages, goToEditorPage]);
+
+  useEffect(() => {
+    if (view !== VIEW_RESULT) return;
+    const syncPageInput = () => {
+      const currentPage = getCurrentEditorPageNumber();
+      const totalPages = getEditorTotalPages();
+      setEditorCurrentPage(currentPage || (totalPages ? 1 : null));
+      setEditorTotalPages(totalPages || null);
+      if (currentPage && document.activeElement !== editorPageInputRef.current) {
+        setEditorPageInput(String(currentPage));
+      }
+    };
+    syncPageInput();
+    window.addEventListener('scroll', syncPageInput, { passive: true });
+    return () => window.removeEventListener('scroll', syncPageInput);
+  }, [editorHtml, getCurrentEditorPageNumber, getEditorTotalPages, view]);
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   const countUncertain = () => {
@@ -2786,7 +2890,7 @@ ${paras}
                           <div className="project-doc-meta">
                             {formatDate(new Date(doc.savedAt))}
                             {doc.pageFrom && doc.pageTo && (
-                              <span className="project-doc-range">{formatProjectChunkPageRange(doc.pageFrom, doc.pageTo, doc.totalPages)}</span>
+                              <span className="project-doc-range">{formatDocumentPageProgress(doc)}</span>
                             )}
                             {(doc.personalData?.persons?.length || 0) > 0 && (
                               <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
@@ -3005,6 +3109,54 @@ ${paras}
                 onClearAll={() => clearPatchedViewerPages({ clearPatchLayer: true })}
                 formatPatchText={formatPatchEntryText}
               />
+
+              {editorTotalPages > 1 && (
+                <div className="editor-page-nav">
+                  <div className="editor-page-nav-status">
+                    Страница <strong>{editorCurrentPage || 1}</strong> из <strong>{editorTotalPages}</strong>
+                  </div>
+                  <div className="editor-page-nav-controls">
+                    <button
+                      className="editor-page-nav-btn"
+                      onClick={() => handleEditorPageStep(-1)}
+                      disabled={!editorCurrentPage || editorCurrentPage <= 1}
+                    >
+                      ← Назад
+                    </button>
+                    <div className="editor-page-nav-jump">
+                      <label className="editor-page-nav-label" htmlFor="editor-page-input">Перейти к странице</label>
+                      <div className="editor-page-nav-form">
+                        <input
+                          id="editor-page-input"
+                          ref={editorPageInputRef}
+                          className="editor-page-nav-input"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={editorPageInput}
+                          onChange={(e) => setEditorPageInput(e.target.value.replace(/[^\d]/g, ''))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleEditorPageSubmit();
+                            }
+                          }}
+                        />
+                        <span className="editor-page-nav-total">из {editorTotalPages}</span>
+                        <button className="editor-page-nav-go" onClick={handleEditorPageSubmit}>
+                          Перейти
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      className="editor-page-nav-btn"
+                      onClick={() => handleEditorPageStep(1)}
+                      disabled={!editorCurrentPage || editorCurrentPage >= editorTotalPages}
+                    >
+                      Вперёд →
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <RichEditor
                 html={editorHtml}
