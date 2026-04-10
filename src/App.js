@@ -1427,6 +1427,7 @@ export default function App() {
   const getEditorScrollOffset = useCallback(() => {
     const rootStyles = window.getComputedStyle(document.documentElement);
     const headerHeight = parseCssSize(rootStyles.getPropertyValue('--header-h'), 60);
+    const stickyGap = parseCssSize(rootStyles.getPropertyValue('--sticky-gap'), 10);
     const titleHeight = titleRowRef.current?.getBoundingClientRect().height
       || parseCssSize(rootStyles.getPropertyValue('--titlerow-h'), 49);
     const toolbarHeight = titleRowRef.current
@@ -1434,7 +1435,7 @@ export default function App() {
       ?.querySelector('.rich-toolbar')
       ?.getBoundingClientRect()
       ?.height || 44;
-    return Math.round(headerHeight + titleHeight + toolbarHeight + 12);
+    return Math.round(headerHeight + stickyGap + titleHeight + toolbarHeight + 12);
   }, []);
 
   const getCurrentEditorPageNumber = useCallback(() => {
@@ -1466,9 +1467,11 @@ export default function App() {
       setOriginalPage(imageIndex);
     }
     const targetTop = window.scrollY + targetSeparator.getBoundingClientRect().top - getEditorScrollOffset();
-    window.scrollTo({
-      top: Math.max(0, targetTop),
-      behavior: 'smooth',
+    requestAnimationFrame(() => {
+      window.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: 'smooth',
+      });
     });
     return true;
   }, [getEditorScrollOffset, originalImages]);
@@ -1485,7 +1488,7 @@ export default function App() {
   }, [editorPageInput, getEditorTotalPages, goToEditorPage]);
 
   const handleEditorPageStep = useCallback((direction) => {
-    const currentPage = editorCurrentPage || getCurrentEditorPageNumber();
+    const currentPage = getCurrentEditorPageNumber() || editorCurrentPage;
     const totalPages = editorTotalPages || getEditorTotalPages();
     if (!currentPage || !totalPages) return;
     const nextPage = Math.max(1, Math.min(totalPages, currentPage + direction));
@@ -1494,18 +1497,28 @@ export default function App() {
 
   useEffect(() => {
     if (view !== VIEW_RESULT) return;
+    let rafId = null;
     const syncPageInput = () => {
       const currentPage = getCurrentEditorPageNumber();
       const totalPages = getEditorTotalPages();
       setEditorCurrentPage(currentPage || (totalPages ? 1 : null));
       setEditorTotalPages(totalPages || null);
-      if (currentPage && document.activeElement !== editorPageInputRef.current) {
+      if (currentPage) {
         setEditorPageInput(String(currentPage));
       }
     };
+    const handleScroll = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(syncPageInput);
+    };
     syncPageInput();
-    window.addEventListener('scroll', syncPageInput, { passive: true });
-    return () => window.removeEventListener('scroll', syncPageInput);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+    };
   }, [editorHtml, getCurrentEditorPageNumber, getEditorTotalPages, view]);
 
   // ── Save ──────────────────────────────────────────────────────────────────────
@@ -3081,8 +3094,18 @@ ${paras}
                       Пауза
                     </button>
                   )}
+                  {currentBatchDisplayState.status === 'pausing' && (
+                    <button className="btn-tool" type="button" disabled>
+                      Пауза запрошена
+                    </button>
+                  )}
                   <button className="btn-tool" onClick={handleResetProjectBatchSession}>Сбросить незавершённую обработку</button>
                 </div>
+                {currentBatchDisplayState.status === 'pausing' && (
+                  <div className="project-batch-pending-note">
+                    Пауза будет поставлена сразу после завершения обработки текущей страницы.
+                  </div>
+                )}
               </div>
             )}
 
@@ -3202,10 +3225,21 @@ ${paras}
             </div>
             <div className="progress-pct">{Math.round(progress.percent || 0)}%</div>
             <div className="project-batch-actions" style={{ marginTop: 12 }}>
-              <button className="btn-tool" onClick={() => requestPauseActiveBatch(VIEW_PROJECT)}>
-                Пауза
-              </button>
+              {activeBatchUiState?.status === 'pausing' ? (
+                <button className="btn-tool" type="button" disabled>
+                  Пауза запрошена
+                </button>
+              ) : (
+                <button className="btn-tool" onClick={() => requestPauseActiveBatch(VIEW_PROJECT)}>
+                  Пауза
+                </button>
+              )}
             </div>
+            {activeBatchUiState?.status === 'pausing' && (
+              <div className="project-batch-pending-note" style={{ marginTop: 10 }}>
+                Пауза будет поставлена сразу после завершения обработки текущей страницы.
+              </div>
+            )}
           </div>
         )}
 

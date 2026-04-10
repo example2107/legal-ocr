@@ -35,8 +35,9 @@
   --tr: .18s ease;
   /* Layout heights — used for sticky positioning */
   --header-h: 60px;       /* .header height */
+  --sticky-gap: 10px;     /* visual breathing room below top header */
   --titlerow-h: 49px;     /* .doc-title-row approximate height (single line) */
-  --toolbar-top: calc(var(--header-h) + var(--titlerow-h)); /* rich-toolbar sticky top */
+  --toolbar-top: calc(var(--header-h) + var(--titlerow-h) + var(--sticky-gap)); /* rich-toolbar sticky top */
 }
 
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -586,7 +587,7 @@ a { color: var(--accent); }
   background: var(--bg);
   flex-wrap: wrap;
   position: sticky;
-  top: var(--header-h);
+  top: calc(var(--header-h) + var(--sticky-gap));
   z-index: 51;
   width: 100%;
   box-sizing: border-box;
@@ -1099,6 +1100,12 @@ a { color: var(--accent); }
   justify-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
+}
+.project-batch-pending-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: inherit;
+  opacity: 0.88;
 }
 .project-batch-progress {
   width: 100%;

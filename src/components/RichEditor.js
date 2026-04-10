@@ -739,7 +739,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAp
             <button
               type="button"
               className="rich-page-btn"
-              onClick={pageNavigation.onStepBack}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pageNavigation.onStepBack?.();
+              }}
               disabled={pageNavigation.currentPage <= 1}
               title="Предыдущая страница"
             >
@@ -765,7 +768,10 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAp
             <button
               type="button"
               className="rich-page-btn"
-              onClick={pageNavigation.onStepForward}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pageNavigation.onStepForward?.();
+              }}
               disabled={pageNavigation.currentPage >= pageNavigation.totalPages}
               title="Следующая страница"
             >
