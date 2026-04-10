@@ -475,7 +475,9 @@ export async function recognizeDocument(images, apiKey, provider, onProgress, ex
       current: i + 1,
       total,
       percent: pctStart,
-      message: 'Распознавание страницы ' + (i + 1) + ' из ' + total + '...',
+      message: total > 1
+        ? 'Распознавание страницы ' + (i + 1) + ' из ' + total + '...'
+        : 'Распознавание страницы...',
     });
 
     const { base64, mediaType, cropRect, cropped } = await compressImage(images[i].base64, images[i].mediaType);
@@ -518,7 +520,9 @@ export async function recognizeDocument(images, apiKey, provider, onProgress, ex
       current: i + 1,
       total,
       percent: Math.round(((i + 1) / total) * 75),
-      message: 'Страница ' + (i + 1) + ' из ' + total + ' готова',
+      message: total > 1
+        ? 'Страница ' + (i + 1) + ' из ' + total + ' готова'
+        : 'Страница готова',
     });
   }
 

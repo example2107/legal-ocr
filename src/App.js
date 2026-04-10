@@ -233,6 +233,13 @@ export default function App() {
   const [progress, setProgress] = useState(null);
   const progressCreepRef = useRef(null);
 
+  const setNonDecreasingProgress = useCallback((next) => {
+    setProgress(prev => prev && prev.percent > next.percent
+      ? { ...prev, message: next.message }
+      : next
+    );
+  }, []);
+
   // Animate progress bar smoothly to a target integer value
   const animateTo = useCallback((target, message) => {
     if (progressCreepRef.current) clearInterval(progressCreepRef.current);
@@ -1022,42 +1029,65 @@ export default function App() {
       if (hasPastedText) {
         setOriginalImages([]);
         clearPatchedViewerPages();
-        setProgress({ percent: 10, message: 'Подготовка текста...' });
+        setNonDecreasingProgress({ percent: 10, message: 'Подготовка текста...' });
         animateTo(85, null);
         result = await analyzePastedText(pastedText.trim(), apiKey.trim(), provider, p => {
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          setProgress(prev => prev && prev.percent > pct
-            ? { ...prev, message: p.message }
-            : { percent: pct, message: p.message }
-          );
+          setNonDecreasingProgress({ percent: pct, message: p.message });
         });
         stopProgressCreep();
       } else if (isDocx) {
-        setProgress({ percent: 10, message: 'Чтение документа DOCX...' });
+        setNonDecreasingProgress({ percent: 10, message: 'Чтение документа DOCX...' });
         const docxText = await parseDocx(files[0]);
-        setProgress({ percent: 40, message: 'Анализ персональных данных...' });
+        setNonDecreasingProgress({ percent: 40, message: 'Анализ персональных данных...' });
         animateTo(90, null);
         const personalData = await analyzePD(docxText, apiKey.trim(), provider, p => {
           const pct = p.percent != null ? Math.round(p.percent) : 97;
-          setProgress(prev => prev && prev.percent > pct
-            ? { ...prev, message: p.message }
-            : { percent: pct, message: p.message }
-          );
+          setNonDecreasingProgress({ percent: pct, message: p.message });
         });
         stopProgressCreep();
         result = { text: docxText, personalData };
       } else {
-        setProgress({ percent: 2, message: 'Подготовка файлов...' });
+        setNonDecreasingProgress({ percent: 2, message: 'Подготовка файлов...' });
         const allImages = [];
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           if (file.type === 'application/pdf') {
             const pages = await pdfToImages(file, (page, total) => {
-              setProgress({ percent: Math.round(5 + (i / files.length) * 20), message: `PDF: страница ${page} из ${total}...` });
+              const fileBase = 4 + Math.round((i / files.length) * 16);
+              const fileSpan = Math.max(4, Math.round(16 / files.length));
+              const renderPercent = Math.min(22, fileBase + Math.round((page / Math.max(1, total)) * fileSpan));
+              setNonDecreasingProgress({
+                percent: renderPercent,
+                message: total > 1
+                  ? `Подготовка PDF: страница ${page} из ${total}...`
+                  : 'Подготовка PDF: рендер страницы...',
+              });
             });
+            if (pages.length > 0) {
+              setNonDecreasingProgress({
+                percent: Math.min(24, 8 + Math.round(((i + 1) / files.length) * 16)),
+                message: pages.length > 1
+                  ? `PDF подготовлен: ${pages.length} стр.`
+                  : 'PDF подготовлен',
+              });
+            } else {
+              setNonDecreasingProgress({
+                percent: Math.min(24, 8 + Math.round(((i + 1) / files.length) * 16)),
+                message: 'PDF подготовлен',
+              });
+            }
             allImages.push(...pages);
           } else {
+            setNonDecreasingProgress({
+              percent: Math.min(18, 6 + Math.round((i / Math.max(1, files.length)) * 10)),
+              message: `Подготовка изображения: ${file.name}...`,
+            });
             allImages.push(await imageFileToBase64(file));
+            setNonDecreasingProgress({
+              percent: Math.min(24, 10 + Math.round(((i + 1) / Math.max(1, files.length)) * 14)),
+              message: `Изображение подготовлено: ${file.name}`,
+            });
           }
         }
         renderedInputPages = allImages;
@@ -1065,10 +1095,7 @@ export default function App() {
         clearPatchedViewerPages();
         result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
           const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          setProgress(prev => prev && prev.percent > pct
-            ? { ...prev, message: p.message }
-            : { percent: pct, message: p.message }
-          );
+          setNonDecreasingProgress({ percent: pct, message: p.message });
           if (p.stage === 'ocr') {
             animateTo(Math.min(pct + 12, 74), null);
           } else if (p.stage === 'analysis') {
@@ -2709,8 +2736,8 @@ ${paras}
                 {currentBatchSession && currentBatchSession.status !== 'completed'
                   ? '▶ Продолжить обработку PDF'
                   : (getProjectDocs().length === 0
-                    ? '🔍 Распознать и обезличить первый файл'
-                    : '🔍 Распознать и обезличить следующий файл')}
+                    ? '🔍 Загрузить и распознать файл'
+                    : '🔍 Добавить и распознать файл')}
               </button>
             </div>
 

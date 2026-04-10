@@ -61,6 +61,13 @@ export async function runProjectBatchRecognition({
 
   let failedSession = null;
   try {
+    const setNonDecreasingProgress = (next) => {
+      setProgress(prev => prev && prev.percent > next.percent
+        ? { ...prev, message: next.message }
+        : next
+      );
+    };
+
     const liveProject = projects.find((item) => item.id === currentProjectId) || null;
     const activeBatchSession = liveProject?.batchSession || null;
     let jobs = [];
@@ -78,11 +85,11 @@ export async function runProjectBatchRecognition({
         session: updateProjectPdfBatchSession(activeBatchSession, { status: 'running', error: '' }),
       }];
     } else {
-      setProgress({ percent: 2, message: 'Подсчёт страниц PDF...' });
+      setNonDecreasingProgress({ percent: 2, message: 'Подсчёт страниц PDF...' });
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const totalPages = await getPdfPageCount(file);
-        setProgress({
+        setNonDecreasingProgress({
           percent: Math.round(2 + ((i + 1) / files.length) * 8),
           message: `Подсчёт страниц: ${file.name} (${totalPages} стр.)`,
         });
@@ -105,9 +112,9 @@ export async function runProjectBatchRecognition({
 
     const getOverallPercent = (chunkPercent = 0) => {
       const safeTotal = Math.max(1, totalChunks);
-      const base = 6 + (completedChunks / safeTotal) * 90;
-      const current = (chunkPercent / 100) * (90 / safeTotal);
-      return Math.max(2, Math.min(98, Math.round(base + current)));
+      const base = 12 + (completedChunks / safeTotal) * 84;
+      const current = (chunkPercent / 100) * (84 / safeTotal);
+      return Math.max(12, Math.min(98, Math.round(base + current)));
     };
 
     for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
@@ -130,17 +137,20 @@ export async function runProjectBatchRecognition({
         await saveProjectBatchSessionState(session);
 
         const rangeLabel = formatProjectChunkPageRange(pageFrom, pageTo, session.totalPages);
-        setProgress({
+        setNonDecreasingProgress({
           percent: getOverallPercent(0),
           message: `${file.name}: подготовка ${rangeLabel}...`,
         });
 
         const chunkImages = await pdfToImagesRange(file, pageFrom, pageTo, (pageNumInFile) => {
           const rendered = Math.max(0, pageNumInFile - pageFrom + 1);
-          const innerPercent = Math.round((rendered / (pageTo - pageFrom + 1)) * 18);
-          setProgress({
+          const pagesInChunk = Math.max(1, pageTo - pageFrom + 1);
+          const innerPercent = Math.round((rendered / pagesInChunk) * 18);
+          setNonDecreasingProgress({
             percent: getOverallPercent(innerPercent),
-            message: `${file.name}: рендер ${rangeLabel} (${rendered}/${pageTo - pageFrom + 1})...`,
+            message: pagesInChunk > 1
+              ? `${file.name}: рендер ${rangeLabel} (${rendered}/${pagesInChunk})...`
+              : `${file.name}: рендер ${rangeLabel}...`,
           });
         });
 
