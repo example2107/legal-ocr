@@ -869,7 +869,14 @@ export default function App() {
   const saveProjectBatchSessionState = useCallback(async (session) => {
     if (!currentProjectId) return null;
     const saved = await updateProjectBatchSessionRecord(user, currentProjectId, session);
-    await refreshProjects();
+    try {
+      await refreshProjects();
+    } catch (error) {
+      console.warn('Failed to refresh projects after saving batch session', {
+        projectId: currentProjectId,
+        errorMessage: error?.message || String(error),
+      });
+    }
     return saved;
   }, [currentProjectId, refreshProjects, user]);
 

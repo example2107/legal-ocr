@@ -19,6 +19,29 @@ import {
 } from './projectBatch';
 import { buildProjectBatchDocumentEntry } from './projectDocumentOps';
 
+function getReadableErrorMessage(error) {
+  if (!error) return 'Произошла ошибка';
+  if (typeof error === 'string') return error;
+  return error.message || String(error);
+}
+
+function isTransientNetworkError(error) {
+  const message = getReadableErrorMessage(error).toLowerCase();
+  return (
+    message.includes('failed to fetch') ||
+    message.includes('networkerror') ||
+    message.includes('fetch failed') ||
+    message.includes('load failed') ||
+    message.includes('network request failed') ||
+    message.includes('the internet connection appears to be offline')
+  );
+}
+
+function buildStageError(stageLabel, error) {
+  const message = getReadableErrorMessage(error);
+  return new Error(`${stageLabel}: ${message}`);
+}
+
 export async function runProjectBatchRecognition({
   apiKey,
   files,
@@ -96,11 +119,42 @@ export async function runProjectBatchRecognition({
       );
     };
 
+    const runStage = async (stageLabel, action, options = {}) => {
+      const { retryNetwork = false, onRetry = null } = options;
+      const maxAttempts = retryNetwork ? 2 : 1;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await action();
+        } catch (error) {
+          const shouldRetry = retryNetwork && attempt < maxAttempts && isTransientNetworkError(error);
+          if (shouldRetry) {
+            onRetry?.(attempt, error);
+            continue;
+          }
+          throw buildStageError(stageLabel, error);
+        }
+      }
+
+      throw new Error(stageLabel);
+    };
+
+    const runSoftRefresh = async (stageLabel, action) => {
+      try {
+        await runStage(stageLabel, action, { retryNetwork: true });
+      } catch (error) {
+        console.warn('Project batch soft refresh failed', {
+          stageLabel,
+          errorMessage: getReadableErrorMessage(error),
+        });
+      }
+    };
+
     const liveProject = projects.find((item) => item.id === currentProjectId) || null;
     const activeBatchSession = liveProject?.batchSession || null;
     let jobs = [];
 
-    if (activeBatchSession && activeBatchSession.status !== 'completed') {
+      if (activeBatchSession && activeBatchSession.status !== 'completed') {
       if (files.length !== 1) {
         throw new Error('Для продолжения выберите только тот PDF-файл, обработка которого была прервана.');
       }
@@ -177,10 +231,26 @@ export async function runProjectBatchRecognition({
 
     for (let jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
       const { file, totalPages } = jobs[jobIndex];
-      const uploadedSourceFile = await ensureUploadedSourceFile(file, currentProjectId);
+      const uploadedSourceFile = await runStage(`Не удалось подготовить исходный PDF ${file.name}`, () => (
+        ensureUploadedSourceFile(file, currentProjectId)
+      ), {
+        retryNetwork: true,
+        onRetry: () => {
+          const message = `${file.name}: повторная попытка подготовки исходного файла...`;
+          setNonDecreasingProgress({ percent: 12, message });
+          emitBatchUiState(buildBatchUiState({
+            fileName: file.name,
+            progressPercent: 12,
+            message,
+            status: 'running',
+          }));
+        },
+      });
       let session = jobs[jobIndex].session || createProjectPdfBatchSession(file, totalPages, getProjectDocs().length + 1);
       session = updateProjectPdfBatchSession(session, { status: 'running', error: '' });
-      await saveProjectBatchSessionState(session);
+      await runStage(`Не удалось сохранить состояние обработки для ${file.name}`, () => (
+        saveProjectBatchSessionState(session)
+      ), { retryNetwork: true });
       emitBatchUiState(buildBatchUiState({
         session,
         fileName: file.name,
@@ -191,6 +261,7 @@ export async function runProjectBatchRecognition({
 
       for (let pageFrom = session.nextPage || 1; pageFrom <= session.totalPages; pageFrom += session.chunkSize || PROJECT_PDF_CHUNK_SIZE) {
         const pageTo = getProjectPdfChunkEnd(pageFrom, session.totalPages, session.chunkSize || PROJECT_PDF_CHUNK_SIZE);
+        const rangeLabel = formatProjectChunkPageRange(pageFrom, pageTo, session.totalPages);
         session = updateProjectPdfBatchSession(session, {
           status: 'running',
           error: '',
@@ -198,10 +269,15 @@ export async function runProjectBatchRecognition({
           currentPageFrom: pageFrom,
           currentPageTo: pageTo,
         });
+        const stageSessionSnapshot = session;
         failedSession = session;
-        await saveProjectBatchSessionState(session);
+        await runStage(`Не удалось обновить состояние обработки для ${rangeLabel}`, () => (
+          saveProjectBatchSessionState(stageSessionSnapshot)
+        ), { retryNetwork: true });
 
-        const rangeLabel = formatProjectChunkPageRange(pageFrom, pageTo, session.totalPages);
+        const sessionSnapshot = stageSessionSnapshot;
+        const existingPDSnapshot = existingPD;
+        const chunkSizeSnapshot = session.chunkSize || PROJECT_PDF_CHUNK_SIZE;
         setNonDecreasingProgress({
           percent: getOverallPercent(0),
           message: `${file.name}: подготовка ${rangeLabel}...`,
@@ -227,7 +303,7 @@ export async function runProjectBatchRecognition({
             message,
           });
           emitBatchUiState(buildBatchUiState({
-            session,
+            session: sessionSnapshot,
             fileName: file.name,
             progressPercent: percent,
             message,
@@ -237,7 +313,7 @@ export async function runProjectBatchRecognition({
 
         let result;
         try {
-          result = await recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
+          result = await runStage(`Не удалось распознать ${rangeLabel}`, () => recognizeDocument(chunkImages, apiKey.trim(), provider, p => {
             const chunkPercent = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
             const percent = getOverallPercent(Math.max(20, chunkPercent));
             const message = `${file.name}: ${p.message} (${rangeLabel})`;
@@ -246,13 +322,27 @@ export async function runProjectBatchRecognition({
               : { percent, message }
             );
             emitBatchUiState(buildBatchUiState({
-              session,
+              session: sessionSnapshot,
               fileName: file.name,
               progressPercent: percent,
               message,
               status: 'running',
             }));
-          }, existingPD);
+          }, existingPDSnapshot), {
+            retryNetwork: true,
+            onRetry: () => {
+              const percent = getOverallPercent(20);
+              const message = `${file.name}: повторная попытка распознавания ${rangeLabel}...`;
+              setNonDecreasingProgress({ percent, message });
+              emitBatchUiState(buildBatchUiState({
+                session: sessionSnapshot,
+                fileName: file.name,
+                progressPercent: percent,
+                message,
+                status: 'running',
+              }));
+            },
+          });
         } catch (error) {
           console.error('Project batch recognition failed', {
             provider,
@@ -261,9 +351,9 @@ export async function runProjectBatchRecognition({
             rangeLabel,
             pageFrom,
             pageTo,
-            totalPages: session.totalPages,
-            chunkIndex: Math.ceil(pageFrom / (session.chunkSize || PROJECT_PDF_CHUNK_SIZE)),
-            chunkSize: session.chunkSize || PROJECT_PDF_CHUNK_SIZE,
+            totalPages: sessionSnapshot.totalPages,
+            chunkIndex: Math.ceil(pageFrom / chunkSizeSnapshot),
+            chunkSize: chunkSizeSnapshot,
             renderedPages: chunkImages.map((image) => ({
               pageNum: image.pageNum,
               base64Length: image.base64?.length || 0,
@@ -295,9 +385,9 @@ export async function runProjectBatchRecognition({
           projectId: currentProjectId,
           pageFrom,
           pageTo,
-          totalPages: session.totalPages,
-          chunkIndex: Math.ceil(pageFrom / (session.chunkSize || PROJECT_PDF_CHUNK_SIZE)),
-          chunkSize: session.chunkSize || PROJECT_PDF_CHUNK_SIZE,
+          totalPages: sessionSnapshot.totalPages,
+          chunkIndex: Math.ceil(pageFrom / chunkSizeSnapshot),
+          chunkSize: chunkSizeSnapshot,
           batchFileName: file.name,
           sourceFiles: uploadedSourceFile ? [uploadedSourceFile] : [],
           pageMetadata: buildDocumentPageMetadata({
@@ -321,13 +411,33 @@ export async function runProjectBatchRecognition({
           pd,
           getOtherPdMentions: (item) => [item?.value, ...(item?.mentions || [])].filter(Boolean),
         });
-        const docEntry = await saveDocumentRecord(user, nextDocEntry);
+        const docEntry = await runStage(`Не удалось сохранить ${rangeLabel}`, () => (
+          saveDocumentRecord(user, nextDocEntry)
+        ), {
+          retryNetwork: true,
+          onRetry: () => {
+            const percent = getOverallPercent(92);
+            const message = `${file.name}: повторная попытка сохранения ${rangeLabel}...`;
+            setNonDecreasingProgress({ percent, message });
+            emitBatchUiState(buildBatchUiState({
+              session: sessionSnapshot,
+              fileName: file.name,
+              progressPercent: percent,
+              message,
+              status: 'running',
+            }));
+          },
+        });
         if (!existingBatchDoc) {
-          await addDocumentToProjectRecord(user, currentProjectId, docEntry.id);
+          await runStage(`Не удалось добавить ${rangeLabel} в проект`, () => (
+            addDocumentToProjectRecord(user, currentProjectId, docEntry.id)
+          ), { retryNetwork: true });
         }
-        await updateProjectSharedPDRecord(user, currentProjectId, pd);
-        await refreshHistory();
-        await refreshProjects();
+        await runStage(`Не удалось обновить персональные данные проекта после ${rangeLabel}`, () => (
+          updateProjectSharedPDRecord(user, currentProjectId, pd)
+        ), { retryNetwork: true });
+        await runSoftRefresh(`Не удалось обновить историю после ${rangeLabel}`, () => refreshHistory());
+        await runSoftRefresh(`Не удалось обновить список проектов после ${rangeLabel}`, () => refreshProjects());
 
         activeBatchDoc = docEntry;
         lastSavedDoc = docEntry;
@@ -345,8 +455,11 @@ export async function runProjectBatchRecognition({
           progressPercent: getOverallPercent(100),
           progressMessage: `${file.name}: распознано ${rangeLabel}.`,
         });
-        await saveProjectBatchSessionState(pageTo >= session.totalPages ? null : session);
-        failedSession = pageTo >= session.totalPages ? null : session;
+        const completedSessionSnapshot = session;
+        await runStage(`Не удалось сохранить прогресс после ${rangeLabel}`, () => (
+          saveProjectBatchSessionState(pageTo >= completedSessionSnapshot.totalPages ? null : completedSessionSnapshot)
+        ), { retryNetwork: true });
+        failedSession = pageTo >= completedSessionSnapshot.totalPages ? null : completedSessionSnapshot;
 
         if (pageTo < session.totalPages && await pauseBatchIfRequested(session, file.name)) {
           return;
@@ -355,7 +468,9 @@ export async function runProjectBatchRecognition({
     }
 
     stopProgressCreep();
-    await saveProjectBatchSessionState(null);
+    await runStage('Не удалось завершить batch-сессию проекта', () => (
+      saveProjectBatchSessionState(null)
+    ), { retryNetwork: true });
     onBatchUiStateClear?.();
     setFiles([]);
     if (lastSavedDoc) openRecognizedDocResult(lastSavedDoc, []);
