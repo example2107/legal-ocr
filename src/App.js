@@ -312,6 +312,7 @@ export default function App() {
     }
   }, []);
   const [error, setError] = useState(null);
+  const [warningMessage, setWarningMessage] = useState(null);
 
   const [docId, setDocId] = useState(null);
   const [docTitle, setDocTitle] = useState('');
@@ -1000,15 +1001,28 @@ export default function App() {
     if (uploadedFilesRef.current.has(key)) {
       return uploadedFilesRef.current.get(key);
     }
-    const uploaded = await uploadSourceFile(user, file, { projectId });
-    uploadedFilesRef.current.set(key, uploaded);
-    return uploaded;
+    try {
+      const uploaded = await uploadSourceFile(user, file, { projectId });
+      uploadedFilesRef.current.set(key, uploaded);
+      return uploaded;
+    } catch (error) {
+      console.error('Source file upload failed, continuing without cloud source copy', {
+        fileName: file.name,
+        fileSize: file.size,
+        projectId,
+        errorMessage: error?.message || String(error),
+      });
+      uploadedFilesRef.current.set(key, null);
+      setWarningMessage(`Не удалось загрузить исходный PDF "${file.name}" в облако. Распознавание продолжено без облачной копии исходника.`);
+      return null;
+    }
   }, [user]);
 
   const handleProjectRecognize = async () => {
     activeBatchControlRef.current.projectId = currentProjectId;
     activeBatchControlRef.current.pauseRequested = false;
     activeBatchControlRef.current.targetView = null;
+    setWarningMessage(null);
     await runProjectBatchRecognition({
       apiKey,
       files,
@@ -1154,6 +1168,7 @@ export default function App() {
     setCoordinateLayer(cleared.coordinateLayer);
     setPatchLayer(cleared.patchLayer);
     setError(cleared.error);
+    setWarningMessage(null);
     setProgress(cleared.progress);
     setShowUnsaved(cleared.showUnsaved);
   }, [clearPatchedViewerPages]);
@@ -1206,6 +1221,7 @@ export default function App() {
     setCurrentProjectId(null);
     setPdIdsInDoc(null);
     setError(null);
+    setWarningMessage(null);
     setView(VIEW_PROCESSING);
 
     try {
@@ -2747,6 +2763,7 @@ ${paras}
               )}
             </section>
 
+            {warningMessage && <div className="warning-block">⚠️ {warningMessage}</div>}
             {error && <div className="error-block">⚠️ {error}</div>}
 
             {homeBatchProject && homeBatchDisplayState && (
@@ -3062,6 +3079,7 @@ ${paras}
               </div>
             )}
 
+            {warningMessage && <div className="warning-block">⚠️ {warningMessage}</div>}
             {error && <div className="error-block">⚠️ {error}</div>}
 
             <div className="home-btn-wrap">
