@@ -35,10 +35,10 @@
   --tr: .18s ease;
   /* Layout heights — used for sticky positioning */
   --header-h: 60px;       /* .header height */
-  --sticky-gap: 10px;     /* visual breathing room below top header */
-  --header-offset: calc(var(--header-h) + var(--sticky-gap));
+  --sticky-gap: 0px;
+  --header-offset: var(--header-h);
   --titlerow-h: 49px;     /* .doc-title-row approximate height (single line) */
-  --toolbar-top: calc(var(--header-h) + var(--titlerow-h) + var(--sticky-gap) + 2px); /* rich-toolbar sticky top */
+  --toolbar-top: calc(var(--header-offset) + var(--titlerow-h));
 }
 
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -117,7 +117,7 @@ a { color: var(--accent); }
 
 
 .main { flex: 1; width: 100%; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
-.main.main-result { padding: 20px 16px; }
+.main.main-result { padding: 0 16px 20px; }
 .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text3); border-top: 1px solid var(--border); background: var(--surface); }
 
 .auth-main { justify-content: center; align-items: center; }
@@ -592,7 +592,7 @@ a { color: var(--accent); }
   z-index: 51;
   width: 100%;
   box-sizing: border-box;
-  box-shadow: 0 1px 0 var(--border);
+  box-shadow: none;
   isolation: isolate;
 }
 .doc-title-input { flex: 1; min-width: 160px; font-size: 15px; font-weight: 600; font-family: var(--font-doc); border: 1px solid transparent; background: transparent; color: var(--text); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); }

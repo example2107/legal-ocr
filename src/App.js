@@ -658,31 +658,32 @@ export default function App() {
     }
   }, []);
 
-  // Keep sticky offsets in sync with the real header/title geometry.
+  // Keep sticky offsets in sync with the real header/title heights.
   useEffect(() => {
     const update = () => {
       const headerEl = headerRef.current;
       const titleEl = titleRowRef.current;
+      const headerHeight = headerEl?.offsetHeight || parseCssSize(
+        window.getComputedStyle(document.documentElement).getPropertyValue('--header-h'),
+        60,
+      );
       if (headerEl) {
-        const headerBottom = Math.round(headerEl.getBoundingClientRect().bottom);
-        document.documentElement.style.setProperty('--header-offset', `${headerBottom + 2}px`);
+        document.documentElement.style.setProperty('--header-h', `${headerHeight}px`);
+        document.documentElement.style.setProperty('--header-offset', `${headerHeight}px`);
       }
       if (titleEl) {
         const height = titleEl.offsetHeight;
         document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
-        const bottom = Math.round(titleEl.getBoundingClientRect().bottom);
-        document.documentElement.style.setProperty('--toolbar-top', `${bottom + 1}px`);
+        document.documentElement.style.setProperty('--toolbar-top', `${headerHeight + height}px`);
       }
     };
     update();
     const ro = new ResizeObserver(update);
     if (headerRef.current) ro.observe(headerRef.current);
     if (titleRowRef.current) ro.observe(titleRowRef.current);
-    window.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
     return () => {
       ro.disconnect();
-      window.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
   }, []);
@@ -1479,6 +1480,19 @@ export default function App() {
     return currentPage;
   }, [getEditorPageSeparators, getEditorScrollOffset]);
 
+  const releaseEditorPageNavigationLock = useCallback((fallbackPage = null) => {
+    const lockedPage = editorNavigatingPageRef.current ?? fallbackPage;
+    editorNavigatingPageRef.current = null;
+    if (editorPageNavigationTimerRef.current) {
+      clearTimeout(editorPageNavigationTimerRef.current);
+      editorPageNavigationTimerRef.current = null;
+    }
+    if (!lockedPage) return;
+    const resolvedPage = getCurrentEditorPageNumber() || lockedPage;
+    setEditorCurrentPage(resolvedPage);
+    setEditorPageInput(String(resolvedPage));
+  }, [getCurrentEditorPageNumber]);
+
   const goToEditorPage = useCallback((pageNumber) => {
     const targetPage = Number(pageNumber || 0);
     if (!targetPage || !editorDomRef.current) return false;
@@ -1504,18 +1518,11 @@ export default function App() {
     });
     editorPageNavigationTimerRef.current = window.setTimeout(() => {
       if (editorNavigatingPageRef.current === targetPage) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (editorNavigatingPageRef.current === targetPage) {
-              editorNavigatingPageRef.current = null;
-            }
-          });
-        });
+        releaseEditorPageNavigationLock(targetPage);
       }
-      editorPageNavigationTimerRef.current = null;
-    }, 700);
+    }, 1800);
     return true;
-  }, [getEditorScrollOffset, originalImages]);
+  }, [getEditorScrollOffset, originalImages, releaseEditorPageNavigationLock]);
 
   const handleEditorPageSubmit = useCallback(() => {
     const totalPages = getEditorTotalPages();
@@ -1529,7 +1536,7 @@ export default function App() {
   }, [editorPageInput, getEditorTotalPages, goToEditorPage]);
 
   const handleEditorPageStep = useCallback((direction) => {
-    const currentPage = getCurrentEditorPageNumber() || editorCurrentPage;
+    const currentPage = editorNavigatingPageRef.current || editorCurrentPage || getCurrentEditorPageNumber();
     const totalPages = editorTotalPages || getEditorTotalPages();
     if (!currentPage || !totalPages) return;
     const nextPage = Math.max(1, Math.min(totalPages, currentPage + direction));
@@ -1539,9 +1546,8 @@ export default function App() {
   useEffect(() => {
     if (view !== VIEW_RESULT) return;
     let rafId = null;
-    const syncPageInput = () => {
-      const navigatingPage = editorNavigatingPageRef.current;
-      const currentPage = navigatingPage ?? getCurrentEditorPageNumber();
+    const syncActualPage = () => {
+      const currentPage = getCurrentEditorPageNumber();
       const totalPages = getEditorTotalPages();
       setEditorCurrentPage(currentPage || (totalPages ? 1 : null));
       setEditorTotalPages(totalPages || null);
@@ -1549,11 +1555,28 @@ export default function App() {
         setEditorPageInput(String(currentPage));
       }
     };
+    const syncPageInput = () => {
+      const navigatingPage = editorNavigatingPageRef.current;
+      const totalPages = getEditorTotalPages();
+      setEditorTotalPages(totalPages || null);
+      if (navigatingPage != null) {
+        setEditorCurrentPage(navigatingPage);
+        setEditorPageInput(String(navigatingPage));
+        if (editorPageNavigationTimerRef.current) {
+          clearTimeout(editorPageNavigationTimerRef.current);
+        }
+        editorPageNavigationTimerRef.current = window.setTimeout(() => {
+          releaseEditorPageNavigationLock(navigatingPage);
+        }, 180);
+        return;
+      }
+      syncActualPage();
+    };
     const handleScroll = () => {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(syncPageInput);
     };
-    syncPageInput();
+    syncActualPage();
     window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('resize', handleScroll);
     return () => {
@@ -1565,7 +1588,7 @@ export default function App() {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleScroll);
     };
-  }, [editorHtml, getCurrentEditorPageNumber, getEditorScrollOffset, getEditorTotalPages, view]);
+  }, [editorHtml, getCurrentEditorPageNumber, getEditorTotalPages, releaseEditorPageNavigationLock, view]);
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   const countUncertain = () => {
