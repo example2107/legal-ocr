@@ -466,7 +466,7 @@ function EditorContextMenu({ x, y, type, suggestion, pdId, mark, existingPD, onR
   );
 }
 
-export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onApplyPdCanonicalText, onEditPdMark, onEditPdTextMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain }) {
+export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onApplyPdCanonicalText, onEditPdMark, onEditPdTextMark, onAttachPdMark, onAddPdMark, onRemoveAmbiguousMark, onUncertainResolved, existingPD, editorRef: externalRef, highlightUncertain, pageNavigation = null }) {
   const internalRef = useRef(null);
   const editorRef = externalRef || internalRef;
   const lastHtml = useRef('');
@@ -714,7 +714,7 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAp
 
   return (
     <div className="rich-editor-wrap">
-      <div className="rich-toolbar" onMouseDown={e => e.preventDefault()}>
+      <div className="rich-toolbar">
         {TOOLBAR.map((entry, i) => {
           if (entry.type === 'sep') return <div key={`sep-${i}`} className="rich-sep" />;
           return entry.items.map((item, j) => {
@@ -734,6 +734,45 @@ export function RichEditor({ html, onHtmlChange, onPdClick, onRemovePdMark, onAp
             );
           });
         })}
+        {pageNavigation && (
+          <div className="rich-toolbar-nav" onMouseDown={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="rich-page-btn"
+              onClick={pageNavigation.onStepBack}
+              disabled={pageNavigation.currentPage <= 1}
+              title="Предыдущая страница"
+            >
+              ←
+            </button>
+            <input
+              id="editor-page-input"
+              ref={pageNavigation.inputRef}
+              className="rich-page-input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pageNavigation.inputValue}
+              onChange={(e) => pageNavigation.onInputChange?.(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  pageNavigation.onSubmit?.();
+                }
+              }}
+              aria-label="Текущая страница"
+            />
+            <span className="rich-page-total">из {pageNavigation.totalPages}</span>
+            <button
+              type="button"
+              className="rich-page-btn"
+              onClick={pageNavigation.onStepForward}
+              disabled={pageNavigation.currentPage >= pageNavigation.totalPages}
+              title="Следующая страница"
+            >
+              →
+            </button>
+          </div>
+        )}
       </div>
 
       <div

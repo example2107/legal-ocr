@@ -16,7 +16,7 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   position: sticky;
-  top: calc(var(--toolbar-top) + var(--editor-page-nav-h, 0px));
+  top: var(--toolbar-top);
   z-index: 50;
   flex-shrink: 0;
   width: 100%;
@@ -58,6 +58,63 @@
 .rich-icon { display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; }
 .rich-icon svg { width: 15px; height: 15px; }
 
+.rich-toolbar-nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 12px;
+  min-width: fit-content;
+}
+
+.rich-page-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.rich-page-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+.rich-page-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rich-page-input {
+  width: 46px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 5px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.1;
+}
+.rich-page-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.rich-page-total {
+  color: var(--text3);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* ── Editor content ── */
 /* Times New Roman 14px in editor = 14pt in PDF/DOCX → identical line breaks */
 .rich-content {
@@ -93,6 +150,15 @@
 .rich-content hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 .rich-content ol, .rich-content ul { padding-left: 2em; margin: 0; }
 .rich-content li { min-height: 1.7em; margin: 0; }
+
+@media (max-width: 900px) {
+  .rich-toolbar-nav {
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: 6px;
+    padding-left: 0;
+  }
+}
 
 /* ── Uncertain marks ── */
 @keyframes uncertainPulse {

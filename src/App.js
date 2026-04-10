@@ -131,6 +131,11 @@ function formatDocumentPageProgress(doc) {
   return `${doc.pageTo}`;
 }
 
+function parseCssSize(value, fallback = 0) {
+  const parsed = Number.parseFloat(String(value || '').replace('px', '').trim());
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function getBatchStatusTitle(status) {
   if (status === 'failed') return 'Обработка большого PDF остановлена';
   if (status === 'paused') return 'Обработка PDF приостановлена';
@@ -1388,22 +1393,6 @@ export default function App() {
       .filter((item) => item.pageNumber > 0);
   }, []);
 
-  const getCurrentEditorPageNumber = useCallback(() => {
-    const separators = getEditorPageSeparators();
-    if (separators.length === 0) return null;
-
-    let currentPage = separators[0].pageNumber;
-    for (const separator of separators) {
-      const rect = separator.el.getBoundingClientRect();
-      if (rect.top <= 160) {
-        currentPage = separator.pageNumber;
-      } else {
-        break;
-      }
-    }
-    return currentPage;
-  }, [getEditorPageSeparators]);
-
   const getEditorTotalPages = useCallback(() => {
     const separators = getEditorPageSeparators();
     if (separators.length > 0) {
@@ -1412,18 +1401,54 @@ export default function App() {
     return pageMetadata?.sources?.[0]?.totalPages || pageMetadata?.sources?.[0]?.pageTo || null;
   }, [getEditorPageSeparators, pageMetadata]);
 
+  const getEditorScrollOffset = useCallback(() => {
+    const rootStyles = window.getComputedStyle(document.documentElement);
+    const headerHeight = parseCssSize(rootStyles.getPropertyValue('--header-h'), 60);
+    const titleHeight = titleRowRef.current?.getBoundingClientRect().height
+      || parseCssSize(rootStyles.getPropertyValue('--titlerow-h'), 49);
+    const toolbarHeight = titleRowRef.current
+      ?.closest('.doc-card')
+      ?.querySelector('.rich-toolbar')
+      ?.getBoundingClientRect()
+      ?.height || 44;
+    return Math.round(headerHeight + titleHeight + toolbarHeight + 12);
+  }, []);
+
+  const getCurrentEditorPageNumber = useCallback(() => {
+    const separators = getEditorPageSeparators();
+    if (separators.length === 0) return null;
+
+    const threshold = getEditorScrollOffset();
+    let currentPage = separators[0].pageNumber;
+    for (const separator of separators) {
+      const rect = separator.el.getBoundingClientRect();
+      if (rect.top <= threshold) {
+        currentPage = separator.pageNumber;
+      } else {
+        break;
+      }
+    }
+    return currentPage;
+  }, [getEditorPageSeparators, getEditorScrollOffset]);
+
   const goToEditorPage = useCallback((pageNumber) => {
     const targetPage = Number(pageNumber || 0);
     if (!targetPage || !editorDomRef.current) return false;
     const targetSeparator = editorDomRef.current.querySelector(`.page-separator[data-page="${targetPage}"]`);
     if (!targetSeparator) return false;
+    setEditorCurrentPage(targetPage);
+    setEditorPageInput(String(targetPage));
     const imageIndex = getOriginalImageIndexForPage(originalImages, targetPage);
     if (imageIndex >= 0) {
       setOriginalPage(imageIndex);
     }
-    targetSeparator.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const targetTop = window.scrollY + targetSeparator.getBoundingClientRect().top - getEditorScrollOffset();
+    window.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: 'smooth',
+    });
     return true;
-  }, [originalImages]);
+  }, [getEditorScrollOffset, originalImages]);
 
   const handleEditorPageSubmit = useCallback(() => {
     const totalPages = getEditorTotalPages();
@@ -1433,10 +1458,7 @@ export default function App() {
       ? Math.max(1, Math.min(totalPages, rawPage))
       : rawPage;
     if (!targetPage) return;
-    if (goToEditorPage(targetPage)) {
-      setEditorCurrentPage(targetPage);
-      setEditorPageInput(String(targetPage));
-    }
+    goToEditorPage(targetPage);
   }, [editorPageInput, getEditorTotalPages, goToEditorPage]);
 
   const handleEditorPageStep = useCallback((direction) => {
@@ -1444,10 +1466,7 @@ export default function App() {
     const totalPages = editorTotalPages || getEditorTotalPages();
     if (!currentPage || !totalPages) return;
     const nextPage = Math.max(1, Math.min(totalPages, currentPage + direction));
-    if (goToEditorPage(nextPage)) {
-      setEditorCurrentPage(nextPage);
-      setEditorPageInput(String(nextPage));
-    }
+    goToEditorPage(nextPage);
   }, [editorCurrentPage, editorTotalPages, getCurrentEditorPageNumber, getEditorTotalPages, goToEditorPage]);
 
   useEffect(() => {
@@ -3053,9 +3072,7 @@ ${paras}
               >
                 {currentBatchSession && currentBatchSession.status !== 'completed'
                   ? '▶ Продолжить обработку PDF'
-                  : (getProjectDocs().length === 0
-                    ? '🔍 Загрузить и распознать файл'
-                    : '🔍 Добавить и распознать файл')}
+                  : '🔍 Распознать и обезличить'}
               </button>
             </div>
 
@@ -3288,7 +3305,7 @@ ${paras}
               <div className="panel-resizer" onMouseDown={startResize('pd')}><span className="panel-resizer-icon">‹<br/>›</span></div>
             )}
 
-            <div className={`doc-card${editorTotalPages > 1 ? ' doc-card-has-page-nav' : ''}`}>
+            <div className="doc-card">
               <div className="doc-title-row" ref={titleRowRef}>
                 <input
                   className="doc-title-input"
@@ -3324,54 +3341,6 @@ ${paras}
                 formatPatchText={formatPatchEntryText}
               />
 
-              {editorTotalPages > 1 && (
-                <div className="editor-page-nav">
-                  <div className="editor-page-nav-status">
-                    Страница <strong>{editorCurrentPage || 1}</strong> из <strong>{editorTotalPages}</strong>
-                  </div>
-                  <div className="editor-page-nav-controls">
-                    <button
-                      className="editor-page-nav-btn"
-                      onClick={() => handleEditorPageStep(-1)}
-                      disabled={!editorCurrentPage || editorCurrentPage <= 1}
-                    >
-                      ← Назад
-                    </button>
-                    <div className="editor-page-nav-jump">
-                      <label className="editor-page-nav-label" htmlFor="editor-page-input">Перейти к странице</label>
-                      <div className="editor-page-nav-form">
-                        <input
-                          id="editor-page-input"
-                          ref={editorPageInputRef}
-                          className="editor-page-nav-input"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          value={editorPageInput}
-                          onChange={(e) => setEditorPageInput(e.target.value.replace(/[^\d]/g, ''))}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleEditorPageSubmit();
-                            }
-                          }}
-                        />
-                        <span className="editor-page-nav-total">из {editorTotalPages}</span>
-                        <button className="editor-page-nav-go" onClick={handleEditorPageSubmit}>
-                          Перейти
-                        </button>
-                      </div>
-                    </div>
-                    <button
-                      className="editor-page-nav-btn"
-                      onClick={() => handleEditorPageStep(1)}
-                      disabled={!editorCurrentPage || editorCurrentPage >= editorTotalPages}
-                    >
-                      Вперёд →
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <RichEditor
                 html={editorHtml}
                 onHtmlChange={handleEditorHtmlChange}
@@ -3387,6 +3356,16 @@ ${paras}
                 existingPD={personalData}
                 editorRef={editorDomRef}
                 highlightUncertain={highlightUncertain}
+                pageNavigation={editorTotalPages > 1 ? {
+                  currentPage: editorCurrentPage || 1,
+                  totalPages: editorTotalPages,
+                  inputValue: editorPageInput,
+                  inputRef: editorPageInputRef,
+                  onInputChange: (value) => setEditorPageInput(String(value || '').replace(/[^\d]/g, '')),
+                  onSubmit: handleEditorPageSubmit,
+                  onStepBack: () => handleEditorPageStep(-1),
+                  onStepForward: () => handleEditorPageStep(1),
+                } : null}
               />
             </div>
 
