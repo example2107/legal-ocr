@@ -1443,10 +1443,16 @@ export default function App() {
     if (separators.length === 0) return null;
 
     const threshold = getEditorScrollOffset();
+    const viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+    const nearDocumentBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
     let currentPage = separators[0].pageNumber;
     for (const separator of separators) {
       const rect = separator.el.getBoundingClientRect();
       if (rect.top <= threshold) {
+        currentPage = separator.pageNumber;
+        continue;
+      }
+      if (rect.top < viewportBottom && nearDocumentBottom) {
         currentPage = separator.pageNumber;
       } else {
         break;

@@ -37,7 +37,7 @@
   --header-h: 60px;       /* .header height */
   --sticky-gap: 10px;     /* visual breathing room below top header */
   --titlerow-h: 49px;     /* .doc-title-row approximate height (single line) */
-  --toolbar-top: calc(var(--header-h) + var(--titlerow-h) + var(--sticky-gap)); /* rich-toolbar sticky top */
+  --toolbar-top: calc(var(--header-h) + var(--titlerow-h) + var(--sticky-gap) + 2px); /* rich-toolbar sticky top */
 }
 
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -592,6 +592,7 @@ a { color: var(--accent); }
   width: 100%;
   box-sizing: border-box;
   box-shadow: 0 1px 0 var(--border);
+  isolation: isolate;
 }
 .doc-title-input { flex: 1; min-width: 160px; font-size: 15px; font-weight: 600; font-family: var(--font-doc); border: 1px solid transparent; background: transparent; color: var(--text); padding: 4px 8px; border-radius: var(--radius-sm); outline: none; transition: border-color var(--tr); }
 .doc-title-input:hover { border-color: var(--border); background: var(--surface); }
