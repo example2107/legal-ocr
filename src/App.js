@@ -136,10 +136,42 @@ function parseCssSize(value, fallback = 0) {
 function getBatchStatusTitle(status, sourceKind = 'pdf') {
   const subject = sourceKind === 'image' ? 'изображений' : 'PDF';
   if (status === 'failed') return `Обработка ${subject} остановлена`;
-  if (status === 'paused') return `Обработка ${subject} приостановлена`;
-  if (status === 'pausing') return `Приостанавливаем обработку ${subject}`;
+  if (status === 'paused') return 'Обработка приостановлена';
+  if (status === 'pausing') return 'Пауза будет поставлена';
   if (status === 'running') return `Идёт обработка ${subject}`;
   return `Есть незавершённая обработка ${subject}`;
+}
+
+function getBatchResumeText({
+  nextPage,
+  totalPages,
+  chunkSize,
+  sourceKind = 'pdf',
+}) {
+  return `Продолжение: ${formatProjectChunkPageRange(
+    nextPage,
+    getProjectPdfChunkEnd(nextPage, totalPages, chunkSize || 1),
+    totalPages,
+    sourceKind
+  )}.`;
+}
+
+function getBatchSourceSelectionHint(sourceKind = 'pdf') {
+  if (sourceKind === 'image') return 'Для продолжения выберите тот же набор изображений.';
+  return 'Для продолжения выберите тот же PDF.';
+}
+
+function mergeBatchUiState(prevState, nextState) {
+  if (!nextState) return null;
+  if (!prevState) return nextState;
+  if (prevState.status !== 'pausing') return nextState;
+  if (!['running', 'pausing'].includes(nextState.status)) return nextState;
+
+  return {
+    ...nextState,
+    status: 'pausing',
+    message: prevState.message || 'Пауза будет поставлена после текущей страницы.',
+  };
 }
 
 function assignLetters(personalData, existingPD) {
@@ -797,7 +829,7 @@ export default function App() {
         ? {
             ...prev,
             status: 'pausing',
-            message: 'Приостанавливаем обработку после текущей страницы...',
+            message: 'Пауза будет поставлена после текущей страницы.',
           }
         : prev
     ));
@@ -1338,7 +1370,7 @@ export default function App() {
           if (nextState?.projectId) {
             activeBatchControlRef.current.projectId = nextState.projectId;
           }
-          setActiveBatchUiState(nextState || null);
+          setActiveBatchUiState((prevState) => mergeBatchUiState(prevState, nextState));
         },
         onBatchUiStateClear: clearActiveBatchTracking,
         stopProgressCreep,
@@ -1390,7 +1422,7 @@ export default function App() {
         if (nextState?.projectId) {
           activeBatchControlRef.current.projectId = nextState.projectId;
         }
-        setActiveBatchUiState(nextState || null);
+        setActiveBatchUiState((prevState) => mergeBatchUiState(prevState, nextState));
       },
       onBatchUiStateClear: clearActiveBatchTracking,
       stopProgressCreep,
@@ -2703,10 +2735,32 @@ ${paras}
         {/* ════ HOME ════ */}
         {view === VIEW_HOME && (
           <>
-            <section className="card home-bottom-card">
-              <div className="home-tab-content">
-                <div className="home-tab-actions">
-                  <button className="btn-tool" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
+            <section className="home-projects-hero">
+              <div className="home-projects-hero-content">
+                <div className="home-projects-kicker">Рабочее пространство</div>
+                <h1 className="home-projects-title">Проекты ЮрДок</h1>
+                <p className="home-projects-subtitle">
+                  Создайте проект, откройте его и загружайте документы, DOCX, изображения или текст уже внутри рабочей области.
+                </p>
+                <div className="home-projects-hero-actions">
+                  <button className="btn-primary" onClick={() => setShowCreateProject(true)}>Создать проект</button>
+                  <div className="home-projects-hero-stat">
+                    <strong>{projects.length}</strong>
+                    <span>{projects.length === 1 ? 'проект' : projects.length < 5 ? 'проекта' : 'проектов'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="home-projects-hero-glow" aria-hidden="true" />
+            </section>
+
+            <section className="card home-bottom-card home-projects-card">
+              <div className="home-tab-content home-projects-content">
+                <div className="home-projects-section-head">
+                  <div>
+                    <div className="card-label">Ваши проекты</div>
+                    <div className="home-projects-section-copy">Все документы и история работы теперь хранятся внутри конкретных проектов.</div>
+                  </div>
+                  <button className="btn-tool home-projects-inline-create" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
                 </div>
                 {projects.length > 0 ? (
                   <div className="projects-grid">
@@ -2724,7 +2778,12 @@ ${paras}
                     ))}
                   </div>
                 ) : (
-                  <div className="home-tab-empty">Создайте проект, затем откройте его и загрузите документы уже внутри проекта.</div>
+                  <div className="home-projects-empty">
+                    <div className="home-projects-empty-icon">📂</div>
+                    <div className="home-projects-empty-title">Пока нет ни одного проекта</div>
+                    <div className="home-projects-empty-copy">Создайте первый проект, чтобы начать загрузку и обезличивание документов.</div>
+                    <button className="btn-primary btn-sm" onClick={() => setShowCreateProject(true)}>Создать первый проект</button>
+                  </div>
                 )}
               </div>
             </section>
@@ -2887,7 +2946,7 @@ ${paras}
                       <br />
                       <span>или нажмите для выбора</span>
                     </div>
-                    <div className="dropzone-hint">PDF обрабатывается постранично. JPG, PNG и WEBP идут по одному файлу за шаг.</div>
+                    <div className="dropzone-hint">PDF, JPG, PNG, WEBP</div>
                   </div>
                   {files.length > 0 && (
                     <div className="file-list">
@@ -2934,7 +2993,6 @@ ${paras}
                       <br />
                       <span>или нажмите для выбора</span>
                     </div>
-                    <div className="dropzone-hint">DOCX обрабатываются целиком, без batch-режима.</div>
                   </div>
                   {docxFiles.length > 0 && (
                     <div className="file-list">
@@ -2959,7 +3017,6 @@ ${paras}
                     value={pastedText}
                     onChange={e => setPastedText(e.target.value)}
                   />
-                  <div className="paste-hint">Текст обрабатывается целиком и сразу сохраняется в текущий проект.</div>
                 </>
               )}
             </section>
@@ -2971,24 +3028,15 @@ ${paras}
                 </div>
                 <div className="project-batch-status-body">
                   <strong>{currentBatchDisplayState.fileName}</strong>
-                  <span>
-                    Следующий запуск начнётся с {formatProjectChunkPageRange(
-                      currentBatchDisplayState.nextPage,
-                      getProjectPdfChunkEnd(
-                        currentBatchDisplayState.nextPage,
-                        currentBatchDisplayState.totalPages,
-                        currentBatchSession?.chunkSize || 1
-                      ),
-                      currentBatchDisplayState.totalPages,
-                      currentBatchDisplayState.sourceKind
-                    )}.
-                  </span>
-                  {currentBatchDisplayState.message && <span>{currentBatchDisplayState.message}</span>}
-                  <span>
-                    {currentBatchDisplayState.sourceKind === 'image'
-                      ? 'Для продолжения выберите тот же набор изображений заново.'
-                      : 'Для продолжения выберите тот же PDF-файл заново.'}
-                  </span>
+                  <span>{getBatchResumeText({
+                    nextPage: currentBatchDisplayState.nextPage,
+                    totalPages: currentBatchDisplayState.totalPages,
+                    chunkSize: currentBatchSession?.chunkSize || 1,
+                    sourceKind: currentBatchDisplayState.sourceKind,
+                  })}</span>
+                  {currentBatchDisplayState.status !== 'running' && (
+                    <span>{getBatchSourceSelectionHint(currentBatchDisplayState.sourceKind)}</span>
+                  )}
                   {currentBatchDisplayState.error && <span>Последняя ошибка: {currentBatchDisplayState.error}</span>}
                 </div>
                 {Number.isFinite(currentBatchDisplayState.progressPercent) && (
@@ -3003,7 +3051,7 @@ ${paras}
                     </button>
                   )}
                   {currentBatchDisplayState.status === 'pausing' && (
-                    <button className="btn-tool" type="button" disabled>
+                    <button className="btn-tool btn-tool-disabled" type="button" disabled>
                       Пауза запрошена
                     </button>
                   )}
@@ -3145,7 +3193,7 @@ ${paras}
             <div className="progress-pct">{Math.round(progress.percent || 0)}%</div>
             <div className="project-batch-actions" style={{ marginTop: 12 }}>
               {activeBatchUiState?.status === 'pausing' ? (
-                <button className="btn-tool" type="button" disabled>
+                <button className="btn-tool btn-tool-disabled" type="button" disabled>
                   Пауза запрошена
                 </button>
               ) : (

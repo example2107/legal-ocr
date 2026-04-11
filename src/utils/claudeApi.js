@@ -548,7 +548,7 @@ export async function recognizeDocument(images, apiKey, provider, onProgress, ex
     .join('\n');
 
   // Шаг 2: Проверка качества — 75–87%
-  onProgress({ stage: 'quality', percent: 76, message: 'Начало проверки качества...' });
+  onProgress({ stage: 'quality', percent: 76, message: 'Проверка качества' });
   const checkedText = await runQualityCheck(fullText, apiKey, provider, onProgress);
 
   // Шаг 3: Анализ ПД — 87–100%
