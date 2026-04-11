@@ -664,7 +664,8 @@ export default function App() {
     }
   }, []);
 
-  // Keep sticky offsets in sync with the real header/title heights.
+  // Keep sticky offsets in sync with the actual visible bottom edge
+  // of the app header and the document title row while scrolling.
   useEffect(() => {
     const update = () => {
       const headerEl = headerRef.current;
@@ -674,22 +675,26 @@ export default function App() {
         60,
       );
       if (headerEl) {
+        const headerBottom = Math.round(headerEl.getBoundingClientRect().bottom);
         document.documentElement.style.setProperty('--header-h', `${headerHeight}px`);
-        document.documentElement.style.setProperty('--header-offset', `${headerHeight}px`);
+        document.documentElement.style.setProperty('--header-offset', `${headerBottom}px`);
       }
       if (titleEl) {
         const height = titleEl.offsetHeight;
+        const titleBottom = Math.round(titleEl.getBoundingClientRect().bottom);
         document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
-        document.documentElement.style.setProperty('--toolbar-top', `${headerHeight + height}px`);
+        document.documentElement.style.setProperty('--toolbar-top', `${titleBottom}px`);
       }
     };
     update();
     const ro = new ResizeObserver(update);
     if (headerRef.current) ro.observe(headerRef.current);
     if (titleRowRef.current) ro.observe(titleRowRef.current);
+    window.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
     return () => {
       ro.disconnect();
+      window.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
   }, []);
