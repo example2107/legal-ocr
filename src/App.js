@@ -2740,7 +2740,7 @@ ${paras}
                 <div className="home-projects-kicker">Рабочее пространство</div>
                 <h1 className="home-projects-title">Проекты ЮрДок</h1>
                 <p className="home-projects-subtitle">
-                  Создайте проект, откройте его и загружайте документы, DOCX, изображения или текст уже внутри рабочей области.
+                  ЮрДок помогает распознавать, редактировать и обезличивать юридические документы. Вся работа с файлами и текстом ведётся внутри проекта.
                 </p>
                 <div className="home-projects-hero-actions">
                   <button className="btn-primary" onClick={() => setShowCreateProject(true)}>Создать проект</button>
@@ -2753,40 +2753,24 @@ ${paras}
               <div className="home-projects-hero-glow" aria-hidden="true" />
             </section>
 
-            <section className="card home-bottom-card home-projects-card">
-              <div className="home-tab-content home-projects-content">
-                <div className="home-projects-section-head">
-                  <div>
-                    <div className="card-label">Ваши проекты</div>
-                    <div className="home-projects-section-copy">Все документы и история работы теперь хранятся внутри конкретных проектов.</div>
-                  </div>
-                  <button className="btn-tool home-projects-inline-create" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
-                </div>
-                {projects.length > 0 ? (
-                  <div className="projects-grid">
-                    {projects.map(proj => (
-                      <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
-                        <div className="project-card-icon">📁</div>
-                        <div className="project-card-body">
-                          <div className="project-card-title">{proj.title}</div>
-                          <div className="project-card-meta">
-                            {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
-                          </div>
+            {projects.length > 0 && (
+              <section className="home-projects-list-wrap">
+                <div className="projects-grid">
+                  {projects.map(proj => (
+                    <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
+                      <div className="project-card-icon">📁</div>
+                      <div className="project-card-body">
+                        <div className="project-card-title">{proj.title}</div>
+                        <div className="project-card-meta">
+                          {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
                         </div>
-                        <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="home-projects-empty">
-                    <div className="home-projects-empty-icon">📂</div>
-                    <div className="home-projects-empty-title">Пока нет ни одного проекта</div>
-                    <div className="home-projects-empty-copy">Создайте первый проект, чтобы начать загрузку и обезличивание документов.</div>
-                    <button className="btn-primary btn-sm" onClick={() => setShowCreateProject(true)}>Создать первый проект</button>
-                  </div>
-                )}
-              </div>
-            </section>
+                      <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </>
         )}
 
@@ -3192,7 +3176,11 @@ ${paras}
             </div>
             <div className="progress-pct">{Math.round(progress.percent || 0)}%</div>
             <div className="project-batch-actions" style={{ marginTop: 12 }}>
-              {activeBatchUiState?.status === 'pausing' ? (
+              {activeBatchUiState?.status === 'paused' ? (
+                <button className="btn-tool" onClick={handleProjectRecognize}>
+                  Продолжить распознавание
+                </button>
+              ) : activeBatchUiState?.status === 'pausing' ? (
                 <button className="btn-tool btn-tool-disabled" type="button" disabled>
                   Пауза запрошена
                 </button>
@@ -3201,6 +3189,9 @@ ${paras}
                   Пауза
                 </button>
               )}
+              <button className="btn-tool" onClick={() => setView(VIEW_PROJECT)}>
+                Вернуться в проект
+              </button>
             </div>
             {activeBatchUiState?.status === 'pausing' && (
               <div className="project-batch-pending-note" style={{ marginTop: 10 }}>

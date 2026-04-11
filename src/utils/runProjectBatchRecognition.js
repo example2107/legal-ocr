@@ -270,9 +270,11 @@ export async function runProjectBatchRecognition({
         status: 'paused',
       }));
       stopProgressCreep();
-      setFiles([]);
-      setProgress(null);
-      setView(consumePauseBatchTargetView?.() || fallbackView);
+      setProgress({
+        percent: pausedSession.progressPercent ?? getOverallPercent(100),
+        message: `${fileName}: обработка приостановлена`,
+      });
+      consumePauseBatchTargetView?.();
       return true;
     };
 
