@@ -116,7 +116,6 @@ export function importDocument(file) {
           patchLayer: normalizeDocumentPatchLayer(data),
           savedAt: new Date().toISOString(),
         };
-        saveDocument(entry);
         resolve(entry);
       } catch (err) {
         reject(new Error('Не удалось прочитать файл: ' + err.message));

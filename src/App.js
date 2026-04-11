@@ -1,23 +1,18 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { pdfToImages, imageFileToBase64 } from './utils/pdfUtils';
-import { recognizeDocument, analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
+import { analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
 import AuthScreen from './components/AuthScreen';
 import DocumentPatchList from './components/DocumentPatchList';
 import DocumentTitleActions from './components/DocumentTitleActions';
 import OriginalViewerPanel from './components/OriginalViewerPanel';
 import PdFragmentEditorModal from './components/PdFragmentEditorModal';
-import PdfPatchExportPreviewModal from './components/PdfPatchExportPreviewModal';
 import { RichEditor, buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
 import { useAuth } from './context/AuthContext';
-import { usePdfExportFlow } from './hooks/usePdfExportFlow';
 import { usePatchedViewerPages } from './hooks/usePatchedViewerPages';
 import { useStoredData } from './hooks/useStoredData';
-import { buildDocumentCoordinateLayer } from './utils/documentCoordinateLayer';
 import { findBestCoordinateMatch } from './utils/documentCoordinateMatcher';
 import { normalizeDocumentPatchLayer, upsertDocumentPatch } from './utils/documentPatchLayer';
 import { buildLoadedDocumentState, getClearedWorkspaceState } from './utils/documentViewState';
-import { buildDocumentPageMetadata } from './utils/documentPageMetadata';
 import { generateId, exportDocument, importDocument } from './utils/history';
 import { getOriginalImageForPage, getOriginalImageIndexForPage } from './utils/originalImagePages';
 import { getProjectSummaryDocEntry, mergeProjectDocument, saveProjectSummaryDocument } from './utils/projectDocumentOps';
@@ -31,9 +26,11 @@ import {
   saveDocumentRecord,
   saveProjectRecord,
   updateProjectBatchSessionRecord,
+  updateProjectSharedPDRecord,
   uploadSourceFile,
 } from './utils/dataStore';
 import { formatProjectChunkPageRange, getProjectPdfChunkEnd } from './utils/projectBatch';
+import { exportRichTextPdf } from './utils/pdfExportFlow';
 import { runProjectBatchRecognition } from './utils/runProjectBatchRecognition';
 import './App.css';
 
@@ -136,12 +133,13 @@ function parseCssSize(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function getBatchStatusTitle(status) {
-  if (status === 'failed') return 'Обработка большого PDF остановлена';
-  if (status === 'paused') return 'Обработка PDF приостановлена';
-  if (status === 'pausing') return 'Приостанавливаем обработку PDF';
-  if (status === 'running') return 'Идёт обработка PDF';
-  return 'Есть незавершённая обработка PDF';
+function getBatchStatusTitle(status, sourceKind = 'pdf') {
+  const subject = sourceKind === 'image' ? 'изображений' : 'PDF';
+  if (status === 'failed') return `Обработка ${subject} остановлена`;
+  if (status === 'paused') return `Обработка ${subject} приостановлена`;
+  if (status === 'pausing') return `Приостанавливаем обработку ${subject}`;
+  if (status === 'running') return `Идёт обработка ${subject}`;
+  return `Есть незавершённая обработка ${subject}`;
 }
 
 function assignLetters(personalData, existingPD) {
@@ -250,15 +248,14 @@ export default function App() {
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
-  const [showAddFromHistory, setShowAddFromHistory] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [editingPdId, setEditingPdId] = useState(null);
   const [editingPdFragment, setEditingPdFragment] = useState(null);
-  const [homeTab, setHomeTab] = useState('projects'); // 'projects' | 'history'
-  const [inputTab, setInputTab] = useState('documents'); // 'documents' | 'text'
+  const [inputTab, setInputTab] = useState('documents'); // 'documents' | 'docx' | 'text'
   const [pdIdsInDoc, setPdIdsInDoc] = useState(null); // Set of PD ids present in current doc, or null if not in project
 
   const [files, setFiles] = useState([]);
+  const [docxFiles, setDocxFiles] = useState([]);
   const [pastedText, setPastedText] = useState('');
   const [originalImages, setOriginalImages] = useState([]); // for file viewer
   const [showOriginal, setShowOriginal] = useState(false);
@@ -339,14 +336,12 @@ export default function App() {
   const [highlightUncertain, setHighlightUncertain] = useState(false);
   const [pendingExportAction, setPendingExportAction] = useState(null); // 'save'|'pdf'|'docx'
   const pendingNavRef = useRef(null);
-  const fileInputRef = useRef();
-  const importInputRef = useRef();
   const projectFileInputRef = useRef();
+  const projectDocxInputRef = useRef();
   const projectImportRef = useRef();
   const editorPageInputRef = useRef(null);
   const editorNavigatingPageRef = useRef(null);
   const editorPageNavigationTimerRef = useRef(null);
-  const dragFileIdx = useRef(null);
   const uploadedFilesRef = useRef(new Map());
 
   const handleStoredDataError = useCallback((message) => {
@@ -499,27 +494,6 @@ export default function App() {
 
   // Direct ref to the editor DOM element — used for DOM patching
   const editorDomRef = useRef(null);
-
-  const {
-    activePatchEntries,
-    canProceedPdfPatchExport,
-    exportReadyPatchEntries,
-    handleClosePdfPatchPreview,
-    handleConfirmPdfPatchExport,
-    handleDownloadPdf,
-    nonExportablePatchEntries,
-    showPdfPatchPreview,
-  } = usePdfExportFlow({
-    patchLayer,
-    anonymized,
-    coordinateLayer,
-    pageMetadata,
-    originalImages,
-    docTitle,
-    originalFileName,
-    editorHtml,
-    editorDomRef,
-  });
 
   // Global Ctrl-Z / Ctrl-Shift-Z / Ctrl-Y — works regardless of which element has focus
   useEffect(() => {
@@ -753,6 +727,9 @@ export default function App() {
     setCurrentProjectId(projId);
     setView(VIEW_PROJECT);
     setFiles([]);
+    setDocxFiles([]);
+    setPastedText('');
+    setInputTab('documents');
     setError(null);
   };
 
@@ -776,6 +753,7 @@ export default function App() {
     }
     return {
       projectId: project.id,
+      sourceKind: project.batchSession.sourceKind || 'pdf',
       fileName: project.batchSession.fileName || '',
       totalPages: project.batchSession.totalPages || 0,
       nextPage: project.batchSession.nextPage || 1,
@@ -789,8 +767,6 @@ export default function App() {
   }, [activeBatchUiState, persistedBatchUiState]);
 
   const currentBatchDisplayState = currentProject ? getProjectBatchDisplayState(currentProject) : null;
-  const homeBatchProject = projects.find((project) => getProjectBatchDisplayState(project)) || null;
-  const homeBatchDisplayState = homeBatchProject ? getProjectBatchDisplayState(homeBatchProject) : null;
 
   useEffect(() => {
     if (!persistedBatchUiState?.projectId) return;
@@ -850,7 +826,7 @@ export default function App() {
     if (!currentProject) return [];
     return currentProject.documentIds
       .map(id => history.find(h => h.id === id))
-      .filter(Boolean);
+      .filter((entry) => entry && !entry.isProjectSummary);
   };
 
   const shouldShowLongDocWarningForEntry = useCallback((entry) => {
@@ -963,23 +939,18 @@ export default function App() {
     });
   };
 
-  const handleAddDocFromHistory = async (docId) => {
-    if (!currentProjectId) return;
-    const doc = history.find(h => h.id === docId);
-    if (!doc) return;
-    await mergeDocIntoProject(doc);
-    setShowAddFromHistory(false);
-  };
-
   const handleProjectImport = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     try {
       const entry = await importDocument(file);
-      await saveDocumentRecord(user, entry);
-      await refreshHistory();
-      await mergeDocIntoProject(entry);
+      const mergedEntry = await mergeDocIntoProject({
+        ...entry,
+        projectId: currentProjectId,
+      });
+      openRecognizedDocResult(mergedEntry, []);
+      setView(VIEW_RESULT);
     } catch (err) {
       setError(err.message || 'Ошибка импорта');
     }
@@ -1026,12 +997,6 @@ export default function App() {
     }
   };
 
-  const handleProjectFiles = useCallback((newFiles) => {
-    const valid = Array.from(newFiles).filter(f => f.type === 'application/pdf');
-    if (valid.length !== newFiles.length) setError('В проект можно загружать только PDF-файлы');
-    setFiles(prev => [...prev, ...valid]);
-  }, []);
-
   const ensureUploadedSourceFile = useCallback(async (file, projectId = null) => {
     if (!user || !file) return null;
     const key = buildSourceFileKey(file);
@@ -1050,68 +1015,10 @@ export default function App() {
         errorMessage: error?.message || String(error),
       });
       uploadedFilesRef.current.set(key, null);
-      setWarningMessage(`Не удалось загрузить исходный PDF "${file.name}" в облако. Распознавание продолжено без облачной копии исходника.`);
+      setWarningMessage(`Не удалось загрузить исходный файл "${file.name}" в облако. Обработка продолжена без облачной копии исходника.`);
       return null;
     }
   }, [user]);
-
-  const handleProjectRecognize = async () => {
-    activeBatchControlRef.current.projectId = currentProjectId;
-    activeBatchControlRef.current.pauseRequested = false;
-    activeBatchControlRef.current.targetView = null;
-    setWarningMessage(null);
-    await runProjectBatchRecognition({
-      apiKey,
-      files,
-      currentProjectId,
-      projects,
-      provider,
-      user,
-      cleanupDuplicateProjectChunkDocs,
-      saveProjectBatchSessionState,
-      getProjectExistingPD,
-      getProjectDocs,
-      ensureUploadedSourceFile,
-      mergePD,
-      assignLetters,
-      refreshHistory,
-      refreshProjects,
-      openRecognizedDocResult,
-      shouldPauseBatch: () => activeBatchControlRef.current.pauseRequested,
-      consumePauseBatchTargetView,
-      onBatchUiStateChange: (nextState) => {
-        if (nextState?.projectId) {
-          activeBatchControlRef.current.projectId = nextState.projectId;
-        }
-        setActiveBatchUiState(nextState || null);
-      },
-      onBatchUiStateClear: clearActiveBatchTracking,
-      stopProgressCreep,
-      setError,
-      setView,
-      setFiles,
-      setProgress,
-      viewProcessing: VIEW_PROCESSING,
-      viewProject: VIEW_PROJECT,
-      viewResult: VIEW_RESULT,
-    });
-  };
-
-  // ── Import .юрдок file ──────────────────────────────────────────────────────
-  const handleImport = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      const entry = await importDocument(file);
-      await saveDocumentRecord(user, entry);
-      await refreshHistory();
-      setCurrentProjectId(null);
-      loadDoc(entry);
-    } catch (err) {
-      setError(err.message || 'Ошибка импорта');
-    }
-  };
 
   const openRecognizedDocResult = useCallback((entry, images = []) => {
     const nextState = buildLoadedDocumentState({
@@ -1191,7 +1098,9 @@ export default function App() {
   const resetWorkingDocumentState = useCallback(() => {
     const cleared = getClearedWorkspaceState();
     setFiles(cleared.files);
+    setDocxFiles([]);
     setPastedText(cleared.pastedText);
+    setInputTab('documents');
     setOriginalImages(cleared.originalImages);
     clearPatchedViewerPages();
     setShowOriginal(cleared.showOriginal);
@@ -1240,197 +1149,262 @@ export default function App() {
     pendingNavRef.current = null;
   };
 
-  // ── Files ─────────────────────────────────────────────────────────────────────
-  const handleFiles = useCallback((newFiles) => {
-    const valid = Array.from(newFiles).filter(f => f.type.startsWith('image/') || f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.docx'));
-    if (valid.length !== newFiles.length) setError('Поддерживаются JPG, PNG, WEBP, PDF и DOCX');
-    setFiles(prev => [...prev, ...valid]);
+  // ── Project inputs ────────────────────────────────────────────────────────────
+  const handleProjectDocumentFiles = useCallback((newFiles) => {
+    const valid = Array.from(newFiles).filter((file) => file.type === 'application/pdf' || file.type.startsWith('image/'));
+    if (valid.length !== newFiles.length) {
+      setError('Во вкладке "Документы" поддерживаются только PDF, JPG, PNG и WEBP');
+    }
+    setFiles((prev) => [...prev, ...valid]);
   }, []);
 
-  const handleDrop = useCallback((e) => { e.preventDefault(); setIsDragging(false); handleFiles(e.dataTransfer.files); }, [handleFiles]);
-  const removeFile = (idx) => setFiles(prev => prev.filter((_, i) => i !== idx));
+  const handleProjectDocxFiles = useCallback((newFiles) => {
+    const valid = Array.from(newFiles).filter((file) => file.name.toLowerCase().endsWith('.docx'));
+    if (valid.length !== newFiles.length) {
+      setError('Во вкладке "DOCX" поддерживаются только файлы DOCX');
+    }
+    setDocxFiles((prev) => [...prev, ...valid]);
+  }, []);
 
-  // ── Recognize ─────────────────────────────────────────────────────────────────
-  const handleRecognize = async () => {
-    if (!apiKey.trim()) { setError('Введите API ключ Claude'); return; }
-    if (files.length === 0 && !pastedText.trim()) { setError('Добавьте хотя бы один файл или вставьте текст'); return; }
+  const handleProjectDocumentDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    handleProjectDocumentFiles(e.dataTransfer.files);
+  }, [handleProjectDocumentFiles]);
 
-    setCurrentProjectId(null);
-    setPdIdsInDoc(null);
+  const removeFile = (idx) => setFiles((prev) => prev.filter((_, i) => i !== idx));
+  const removeDocxFile = (idx) => setDocxFiles((prev) => prev.filter((_, i) => i !== idx));
+
+  const saveRecognizedProjectDocument = useCallback(async ({
+    result,
+    title,
+    originalFileName: nextOriginalFileName = '',
+    source,
+    uploadedSourceFiles = [],
+  }) => {
+    if (!currentProjectId) throw new Error('Сначала откройте проект');
+    const existingPD = getProjectExistingPD();
+    const pd = existingPD
+      ? assignLetters(mergePD(existingPD, result.personalData || { persons: [], otherPD: [] }), existingPD)
+      : assignLetters(result.personalData || { persons: [], otherPD: [] });
+    const initialAnon = {};
+    const html = buildAnnotatedHtml(result.text, pd, initialAnon);
+    const savedDoc = await saveDocumentRecord(user, {
+      id: generateId(),
+      title,
+      originalFileName: nextOriginalFileName,
+      text: result.text,
+      editedHtml: html,
+      personalData: pd,
+      anonymized: initialAnon,
+      source,
+      projectId: currentProjectId,
+      sourceFiles: uploadedSourceFiles,
+      patchLayer: null,
+    });
+    await addDocumentToProjectRecord(user, currentProjectId, savedDoc.id);
+    await updateProjectSharedPDRecord(user, currentProjectId, pd);
+    await refreshHistory();
+    await refreshProjects();
+    return savedDoc;
+  }, [assignLetters, currentProjectId, getProjectExistingPD, mergePD, refreshHistory, refreshProjects, user]);
+
+  const handleProjectTextRecognize = useCallback(async () => {
+    if (!apiKey.trim()) {
+      setError('Введите API ключ');
+      return;
+    }
+    if (!pastedText.trim()) {
+      setError('Вставьте текст для обезличивания');
+      return;
+    }
+
     setError(null);
     setWarningMessage(null);
     setView(VIEW_PROCESSING);
 
     try {
-      let result;
-      let renderedInputPages = [];
-      const hasPastedText = !!pastedText.trim();
-      const isDocx = files.length === 1 && files[0].name.toLowerCase().endsWith('.docx');
-
-      if (hasPastedText) {
-        setOriginalImages([]);
-        clearPatchedViewerPages();
-        setNonDecreasingProgress({ percent: 10, message: 'Подготовка текста...' });
-        animateTo(85, null);
-        result = await analyzePastedText(pastedText.trim(), apiKey.trim(), provider, p => {
-          const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          setNonDecreasingProgress({ percent: pct, message: p.message });
-        });
-        stopProgressCreep();
-      } else if (isDocx) {
-        setNonDecreasingProgress({ percent: 10, message: 'Чтение документа DOCX...' });
-        const docxText = await parseDocx(files[0]);
-        setNonDecreasingProgress({ percent: 40, message: 'Анализ персональных данных...' });
-        animateTo(90, null);
-        const personalData = await analyzePD(docxText, apiKey.trim(), provider, p => {
-          const pct = p.percent != null ? Math.round(p.percent) : 97;
-          setNonDecreasingProgress({ percent: pct, message: p.message });
-        });
-        stopProgressCreep();
-        result = { text: docxText, personalData };
-      } else {
-        setNonDecreasingProgress({ percent: 2, message: 'Подготовка файлов...' });
-        const allImages = [];
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          if (file.type === 'application/pdf') {
-            const pages = await pdfToImages(file, (page, total) => {
-              const fileBase = 4 + Math.round((i / files.length) * 16);
-              const fileSpan = Math.max(4, Math.round(16 / files.length));
-              const renderPercent = Math.min(22, fileBase + Math.round((page / Math.max(1, total)) * fileSpan));
-              setNonDecreasingProgress({
-                percent: renderPercent,
-                message: total > 1
-                  ? `Подготовка PDF: страница ${page} из ${total}...`
-                  : 'Подготовка PDF: рендер страницы...',
-              });
-            });
-            if (pages.length > 0) {
-              setNonDecreasingProgress({
-                percent: Math.min(24, 8 + Math.round(((i + 1) / files.length) * 16)),
-                message: pages.length > 1
-                  ? `PDF подготовлен: ${pages.length} стр.`
-                  : 'PDF подготовлен',
-              });
-            } else {
-              setNonDecreasingProgress({
-                percent: Math.min(24, 8 + Math.round(((i + 1) / files.length) * 16)),
-                message: 'PDF подготовлен',
-              });
-            }
-            allImages.push(...pages);
-          } else {
-            setNonDecreasingProgress({
-              percent: Math.min(18, 6 + Math.round((i / Math.max(1, files.length)) * 10)),
-              message: `Подготовка изображения: ${file.name}...`,
-            });
-            allImages.push(await imageFileToBase64(file));
-            setNonDecreasingProgress({
-              percent: Math.min(24, 10 + Math.round(((i + 1) / Math.max(1, files.length)) * 14)),
-              message: `Изображение подготовлено: ${file.name}`,
-            });
-          }
-        }
-        renderedInputPages = allImages;
-        setOriginalImages(allImages);
-        clearPatchedViewerPages();
-        result = await recognizeDocument(allImages, apiKey.trim(), provider, p => {
-          const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
-          setNonDecreasingProgress({ percent: pct, message: p.message });
-          if (p.stage === 'ocr') {
-            animateTo(Math.min(pct + 12, 74), null);
-          } else if (p.stage === 'analysis') {
-            animateTo(Math.min(pct + 8, 98), null);
-          } else {
-            stopProgressCreep();
-          }
-        });
-      }
-
-      const pd = assignLetters(result.personalData);
-      const initialAnon = {};
-      const html = buildAnnotatedHtml(result.text, pd, initialAnon);
-      const title = hasPastedText
-        ? `Текст от ${formatDate(new Date())}`
-        : (files[0]?.name || `Документ от ${formatDate(new Date())}`);
-      const origName = hasPastedText ? '' : (files[0]?.name || '');
-      const newDocId = generateId();
-      const uploadedSourceFiles = hasPastedText
-        ? []
-        : (await Promise.all(files.map(file => ensureUploadedSourceFile(file)))).filter(Boolean);
-      const nextPageMetadata = !hasPastedText
-        && !isDocx
-        && files.length === 1
-        && files[0].type === 'application/pdf'
-        && renderedInputPages.length > 0
-        ? buildDocumentPageMetadata({
-            sourceFile: uploadedSourceFiles[0] || null,
-            batchFileName: files[0].name,
-            pageFrom: renderedInputPages[0]?.pageNum || 1,
-            pageTo: renderedInputPages[renderedInputPages.length - 1]?.pageNum || renderedInputPages.length,
-            totalPages: renderedInputPages[0]?.totalPages || renderedInputPages.length,
-            pages: renderedInputPages,
-          })
-        : null;
-      const nextCoordinateLayer = !hasPastedText
-        && !isDocx
-        && files.length === 1
-        && files[0].type === 'application/pdf'
-        && renderedInputPages.length > 0
-        ? buildDocumentCoordinateLayer({
-            pages: renderedInputPages,
-          })
-        : null;
-
-      // Auto-save immediately after recognition
-      await saveDocumentRecord(user, {
-        id: newDocId,
-        title,
-        originalFileName: origName,
-        text: result.text,
-        editedHtml: html,
-        personalData: pd,
-        anonymized: initialAnon,
-        source: hasPastedText ? 'paste' : (files.length === 1 && files[0].name.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr'),
-        sourceFiles: uploadedSourceFiles,
-        pageMetadata: nextPageMetadata,
-        coordinateLayer: nextCoordinateLayer,
+      setOriginalImages([]);
+      clearPatchedViewerPages();
+      setNonDecreasingProgress({ percent: 10, message: 'Подготовка текста...' });
+      animateTo(85, null);
+      const result = await analyzePastedText(pastedText.trim(), apiKey.trim(), provider, (p) => {
+        const pct = p.percent != null ? Math.round(p.percent) : (p.stage === 'done' ? 100 : 50);
+        setNonDecreasingProgress({ percent: pct, message: p.message });
       });
-
-      setDocId(newDocId);
-      setDocTitle(title);
-      setOriginalFileName(origName);
-      setSourceFiles(uploadedSourceFiles);
-      setPageMetadata(nextPageMetadata);
-      setCoordinateLayer(nextCoordinateLayer);
-      setPatchLayer(null);
-      setRawText(result.text);
-      setEditorHtml(html);
-      pdRef.current   = pd;
-      anonRef.current = initialAnon;
-      setPersonalData(pd);
-      setAnonymized(initialAnon);
-      setLastSavedState(JSON.stringify({
-        anonymized: JSON.stringify(initialAnon),
-        html,
-        patchLayer: 'null',
-      }));
-      undoStackRef.current = [{ html, pd, anon: initialAnon }];
-      undoIndexRef.current = 0;
-      setShowLongDocWarning(result.text.replace(/\[PAGE:\d+\]/g, '').length > PD_ANALYSIS_CHAR_LIMIT);
-
       stopProgressCreep();
-      await refreshHistory();
+      const savedDoc = await saveRecognizedProjectDocument({
+        result,
+        title: `Текст от ${formatDate(new Date())}`,
+        originalFileName: '',
+        source: 'paste',
+        uploadedSourceFiles: [],
+      });
+      setPastedText('');
+      openRecognizedDocResult(savedDoc, []);
       setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
     } catch (err) {
       stopProgressCreep();
       setError(err.message || 'Произошла ошибка');
-      setView(VIEW_HOME);
+      setView(VIEW_PROJECT);
       setProgress(null);
     }
+  }, [apiKey, animateTo, clearPatchedViewerPages, openRecognizedDocResult, pastedText, provider, saveRecognizedProjectDocument, setNonDecreasingProgress, stopProgressCreep]);
+
+  const handleProjectDocxRecognize = useCallback(async () => {
+    if (!apiKey.trim()) {
+      setError('Введите API ключ');
+      return;
+    }
+    if (docxFiles.length === 0) {
+      setError('Добавьте хотя бы один DOCX-файл');
+      return;
+    }
+
+    setError(null);
+    setWarningMessage(null);
+    setView(VIEW_PROCESSING);
+
+    try {
+      let lastSavedDoc = null;
+      for (let index = 0; index < docxFiles.length; index += 1) {
+        const file = docxFiles[index];
+        setNonDecreasingProgress({
+          percent: Math.round(10 + (index / Math.max(1, docxFiles.length)) * 20),
+          message: `Чтение DOCX: ${file.name}...`,
+        });
+        const docxText = await parseDocx(file);
+        setNonDecreasingProgress({
+          percent: Math.round(30 + (index / Math.max(1, docxFiles.length)) * 20),
+          message: `Анализ персональных данных: ${file.name}...`,
+        });
+        animateTo(90, null);
+        const personalData = await analyzePD(docxText, apiKey.trim(), provider, (p) => {
+          const pct = p.percent != null ? Math.round(p.percent) : 97;
+          setNonDecreasingProgress({ percent: pct, message: `${file.name}: ${p.message}` });
+        });
+        const uploadedSourceFile = await ensureUploadedSourceFile(file, currentProjectId);
+        lastSavedDoc = await saveRecognizedProjectDocument({
+          result: { text: docxText, personalData },
+          title: file.name,
+          originalFileName: file.name,
+          source: 'docx',
+          uploadedSourceFiles: uploadedSourceFile ? [uploadedSourceFile] : [],
+        });
+      }
+      stopProgressCreep();
+      setDocxFiles([]);
+      if (lastSavedDoc) {
+        openRecognizedDocResult(lastSavedDoc, []);
+        setTimeout(() => { setView(VIEW_RESULT); setProgress(null); }, 400);
+      } else {
+        setView(VIEW_PROJECT);
+        setProgress(null);
+      }
+    } catch (err) {
+      stopProgressCreep();
+      setError(err.message || 'Произошла ошибка');
+      setView(VIEW_PROJECT);
+      setProgress(null);
+    }
+  }, [apiKey, animateTo, currentProjectId, docxFiles, ensureUploadedSourceFile, openRecognizedDocResult, provider, saveRecognizedProjectDocument, setNonDecreasingProgress, stopProgressCreep]);
+
+  const handleProjectRecognize = async () => {
+    if (currentBatchSession && currentBatchSession.status !== 'completed') {
+      activeBatchControlRef.current.projectId = currentProjectId;
+      activeBatchControlRef.current.pauseRequested = false;
+      activeBatchControlRef.current.targetView = null;
+      setWarningMessage(null);
+      await runProjectBatchRecognition({
+        apiKey,
+        files,
+        currentProjectId,
+        projects,
+        provider,
+        user,
+        cleanupDuplicateProjectChunkDocs,
+        saveProjectBatchSessionState,
+        getProjectExistingPD,
+        getProjectDocs,
+        ensureUploadedSourceFile,
+        mergePD,
+        assignLetters,
+        refreshHistory,
+        refreshProjects,
+        openRecognizedDocResult,
+        shouldPauseBatch: () => activeBatchControlRef.current.pauseRequested,
+        consumePauseBatchTargetView,
+        onBatchUiStateChange: (nextState) => {
+          if (nextState?.projectId) {
+            activeBatchControlRef.current.projectId = nextState.projectId;
+          }
+          setActiveBatchUiState(nextState || null);
+        },
+        onBatchUiStateClear: clearActiveBatchTracking,
+        stopProgressCreep,
+        setError,
+        setView,
+        setFiles,
+        setProgress,
+        viewProcessing: VIEW_PROCESSING,
+        viewProject: VIEW_PROJECT,
+        viewResult: VIEW_RESULT,
+      });
+      return;
+    }
+
+    if (inputTab === 'text') {
+      await handleProjectTextRecognize();
+      return;
+    }
+
+    if (inputTab === 'docx') {
+      await handleProjectDocxRecognize();
+      return;
+    }
+
+    activeBatchControlRef.current.projectId = currentProjectId;
+    activeBatchControlRef.current.pauseRequested = false;
+    activeBatchControlRef.current.targetView = null;
+    setWarningMessage(null);
+    await runProjectBatchRecognition({
+      apiKey,
+      files,
+      currentProjectId,
+      projects,
+      provider,
+      user,
+      cleanupDuplicateProjectChunkDocs,
+      saveProjectBatchSessionState,
+      getProjectExistingPD,
+      getProjectDocs,
+      ensureUploadedSourceFile,
+      mergePD,
+      assignLetters,
+      refreshHistory,
+      refreshProjects,
+      openRecognizedDocResult,
+      shouldPauseBatch: () => activeBatchControlRef.current.pauseRequested,
+      consumePauseBatchTargetView,
+      onBatchUiStateChange: (nextState) => {
+        if (nextState?.projectId) {
+          activeBatchControlRef.current.projectId = nextState.projectId;
+        }
+        setActiveBatchUiState(nextState || null);
+      },
+      onBatchUiStateClear: clearActiveBatchTracking,
+      stopProgressCreep,
+      setError,
+      setView,
+      setFiles,
+      setProgress,
+      viewProcessing: VIEW_PROCESSING,
+      viewProject: VIEW_PROJECT,
+      viewResult: VIEW_RESULT,
+    });
   };
 
-  // ── Load from history ─────────────────────────────────────────────────────────
+  // ── Load project document ─────────────────────────────────────────────────────
   const loadDoc = (entry) => {
     openRecognizedDocResult(entry, []);
     setView(VIEW_RESULT);
@@ -1625,6 +1599,21 @@ export default function App() {
     getOriginalImageIndexForPage(originalImages, pageNumber) >= 0
   ), [originalImages]);
 
+  const activePatchEntries = normalizeDocumentPatchLayer({ patchLayer })?.patches || [];
+
+  const handleDownloadPdf = useCallback(() => {
+    try {
+      exportRichTextPdf({
+        editorDomRef,
+        editorHtml,
+        docTitle,
+        originalFileName,
+      });
+    } catch (error) {
+      alert(error?.message || 'Разрешите всплывающие окна для скачивания PDF');
+    }
+  }, [docTitle, editorDomRef, editorHtml, originalFileName]);
+
   const triggerExport = (action) => {
     const uncertainCount = countUncertain();
     const separatorCount = countPageSeparators();
@@ -1672,7 +1661,12 @@ export default function App() {
   };
 
   const handleSave = async () => {
+    if (!currentProjectId) {
+      setError('Документ можно сохранить только внутри проекта');
+      return;
+    }
     const currentHtml = editorDomRef.current?.innerHTML || editorHtml;
+    const existingDocEntry = history.find((item) => item.id === docId) || null;
     const docData = {
       id: docId,
       title: docTitle,
@@ -1685,17 +1679,12 @@ export default function App() {
       editedHtml: currentHtml,
       personalData,
       anonymized,
-      source: files[0]?.name?.toLowerCase().endsWith('.docx') ? 'docx' : 'ocr',
+      source: existingDocEntry?.source || 'ocr',
     };
-    // Если работаем в контексте проекта — помечаем документ и добавляем в проект
-    if (currentProjectId) {
-      docData.projectId = currentProjectId;
-      await saveDocumentRecord(user, docData);
-      await addDocumentToProjectRecord(user, currentProjectId, docId);
-      await refreshProjects();
-    } else {
-      await saveDocumentRecord(user, docData);
-    }
+    docData.projectId = currentProjectId;
+    await saveDocumentRecord(user, docData);
+    await addDocumentToProjectRecord(user, currentProjectId, docId);
+    await refreshProjects();
     setLastSavedState(JSON.stringify({
       anonymized: JSON.stringify(anonymized),
       html: currentHtml,
@@ -2537,9 +2526,6 @@ ${paras}
       }
     : null;
 
-  // Documents not belonging to any project — shown on main page history
-  const freeHistory = history.filter(h => !h.projectId);
-
   // Check if a PD id has marks in the current document (for project context display)
   const pdInDoc = (id) => !pdIdsInDoc || pdIdsInDoc.has(id);
 
@@ -2693,19 +2679,6 @@ ${paras}
         </div>
       )}
 
-      <PdfPatchExportPreviewModal
-        open={showPdfPatchPreview}
-        exportReadyPatchEntries={exportReadyPatchEntries}
-        nonExportablePatchEntries={nonExportablePatchEntries}
-        hasOriginalImages={originalImages.length > 0}
-        canProceed={canProceedPdfPatchExport}
-        onClose={handleClosePdfPatchPreview}
-        onConfirm={handleConfirmPdfPatchExport}
-        onOpenPage={handleOpenOriginalPageNumber}
-        canOpenPage={(pageNumber) => getOriginalImageIndexForPage(originalImages, pageNumber) >= 0}
-        formatPatchText={truncatePatchText}
-      />
-
       {/* ── SAVE TOAST ── */}
       {savedMsg && (
         <div className="save-toast">✓ Документ сохранён</div>
@@ -2730,259 +2703,30 @@ ${paras}
         {/* ════ HOME ════ */}
         {view === VIEW_HOME && (
           <>
-            <section className="card api-card">
-              <div className="provider-select-wrap">
-                <label className="provider-label">Провайдер ИИ</label>
-                <div className="provider-tabs">
-                  {Object.entries(PROVIDERS).map(([key, p]) => (
-                    <button
-                      key={key}
-                      className={'provider-tab' + (provider === key ? ' active' : '')}
-                      onClick={() => { setProvider(key); setApiKey(''); }}
-                      type="button"
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="api-input-wrap" style={{ marginTop: 8 }}>
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  className="api-input"
-                  placeholder={PROVIDERS[provider].placeholder}
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button className="api-toggle" onClick={() => setShowApiKey(v => !v)}>{showApiKey ? '🙈' : '👁'}</button>
-              </div>
-              <div className="api-hint">
-                Ключ не сохраняется.{' '}
-                {provider === 'claude' && <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
-                {provider === 'openai' && <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
-                {provider === 'gemini' && <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
-              </div>
-            </section>
-
-            <section className="card upload-card">
-              <div className="input-tabs">
-                <button
-                  className={`input-tab${inputTab === 'documents' ? ' active' : ''}`}
-                  onClick={() => setInputTab('documents')}
-                  type="button"
-                >
-                  Документы
-                </button>
-                <button
-                  className={`input-tab${inputTab === 'text' ? ' active' : ''}`}
-                  onClick={() => setInputTab('text')}
-                  type="button"
-                >
-                  Текст
-                </button>
-              </div>
-
-              {inputTab === 'documents' && (
-                <>
-                  <div
-                    className={`dropzone ${isDragging ? 'dragging' : ''}`}
-                    onDrop={handleDrop}
-                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="visually-hidden" onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
-                    <div className="dropzone-icon">📄</div>
-                    <div className="dropzone-text"><strong>Перетащите файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                    <div className="dropzone-hint">JPG, PNG, WEBP, PDF, DOCX · Рекомендуем до 10 страниц. Если страниц больше, воспользуйтесь функцией "создать проект".</div>
-                  </div>
-                  {files.length > 0 && (
-                    <div className="file-list">
-                      {files.map((file, idx) => (
-                        <div
-                          key={idx}
-                          className="file-item"
-                          draggable
-                          onDragStart={(e) => {
-                            dragFileIdx.current = idx;
-                            e.currentTarget.classList.add('dragging');
-                          }}
-                          onDragEnd={(e) => {
-                            e.currentTarget.classList.remove('dragging');
-                            dragFileIdx.current = null;
-                            document.querySelectorAll('.file-item').forEach(el => el.classList.remove('drag-over'));
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.currentTarget.classList.add('drag-over');
-                          }}
-                          onDragLeave={(e) => {
-                            e.currentTarget.classList.remove('drag-over');
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            e.currentTarget.classList.remove('drag-over');
-                            const from = dragFileIdx.current;
-                            const to = idx;
-                            if (from === null || from === to) return;
-                            setFiles(prev => {
-                              const next = [...prev];
-                              const [moved] = next.splice(from, 1);
-                              next.splice(to, 0, moved);
-                              return next;
-                            });
-                          }}
-                        >
-                          <span className="file-drag-handle" title="Перетащите для изменения порядка">⠿</span>
-                          <span className="file-icon">{file.type === 'application/pdf' ? '📑' : file.name.toLowerCase().endsWith('.docx') ? '📝' : '🖼'}</span>
-                          <span className="file-name">{file.name}</span>
-                          <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
-                          <button className="file-remove" onClick={e => { e.stopPropagation(); removeFile(idx); }}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {inputTab === 'text' && (
-                <>
-                  <textarea
-                    className="paste-textarea"
-                    placeholder="Вставьте цифровой текст документа для быстрого обезличивания и ручной проверки"
-                    value={pastedText}
-                    onChange={e => setPastedText(e.target.value)}
-                    spellCheck={false}
-                  />
-                  <div className="paste-hint">
-                    Этот режим работает без загрузки файлов и подходит для быстрых ручных проверок.
-                  </div>
-                </>
-              )}
-            </section>
-
-            {warningMessage && <div className="warning-block">⚠️ {warningMessage}</div>}
-            {error && <div className="error-block">⚠️ {error}</div>}
-
-            {homeBatchProject && homeBatchDisplayState && (
-              <div className={`project-batch-status home-batch-status ${homeBatchDisplayState.status === 'failed' ? 'failed' : ''}`}>
-                <div className="project-batch-status-title">
-                  {getBatchStatusTitle(homeBatchDisplayState.status)}
-                </div>
-                <div className="project-batch-status-body">
-                  <strong>{homeBatchProject.title}</strong>
-                  <span>{homeBatchDisplayState.fileName}</span>
-                  <span>
-                    Следующий запуск начнётся с {formatProjectChunkPageRange(
-                      homeBatchDisplayState.nextPage,
-                      getProjectPdfChunkEnd(homeBatchDisplayState.nextPage, homeBatchDisplayState.totalPages, 1),
-                      homeBatchDisplayState.totalPages
-                    )}.
-                  </span>
-                  {homeBatchDisplayState.message && <span>{homeBatchDisplayState.message}</span>}
-                  {homeBatchDisplayState.error && <span>Последняя ошибка: {homeBatchDisplayState.error}</span>}
-                </div>
-                {Number.isFinite(homeBatchDisplayState.progressPercent) && (
-                  <div className="project-batch-progress">
-                    <div className="project-batch-progress-bar" style={{ width: `${Math.max(0, Math.min(100, Math.round(homeBatchDisplayState.progressPercent)))}%` }} />
-                  </div>
-                )}
-                <div className="project-batch-actions">
-                  <button className="btn-tool" onClick={() => openProject(homeBatchProject.id)}>
-                    Открыть проект
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="home-btn-wrap">
-              <button
-                className="btn-primary"
-                onClick={handleRecognize}
-                disabled={!apiKey.trim() || (files.length === 0 && !pastedText.trim())}
-              >
-                {pastedText.trim()
-                  ? '🔒 Обезличить'
-                  : (files.length > 0 && files[0].name.toLowerCase().endsWith('.docx') ? '🔒 Обезличить документ' : '🔍 Распознать и обезличить')}
-              </button>
-            </div>
-
-            <input ref={importInputRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleImport} />
-
-            {/* ── Unified bottom section with tabs ── */}
             <section className="card home-bottom-card">
-              <div className="home-tabs">
-                <button className={`home-tab${homeTab === 'projects' ? ' active' : ''}`} onClick={() => setHomeTab('projects')}>
-                  📁 Проекты {projects.length > 0 && <span className="home-tab-count">{projects.length}</span>}
-                </button>
-                <button className={`home-tab${homeTab === 'history' ? ' active' : ''}`} onClick={() => setHomeTab('history')}>
-                  📄 История {freeHistory.length > 0 && <span className="home-tab-count">{freeHistory.length}</span>}
-                </button>
+              <div className="home-tab-content">
+                <div className="home-tab-actions">
+                  <button className="btn-tool" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
+                </div>
+                {projects.length > 0 ? (
+                  <div className="projects-grid">
+                    {projects.map(proj => (
+                      <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
+                        <div className="project-card-icon">📁</div>
+                        <div className="project-card-body">
+                          <div className="project-card-title">{proj.title}</div>
+                          <div className="project-card-meta">
+                            {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
+                          </div>
+                        </div>
+                        <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="home-tab-empty">Создайте проект, затем откройте его и загрузите документы уже внутри проекта.</div>
+                )}
               </div>
-
-              {homeTab === 'projects' && (
-                <div className="home-tab-content">
-                  <div className="home-tab-actions">
-                    <button className="btn-tool" onClick={() => setShowCreateProject(true)}>+ Создать проект</button>
-                  </div>
-                  {projects.length > 0 ? (
-                    <div className="projects-grid">
-                      {projects.map(proj => (
-                        <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
-                          <div className="project-card-icon">📁</div>
-                          <div className="project-card-body">
-                            <div className="project-card-title">{proj.title}</div>
-                            <div className="project-card-meta">
-                              {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
-                            </div>
-                          </div>
-                          <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="home-tab-empty">Создайте проект для объединения документов с общей базой персональных данных</div>
-                  )}
-                </div>
-              )}
-
-              {homeTab === 'history' && (
-                <div className="home-tab-content">
-                  <div className="home-tab-actions">
-                    <button className="btn-tool btn-import" onClick={() => importInputRef.current?.click()}>📂 Загрузить .юрдок</button>
-                  </div>
-                  {freeHistory.length > 0 ? (
-                    <div className="history-grid">
-                      {freeHistory.map(entry => (
-                        <div key={entry.id} className="history-card" onClick={() => { setCurrentProjectId(null); loadDoc(entry); }}>
-                          <div className="history-card-icon">{entry.source === 'paste' ? '📋' : '📄'}</div>
-                          <div className="history-card-body">
-                            <div className="history-card-title">{entry.title}</div>
-                            <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
-                            <div className="history-card-stats">
-                              {(entry.personalData?.persons?.filter(p => p.category === 'private').length || 0) > 0 && (
-                                <span className="badge badge-private">{entry.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
-                              )}
-                              {(entry.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
-                                <span className="badge badge-prof">{entry.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
-                              )}
-                              {Object.values(entry.anonymized || {}).filter(Boolean).length > 0 && (
-                                <span className="badge badge-anon">🔒 {Object.values(entry.anonymized).filter(Boolean).length} скрыто</span>
-                              )}
-                            </div>
-                          </div>
-                          <button className="history-export" onClick={e => { e.stopPropagation(); exportDocument(entry); }} title="Скачать .юрдок">⬇</button>
-                          <button className="history-delete" onClick={async e => { e.stopPropagation(); await deleteDocumentRecord(user, entry.id); await refreshHistory(); }} title="Удалить">✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="home-tab-empty">Документов пока нет. Распознайте файл или загрузите .юрдок</div>
-                  )}
-                </div>
-              )}
             </section>
           </>
         )}
@@ -3047,38 +2791,6 @@ ${paras}
           </div>
         )}
 
-        {/* ════ ADD FROM HISTORY MODAL (project) ════ */}
-        {showAddFromHistory && currentProject && (
-          <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: 520 }}>
-              <div className="modal-title">Перенести документ из истории в проект</div>
-              <div className="modal-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
-                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
-                  Документ будет перемещён в проект. Персональные данные будут объединены с базой ПД проекта.
-                </div>
-                {freeHistory.length === 0 ? (
-                  <div style={{ color: 'var(--text3)' }}>Нет документов для переноса</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {freeHistory.map(entry => (
-                      <div key={entry.id} className="history-card" style={{ cursor: 'pointer' }} onClick={() => handleAddDocFromHistory(entry.id)}>
-                        <div className="history-card-icon">📄</div>
-                        <div className="history-card-body">
-                          <div className="history-card-title">{entry.title}</div>
-                          <div className="history-card-meta">{formatDate(new Date(entry.savedAt))}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="modal-actions">
-                <button className="btn-tool" onClick={() => setShowAddFromHistory(false)}>Закрыть</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ════ PROJECT VIEW ════ */}
         {view === VIEW_PROJECT && currentProject && (
           <>
@@ -3125,42 +2837,158 @@ ${paras}
             </section>
 
             <section className="card upload-card">
-              <div
-                className={`dropzone ${isDragging ? 'dragging' : ''}`}
-                onDrop={e => { e.preventDefault(); setIsDragging(false); handleProjectFiles(e.dataTransfer.files); }}
-                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onClick={() => projectFileInputRef.current?.click()}
-              >
-                <input ref={projectFileInputRef} type="file" multiple accept=".pdf,application/pdf" className="visually-hidden" onChange={e => { handleProjectFiles(e.target.files); e.target.value = ''; }} />
-                <div className="dropzone-icon">📄</div>
-                <div className="dropzone-text"><strong>Перетащите PDF-файлы сюда</strong><br /><span>или нажмите для выбора</span></div>
-                <div className="dropzone-hint">PDF · Большие файлы автоматически обрабатываются постранично.</div>
+              <div className="input-tabs">
+                <button
+                  className={`input-tab ${inputTab === 'documents' ? 'active' : ''}`}
+                  onClick={() => setInputTab('documents')}
+                  type="button"
+                >
+                  Документы
+                </button>
+                <button
+                  className={`input-tab ${inputTab === 'docx' ? 'active' : ''}`}
+                  onClick={() => setInputTab('docx')}
+                  type="button"
+                >
+                  DOCX
+                </button>
+                <button
+                  className={`input-tab ${inputTab === 'text' ? 'active' : ''}`}
+                  onClick={() => setInputTab('text')}
+                  type="button"
+                >
+                  Текст
+                </button>
               </div>
-              {files.length > 0 && (
-                <div className="file-list">
-                  {files.map((file, idx) => (
-                    <div key={idx} className="file-item">
-                      <span className="file-icon">📑</span>
-                      <span className="file-name">{file.name}</span>
-                      <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
-                      <button className="file-remove" onClick={e => { e.stopPropagation(); removeFile(idx); }}>✕</button>
+
+              {inputTab === 'documents' && (
+                <>
+                  <div
+                    className={`dropzone ${isDragging ? 'dragging' : ''}`}
+                    onDrop={handleProjectDocumentDrop}
+                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onClick={() => projectFileInputRef.current?.click()}
+                  >
+                    <input
+                      ref={projectFileInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,application/pdf,image/*"
+                      className="visually-hidden"
+                      onChange={e => {
+                        handleProjectDocumentFiles(e.target.files);
+                        e.target.value = '';
+                      }}
+                    />
+                    <div className="dropzone-icon">📄</div>
+                    <div className="dropzone-text">
+                      <strong>Перетащите PDF или изображения сюда</strong>
+                      <br />
+                      <span>или нажмите для выбора</span>
                     </div>
-                  ))}
-                </div>
+                    <div className="dropzone-hint">PDF обрабатывается постранично. JPG, PNG и WEBP идут по одному файлу за шаг.</div>
+                  </div>
+                  {files.length > 0 && (
+                    <div className="file-list">
+                      {files.map((file, idx) => (
+                        <div key={`${file.name}_${idx}`} className="file-item">
+                          <span className="file-icon">{file.type === 'application/pdf' ? '📑' : '🖼️'}</span>
+                          <span className="file-name">{file.name}</span>
+                          <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                          <button className="file-remove" onClick={e => { e.stopPropagation(); removeFile(idx); }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {inputTab === 'docx' && (
+                <>
+                  <div
+                    className={`dropzone ${isDragging ? 'dragging' : ''}`}
+                    onDrop={e => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      handleProjectDocxFiles(e.dataTransfer.files);
+                    }}
+                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onClick={() => projectDocxInputRef.current?.click()}
+                  >
+                    <input
+                      ref={projectDocxInputRef}
+                      type="file"
+                      multiple
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="visually-hidden"
+                      onChange={e => {
+                        handleProjectDocxFiles(e.target.files);
+                        e.target.value = '';
+                      }}
+                    />
+                    <div className="dropzone-icon">📝</div>
+                    <div className="dropzone-text">
+                      <strong>Перетащите DOCX-файлы сюда</strong>
+                      <br />
+                      <span>или нажмите для выбора</span>
+                    </div>
+                    <div className="dropzone-hint">DOCX обрабатываются целиком, без batch-режима.</div>
+                  </div>
+                  {docxFiles.length > 0 && (
+                    <div className="file-list">
+                      {docxFiles.map((file, idx) => (
+                        <div key={`${file.name}_${idx}`} className="file-item">
+                          <span className="file-icon">📝</span>
+                          <span className="file-name">{file.name}</span>
+                          <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                          <button className="file-remove" onClick={e => { e.stopPropagation(); removeDocxFile(idx); }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {inputTab === 'text' && (
+                <>
+                  <textarea
+                    className="paste-textarea"
+                    placeholder="Вставьте сюда текст документа для обезличивания"
+                    value={pastedText}
+                    onChange={e => setPastedText(e.target.value)}
+                  />
+                  <div className="paste-hint">Текст обрабатывается целиком и сразу сохраняется в текущий проект.</div>
+                </>
               )}
             </section>
 
             {currentBatchDisplayState && currentBatchDisplayState.status !== 'completed' && (
               <div className={`project-batch-status ${currentBatchDisplayState.status === 'failed' ? 'failed' : ''}`}>
                 <div className="project-batch-status-title">
-                  {getBatchStatusTitle(currentBatchDisplayState.status)}
+                  {getBatchStatusTitle(currentBatchDisplayState.status, currentBatchDisplayState.sourceKind)}
                 </div>
                 <div className="project-batch-status-body">
                   <strong>{currentBatchDisplayState.fileName}</strong>
-                  <span>Следующий запуск начнётся с {formatProjectChunkPageRange(currentBatchDisplayState.nextPage, getProjectPdfChunkEnd(currentBatchDisplayState.nextPage, currentBatchDisplayState.totalPages, currentBatchSession?.chunkSize || 1), currentBatchDisplayState.totalPages)}.</span>
+                  <span>
+                    Следующий запуск начнётся с {formatProjectChunkPageRange(
+                      currentBatchDisplayState.nextPage,
+                      getProjectPdfChunkEnd(
+                        currentBatchDisplayState.nextPage,
+                        currentBatchDisplayState.totalPages,
+                        currentBatchSession?.chunkSize || 1
+                      ),
+                      currentBatchDisplayState.totalPages,
+                      currentBatchDisplayState.sourceKind
+                    )}.
+                  </span>
                   {currentBatchDisplayState.message && <span>{currentBatchDisplayState.message}</span>}
-                  <span>Для продолжения выберите тот же PDF-файл заново.</span>
+                  <span>
+                    {currentBatchDisplayState.sourceKind === 'image'
+                      ? 'Для продолжения выберите тот же набор изображений заново.'
+                      : 'Для продолжения выберите тот же PDF-файл заново.'}
+                  </span>
                   {currentBatchDisplayState.error && <span>Последняя ошибка: {currentBatchDisplayState.error}</span>}
                 </div>
                 {Number.isFinite(currentBatchDisplayState.progressPercent) && (
@@ -3196,11 +3024,25 @@ ${paras}
               <button
                 className="btn-primary"
                 onClick={handleProjectRecognize}
-                disabled={!apiKey.trim() || files.length === 0}
+                disabled={
+                  !apiKey.trim() || (
+                    currentBatchSession && currentBatchSession.status !== 'completed'
+                      ? files.length === 0
+                      : inputTab === 'documents'
+                        ? files.length === 0
+                        : inputTab === 'docx'
+                          ? docxFiles.length === 0
+                          : pastedText.trim().length === 0
+                  )
+                }
               >
                 {currentBatchSession && currentBatchSession.status !== 'completed'
-                  ? '▶ Продолжить обработку PDF'
-                  : '🔍 Распознать и обезличить'}
+                  ? '▶ Продолжить обработку'
+                  : inputTab === 'docx'
+                    ? '🔍 Обезличить DOCX'
+                    : inputTab === 'text'
+                      ? '🔍 Обезличить текст'
+                      : '🔍 Распознать и обезличить'}
               </button>
             </div>
 
@@ -3225,9 +3067,6 @@ ${paras}
               </div>
 
               <div className="project-details-actions">
-                {freeHistory.length > 0 && (
-                  <button className="btn-tool" onClick={() => setShowAddFromHistory(true)}>📋 Перенести из истории</button>
-                )}
                 <button className="btn-tool" onClick={() => projectImportRef.current?.click()}>📂 Загрузить .юрдок</button>
                 <input ref={projectImportRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleProjectImport} />
               </div>
@@ -3290,7 +3129,7 @@ ${paras}
                   )}
                 </div>
               ) : (
-                <div className="home-tab-empty">Загрузите PDF для распознавания, перенесите документ из истории или загрузите .юрдок</div>
+                <div className="home-tab-empty">Загрузите файл, вставьте текст или импортируйте .юрдок внутри этого проекта.</div>
               )}
             </section>
           </>
