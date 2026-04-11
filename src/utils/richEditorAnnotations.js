@@ -189,7 +189,7 @@ function buildPersonPattern(mention) {
   const words = mention.split(/\s+/);
 
   // Если mention начинается с инициалов (напр. "С.В. Лаптева")
-  if (/^[А-ЯЁ]\s*[\.,]\s*[А-ЯЁ]?(?:\s*[\.,])?\s/i.test(mention)) {
+  if (/^[А-ЯЁ]\s*[.,]\s*[А-ЯЁ]?(?:\s*[.,])?\s/i.test(mention)) {
     const base = words.map(wordToPattern).join('\\s+');
     return leftBoundary + base + initialsAfter;
   }
@@ -268,7 +268,7 @@ function annotLine(text, marks, anonymized) {
   // Пробел перед <mark>: всегда, кроме открывающих знаков препинания ( « " ' [
   // Пробел после </mark>: всегда, кроме закрывающих знаков препинания ) , . ! ? : ; » " …
   out = out
-    .replace(/([^\s(\[«"'])(<mark\s)/g, '$1 $2')
+    .replace(/([^\s(«"'[])(<mark\s)/g, '$1 $2')
     .replace(/(<\/mark>)([^\s)\].,!?:;»"'\u2026\u2013\u2014<])/g, '$1 $2');
   return out;
 }
@@ -440,7 +440,7 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
       continue;
     }
 
-    const startsWithIndent = /^[ 	]{2,}/.test(line); // 2+ пробела или таб = красная строка
+    const startsWithIndent = /^[ \t]{2,}/.test(line); // 2+ пробела или таб = красная строка
     const isSpecial = isSpecialLine(trimmed);
 
     // Признаки нового абзаца — не склеиваем с предыдущей строкой
