@@ -674,16 +674,16 @@ export default function App() {
         window.getComputedStyle(document.documentElement).getPropertyValue('--header-h'),
         60,
       );
+      const headerBottom = headerEl?.getBoundingClientRect().bottom ?? headerHeight;
       if (headerEl) {
-        const headerBottom = Math.round(headerEl.getBoundingClientRect().bottom);
         document.documentElement.style.setProperty('--header-h', `${headerHeight}px`);
-        document.documentElement.style.setProperty('--header-offset', `${headerBottom}px`);
+        document.documentElement.style.setProperty('--header-offset', `${Math.round(headerBottom)}px`);
       }
       if (titleEl) {
         const height = titleEl.offsetHeight;
-        const titleBottom = Math.round(titleEl.getBoundingClientRect().bottom);
+        const titleBottom = Math.max(headerBottom, titleEl.getBoundingClientRect().bottom - 1);
         document.documentElement.style.setProperty('--titlerow-h', `${height}px`);
-        document.documentElement.style.setProperty('--toolbar-top', `${titleBottom}px`);
+        document.documentElement.style.setProperty('--toolbar-top', `${Math.round(titleBottom)}px`);
       }
     };
     update();
