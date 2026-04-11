@@ -1,20 +1,20 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT, PROVIDERS } from './utils/claudeApi';
+import { analyzePD, analyzePastedText, PD_ANALYSIS_CHAR_LIMIT } from './utils/claudeApi';
 import { parseDocx } from './utils/docxParser';
+import AppHeader from './components/AppHeader';
 import AuthScreen from './components/AuthScreen';
-import DocumentPatchList from './components/DocumentPatchList';
-import DocumentTitleActions from './components/DocumentTitleActions';
-import OriginalViewerPanel from './components/OriginalViewerPanel';
+import HomeProjectsView from './components/HomeProjectsView';
 import PdFragmentEditorModal from './components/PdFragmentEditorModal';
-import { RichEditor, buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
+import PdRecordEditorModal from './components/PdRecordEditorModal';
+import ProcessingView from './components/ProcessingView';
+import ProjectWorkspaceView from './components/ProjectWorkspaceView';
+import { buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOriginals } from './components/RichEditor';
+import ResultWorkspaceView from './components/ResultWorkspaceView';
 import { useAuth } from './context/AuthContext';
-import { usePatchedViewerPages } from './hooks/usePatchedViewerPages';
 import { useStoredData } from './hooks/useStoredData';
-import { findBestCoordinateMatch } from './utils/documentCoordinateMatcher';
-import { normalizeDocumentPatchLayer, upsertDocumentPatch } from './utils/documentPatchLayer';
 import { buildLoadedDocumentState, getClearedWorkspaceState } from './utils/documentViewState';
 import { generateId, exportDocument, importDocument } from './utils/history';
-import { getOriginalImageForPage, getOriginalImageIndexForPage } from './utils/originalImagePages';
+import { getOriginalImageIndexForPage } from './utils/originalImagePages';
 import { getProjectSummaryDocEntry, mergeProjectDocument, saveProjectSummaryDocument } from './utils/projectDocumentOps';
 import {
   addDocumentToProjectRecord,
@@ -93,33 +93,6 @@ function buildCanonicalPersonMentions(fullName) {
     initialsText ? `${surname} ${initialsText}` : '',
     initialsText ? `${initialsText} ${surname}` : '',
   ]);
-}
-
-function getPreferredPdfPageForMark(editorEl, markEl, pageMetadata, coordinateLayer) {
-  if (!editorEl || !markEl?.isConnected) return null;
-
-  const separators = Array.from(editorEl.querySelectorAll('.page-separator[data-page]'));
-  let relativePage = 1;
-  for (const separator of separators) {
-    if (separator === markEl) continue;
-    if (separator.compareDocumentPosition(markEl) & Node.DOCUMENT_POSITION_FOLLOWING) {
-      relativePage = Number(separator.dataset.page || relativePage);
-    } else {
-      break;
-    }
-  }
-
-  const absoluteStartPage = pageMetadata?.sources?.[0]?.pageFrom
-    || coordinateLayer?.pages?.[0]?.pageNumber
-    || 1;
-
-  return absoluteStartPage + relativePage - 1;
-}
-
-function truncatePatchText(value, maxLength = 72) {
-  const text = normalizePdText(value);
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 function formatDocumentPageProgress(doc) {
@@ -348,8 +321,6 @@ export default function App() {
   const [originalFileName, setOriginalFileName] = useState('');
   const [sourceFiles, setSourceFiles] = useState([]);
   const [pageMetadata, setPageMetadata] = useState(null);
-  const [coordinateLayer, setCoordinateLayer] = useState(null);
-  const [patchLayer, setPatchLayer] = useState(null);
   const [rawText, setRawText] = useState('');
   // editorHtml is only used for initial load and save/export — NOT rebuilt on every anonymize
   const [editorHtml, setEditorHtml] = useState('');
@@ -385,19 +356,6 @@ export default function App() {
     uploadedFilesRef.current.clear();
   }, []);
 
-  const resetOriginalViewerTransform = useCallback(() => {
-    setZoomScale(1);
-    setZoomActive(false);
-  }, []);
-
-  const handleOpenOriginalPageNumber = useCallback((pageNumber) => {
-    const imageIndex = getOriginalImageIndexForPage(originalImages, pageNumber);
-    if (imageIndex < 0) return;
-    setShowOriginal(true);
-    setOriginalPage(imageIndex);
-    resetOriginalViewerTransform();
-  }, [originalImages, resetOriginalViewerTransform]);
-
   const syncOriginalViewerToDocumentPage = useCallback((pageNumber) => {
     const imageIndex = getOriginalImageIndexForPage(originalImages, pageNumber);
     if (imageIndex < 0) return;
@@ -409,25 +367,11 @@ export default function App() {
     setOriginalPage(0);
   }, []);
 
-  const {
-    clearPatchedViewerPages,
-    handleApplyPdFragmentPreview,
-    handleRemovePatchEntry,
-    patchedViewerPageCount,
-    viewerImages,
-  } = usePatchedViewerPages({
-    originalImages,
-    patchLayer,
-    setPatchLayer,
-    onOpenOriginalPageNumber: handleOpenOriginalPageNumber,
-  });
-
   const handleLoadOriginalViewerImages = useCallback((allImages) => {
     setOriginalImages(allImages);
-    clearPatchedViewerPages();
     setShowOriginal(true);
     setOriginalPage(0);
-  }, [clearPatchedViewerPages]);
+  }, []);
 
   const {
     dataLoading,
@@ -735,15 +679,17 @@ export default function App() {
     const timer = setTimeout(() => {
       if (editorDomRef.current && lastSavedState) {
         const realHtml = editorDomRef.current.innerHTML;
-        setLastSavedState(JSON.stringify({
+        const nextSavedState = JSON.stringify({
           anonymized: JSON.stringify(anonymized),
           html: realHtml,
-          patchLayer: JSON.stringify(normalizeDocumentPatchLayer({ patchLayer })),
-        }));
+        });
+        if (nextSavedState !== lastSavedState) {
+          setLastSavedState(nextSavedState);
+        }
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [view]); // only re-run when view changes
+  }, [anonymized, lastSavedState, view]); // sync saved snapshot with real DOM markup
 
   // ── Project functions ───────────────────────────────────────────────────────
   const handleCreateProject = async () => {
@@ -854,12 +800,12 @@ export default function App() {
     setPersistedBatchUiState(null);
   }, []);
 
-  const getProjectDocs = () => {
+  const getProjectDocs = useCallback(() => {
     if (!currentProject) return [];
     return currentProject.documentIds
       .map(id => history.find(h => h.id === id))
       .filter((entry) => entry && !entry.isProjectSummary);
-  };
+  }, [currentProject, history]);
 
   const shouldShowLongDocWarningForEntry = useCallback((entry) => {
     if (!entry) return false;
@@ -894,7 +840,7 @@ export default function App() {
     return duplicates.length;
   }, [getProjectChunkDocKey, history, projects, refreshHistory, refreshProjects, user]);
 
-  const getProjectExistingPD = () => {
+  const getProjectExistingPD = useCallback(() => {
     if (currentProject?.sharedPD && ((currentProject.sharedPD.persons || []).length > 0 || (currentProject.sharedPD.otherPD || []).length > 0)) {
       return currentProject.sharedPD;
     }
@@ -902,7 +848,7 @@ export default function App() {
     if (projectDocs.length === 0) return null;
     const lastDoc = projectDocs[projectDocs.length - 1];
     return lastDoc.personalData || null;
-  };
+  }, [currentProject, getProjectDocs]);
 
   const saveProjectBatchSessionState = useCallback(async (session) => {
     if (!currentProjectId) return null;
@@ -989,10 +935,10 @@ export default function App() {
   };
 
   // ── Project summary document ────────────────────────────────────────────────
-  const getProjectSummaryDoc = () => {
+  const getProjectSummaryDoc = useCallback(() => {
     if (!currentProject) return null;
     return getProjectSummaryDocEntry(history, currentProjectId);
-  };
+  }, [currentProject, currentProjectId, history]);
 
   const buildProjectSummary = async () => {
     return saveProjectSummaryDocument({
@@ -1067,12 +1013,9 @@ export default function App() {
     setOriginalFileName(nextState.originalFileName);
     setSourceFiles(nextState.sourceFiles);
     setPageMetadata(nextState.pageMetadata);
-    setCoordinateLayer(nextState.coordinateLayer);
-    setPatchLayer(nextState.patchLayer);
     setRawText(nextState.rawText);
     setEditorHtml(nextState.editorHtml);
     setOriginalImages(nextState.originalImages);
-    clearPatchedViewerPages();
     setShowOriginal(nextState.showOriginal);
     setOriginalPage(nextState.originalPage);
     setEditorCurrentPage(null);
@@ -1087,7 +1030,7 @@ export default function App() {
     undoStackRef.current = [nextState.initialUndoSnapshot];
     undoIndexRef.current = 0;
     setShowLongDocWarning(nextState.showLongDocWarning);
-  }, [clearPatchedViewerPages, currentProjectId, shouldShowLongDocWarningForEntry]);
+  }, [currentProjectId, shouldShowLongDocWarningForEntry]);
 
   // ── Dirty check ──────────────────────────────────────────────────────────────
   const isDirty = () => {
@@ -1096,7 +1039,6 @@ export default function App() {
     const saved = JSON.parse(lastSavedState);
     if (JSON.stringify(anonymized) !== saved.anonymized) return true;
     if (currentHtml !== saved.html) return true;
-    if (JSON.stringify(normalizeDocumentPatchLayer({ patchLayer })) !== (saved.patchLayer || 'null')) return true;
     return false;
   };
 
@@ -1134,7 +1076,6 @@ export default function App() {
     setPastedText(cleared.pastedText);
     setInputTab('documents');
     setOriginalImages(cleared.originalImages);
-    clearPatchedViewerPages();
     setShowOriginal(cleared.showOriginal);
     setOriginalPage(cleared.originalPage);
     setZoomActive(cleared.zoomActive);
@@ -1143,13 +1084,11 @@ export default function App() {
     setOriginalFileName(cleared.originalFileName);
     setSourceFiles(cleared.sourceFiles);
     setPageMetadata(cleared.pageMetadata);
-    setCoordinateLayer(cleared.coordinateLayer);
-    setPatchLayer(cleared.patchLayer);
     setError(cleared.error);
     setWarningMessage(null);
     setProgress(cleared.progress);
     setShowUnsaved(cleared.showUnsaved);
-  }, [clearPatchedViewerPages]);
+  }, []);
 
   const doGoBackToProject = () => {
     setView(VIEW_PROJECT);
@@ -1232,14 +1171,13 @@ export default function App() {
       source,
       projectId: currentProjectId,
       sourceFiles: uploadedSourceFiles,
-      patchLayer: null,
     });
     await addDocumentToProjectRecord(user, currentProjectId, savedDoc.id);
     await updateProjectSharedPDRecord(user, currentProjectId, pd);
     await refreshHistory();
     await refreshProjects();
     return savedDoc;
-  }, [assignLetters, currentProjectId, getProjectExistingPD, mergePD, refreshHistory, refreshProjects, user]);
+  }, [currentProjectId, getProjectExistingPD, refreshHistory, refreshProjects, user]);
 
   const handleProjectTextRecognize = useCallback(async () => {
     if (!apiKey.trim()) {
@@ -1257,7 +1195,6 @@ export default function App() {
 
     try {
       setOriginalImages([]);
-      clearPatchedViewerPages();
       setNonDecreasingProgress({ percent: 10, message: 'Подготовка текста...' });
       animateTo(85, null);
       const result = await analyzePastedText(pastedText.trim(), apiKey.trim(), provider, (p) => {
@@ -1281,7 +1218,7 @@ export default function App() {
       setView(VIEW_PROJECT);
       setProgress(null);
     }
-  }, [apiKey, animateTo, clearPatchedViewerPages, openRecognizedDocResult, pastedText, provider, saveRecognizedProjectDocument, setNonDecreasingProgress, stopProgressCreep]);
+  }, [apiKey, animateTo, openRecognizedDocResult, pastedText, provider, saveRecognizedProjectDocument, setNonDecreasingProgress, stopProgressCreep]);
 
   const handleProjectDocxRecognize = useCallback(async () => {
     if (!apiKey.trim()) {
@@ -1618,21 +1555,6 @@ export default function App() {
     return editorDomRef.current.querySelectorAll('.part-separator').length;
   };
 
-  const formatPatchEntryText = useCallback((patchEntry) => (
-    truncatePatchText(
-      patchEntry?.patchPlan?.replacementText
-      || patchEntry?.patchPlan?.region?.replacementText
-      || patchEntry?.patchPlan?.originalText
-      || ''
-    )
-  ), []);
-
-  const canOpenOriginalPatchPage = useCallback((pageNumber) => (
-    getOriginalImageIndexForPage(originalImages, pageNumber) >= 0
-  ), [originalImages]);
-
-  const activePatchEntries = normalizeDocumentPatchLayer({ patchLayer })?.patches || [];
-
   const handleDownloadPdf = useCallback(() => {
     try {
       exportRichTextPdf({
@@ -1705,8 +1627,6 @@ export default function App() {
       originalFileName,
       sourceFiles,
       pageMetadata,
-      coordinateLayer,
-      patchLayer,
       text: rawText,
       editedHtml: currentHtml,
       personalData,
@@ -1720,7 +1640,6 @@ export default function App() {
     setLastSavedState(JSON.stringify({
       anonymized: JSON.stringify(anonymized),
       html: currentHtml,
-      patchLayer: JSON.stringify(normalizeDocumentPatchLayer({ patchLayer })),
     }));
     await refreshHistory();
     setSavedMsg(true);
@@ -2104,34 +2023,12 @@ export default function App() {
   const openPdFragmentEditor = useCallback((id, markEl) => {
     if (!id || !markEl) return;
     const fragmentText = normalizePdText(markEl.dataset.original || markEl.textContent || '');
-    const preferredPageNumber = getPreferredPdfPageForMark(editorDomRef.current, markEl, pageMetadata, coordinateLayer);
-    const coordinateMatch = fragmentText && coordinateLayer
-      ? findBestCoordinateMatch({
-          fragmentText,
-          coordinateLayer,
-          preferredPageNumber,
-        })
-      : null;
-
     setEditingPdFragment({
       id,
       text: fragmentText,
       markEl,
-      preferredPageNumber,
-      coordinateMatch,
-      hasCoordinateLayer: !!coordinateLayer,
-      pageMetadataSource: pageMetadata?.sources?.[0] || null,
     });
-  }, [coordinateLayer, pageMetadata]);
-
-  const handleRevealPdFragmentMatch = useCallback((match) => {
-    if (!match) return;
-    const imageIndex = getOriginalImageIndexForPage(originalImages, match.pageNumber);
-    if (imageIndex < 0) return;
-    setShowOriginal(true);
-    setOriginalPage(imageIndex);
-    resetOriginalViewerTransform();
-  }, [originalImages, resetOriginalViewerTransform]);
+  }, []);
 
   const handleSavePdEdit = useCallback((payload) => {
     if (!payload?.id) return;
@@ -2209,11 +2106,6 @@ export default function App() {
 
     pdRef.current = nextPd;
     setPersonalData(nextPd);
-    setPatchLayer((prev) => upsertDocumentPatch({
-      patchLayer: prev,
-      fragmentId: payload.id,
-      patchPlan: payload.patchPlan || null,
-    }));
     setEditingPdFragment(null);
 
     const html = dom.innerHTML;
@@ -2557,6 +2449,8 @@ ${paras}
           || null,
       }
     : null;
+  const projectDocs = currentProject ? getProjectDocs() : [];
+  const projectSummaryDoc = currentProject ? getProjectSummaryDoc() : null;
 
   // Check if a PD id has marks in the current document (for project context display)
   const pdInDoc = (id) => !pdIdsInDoc || pdIdsInDoc.has(id);
@@ -2584,21 +2478,7 @@ ${paras}
   if (isConfigured && !user) {
     return (
       <div className="app">
-        <header className="header">
-          <div className="header-inner">
-            <div className="header-left" />
-            <div className="header-center">
-              <div className="logo">
-                <span className="logo-icon">⚖</span>
-                <div>
-                  <div className="logo-title">ЮрДок</div>
-                  <div className="logo-sub">Распознавание документов</div>
-                </div>
-              </div>
-            </div>
-            <div className="header-right" />
-          </div>
-        </header>
+        <AppHeader showNavigation={false} />
         <AuthScreen
           isConfigured={isConfigured}
           onSignIn={signInWithPassword}
@@ -2612,31 +2492,7 @@ ${paras}
   if (dataLoading) {
     return (
       <div className="app">
-        <header className="header">
-          <div className="header-inner">
-            <div className="header-left" />
-            <div className="header-center">
-              <div className="logo">
-                <span className="logo-icon">⚖</span>
-                <div>
-                  <div className="logo-title">ЮрДок</div>
-                  <div className="logo-sub">Распознавание документов</div>
-                </div>
-              </div>
-            </div>
-            <div className="header-right">
-              {user && (
-                <div className="header-user">
-                  <div className="header-user-meta">
-                    <span className="header-user-label">Аккаунт</span>
-                    <span className="header-user-email">{user.email}</span>
-                  </div>
-                  <button className="header-user-logout" onClick={() => signOut()}>Выйти</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </header>
+        <AppHeader user={user} onSignOut={() => signOut()} showNavigation={false} />
         <main className="main auth-main">
           <section className="card auth-card auth-loading-card">
             <h1 className="auth-title">Загрузка данных</h1>
@@ -2649,45 +2505,15 @@ ${paras}
   // ══════════════════════════════════════════════════════════════════════════════
   return (
     <div className="app">
-
-      <header className="header" ref={headerRef}>
-        <div className="header-inner">
-          <div className="header-left" />
-          <div className="header-center">
-            {view === VIEW_RESULT && currentProjectId && (
-              <button className="btn-tool header-home-btn" onClick={goBackToProject}>← Проект</button>
-            )}
-            {view === VIEW_RESULT && !currentProjectId && (
-              <button className="btn-tool header-home-btn" onClick={goHome}>← На главную</button>
-            )}
-            {view === VIEW_PROJECT && (
-              <button className="btn-tool header-home-btn" onClick={goHome}>← На главную</button>
-            )}
-            <div
-              className="logo"
-              onClick={view !== VIEW_HOME ? goHome : undefined}
-              style={view !== VIEW_HOME ? { cursor: 'pointer' } : {}}
-            >
-              <span className="logo-icon">⚖</span>
-              <div>
-                <div className="logo-title">ЮрДок</div>
-                <div className="logo-sub">Распознавание документов</div>
-              </div>
-            </div>
-          </div>
-          <div className="header-right">
-            {user && (
-              <div className="header-user">
-                <div className="header-user-meta">
-                  <span className="header-user-label">Аккаунт</span>
-                  <span className="header-user-email">{user.email}</span>
-                </div>
-                <button className="header-user-logout" onClick={() => signOut()}>Выйти</button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        view={view}
+        currentProjectId={currentProjectId}
+        user={user}
+        onGoHome={goHome}
+        onGoBackToProject={goBackToProject}
+        onSignOut={() => signOut()}
+        headerRef={headerRef}
+      />
 
       {/* ── UNCERTAIN WARNING MODAL ── */}
       {showUncertainWarning && (
@@ -2734,44 +2560,13 @@ ${paras}
 
         {/* ════ HOME ════ */}
         {view === VIEW_HOME && (
-          <>
-            <section className="home-projects-hero">
-              <div className="home-projects-hero-content">
-                <div className="home-projects-kicker">Рабочее пространство</div>
-                <h1 className="home-projects-title">Проекты ЮрДок</h1>
-                <p className="home-projects-subtitle">
-                  ЮрДок помогает распознавать, редактировать и обезличивать юридические документы. Вся работа с файлами и текстом ведётся внутри проекта.
-                </p>
-                <div className="home-projects-hero-actions">
-                  <button className="btn-primary" onClick={() => setShowCreateProject(true)}>Создать проект</button>
-                  <div className="home-projects-hero-stat">
-                    <strong>{projects.length}</strong>
-                    <span>{projects.length === 1 ? 'проект' : projects.length < 5 ? 'проекта' : 'проектов'}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="home-projects-hero-glow" aria-hidden="true" />
-            </section>
-
-            {projects.length > 0 && (
-              <section className="home-projects-list-wrap">
-                <div className="projects-grid">
-                  {projects.map(proj => (
-                    <div key={proj.id} className="project-card" onClick={() => openProject(proj.id)}>
-                      <div className="project-card-icon">📁</div>
-                      <div className="project-card-body">
-                        <div className="project-card-title">{proj.title}</div>
-                        <div className="project-card-meta">
-                          {proj.documentIds.length} {proj.documentIds.length === 1 ? 'документ' : proj.documentIds.length < 5 ? 'документа' : 'документов'} · {formatDate(new Date(proj.updatedAt || proj.createdAt))}
-                        </div>
-                      </div>
-                      <button className="project-delete" onClick={e => handleDeleteProject(proj.id, e)} title="Удалить проект">✕</button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
+          <HomeProjectsView
+            projects={projects}
+            onCreateProject={() => setShowCreateProject(true)}
+            onOpenProject={openProject}
+            onDeleteProject={handleDeleteProject}
+            formatDate={formatDate}
+          />
         )}
 
         {/* ════ CREATE PROJECT MODAL ════ */}
@@ -2787,10 +2582,6 @@ ${paras}
             fragment={currentEditingPdFragment}
             onClose={() => setEditingPdFragment(null)}
             onSave={handleSavePdFragmentEdit}
-            onRevealMatch={handleRevealPdFragmentMatch}
-            canRevealMatch={getOriginalImageIndexForPage(originalImages, currentEditingPdFragment.coordinateMatch?.pageNumber) >= 0}
-            previewPageImage={getOriginalImageForPage(viewerImages, currentEditingPdFragment.coordinateMatch?.pageNumber)}
-            onApplyPreview={handleApplyPdFragmentPreview}
           />
         )}
 
@@ -2836,575 +2627,132 @@ ${paras}
 
         {/* ════ PROJECT VIEW ════ */}
         {view === VIEW_PROJECT && currentProject && (
-          <>
-            {/* Project banner — visual indicator */}
-            <div className="project-banner">
-              <span className="project-banner-icon">📁</span>
-              <span className="project-banner-label">Проект</span>
-            </div>
-
-            <section className="card api-card">
-              <div className="provider-select-wrap">
-                <label className="provider-label">Провайдер ИИ</label>
-                <div className="provider-tabs">
-                  {Object.entries(PROVIDERS).map(([key, p]) => (
-                    <button
-                      key={key}
-                      className={'provider-tab' + (provider === key ? ' active' : '')}
-                      onClick={() => { setProvider(key); setApiKey(''); }}
-                      type="button"
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="api-input-wrap" style={{ marginTop: 8 }}>
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  className="api-input"
-                  placeholder={PROVIDERS[provider].placeholder}
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button className="api-toggle" onClick={() => setShowApiKey(v => !v)}>{showApiKey ? '🙈' : '👁'}</button>
-              </div>
-              <div className="api-hint">
-                Ключ не сохраняется.{' '}
-                {provider === 'claude' && <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
-                {provider === 'openai' && <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
-                {provider === 'gemini' && <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить ключ →</a>}
-              </div>
-            </section>
-
-            <section className="card upload-card">
-              <div className="input-tabs">
-                <button
-                  className={`input-tab ${inputTab === 'documents' ? 'active' : ''}`}
-                  onClick={() => setInputTab('documents')}
-                  type="button"
-                >
-                  Документы
-                </button>
-                <button
-                  className={`input-tab ${inputTab === 'docx' ? 'active' : ''}`}
-                  onClick={() => setInputTab('docx')}
-                  type="button"
-                >
-                  DOCX
-                </button>
-                <button
-                  className={`input-tab ${inputTab === 'text' ? 'active' : ''}`}
-                  onClick={() => setInputTab('text')}
-                  type="button"
-                >
-                  Текст
-                </button>
-              </div>
-
-              {inputTab === 'documents' && (
-                <>
-                  <div
-                    className={`dropzone ${isDragging ? 'dragging' : ''}`}
-                    onDrop={handleProjectDocumentDrop}
-                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onClick={() => projectFileInputRef.current?.click()}
-                  >
-                    <input
-                      ref={projectFileInputRef}
-                      type="file"
-                      multiple
-                      accept=".pdf,application/pdf,image/*"
-                      className="visually-hidden"
-                      onChange={e => {
-                        handleProjectDocumentFiles(e.target.files);
-                        e.target.value = '';
-                      }}
-                    />
-                    <div className="dropzone-icon">📄</div>
-                    <div className="dropzone-text">
-                      <strong>Перетащите PDF или изображения сюда</strong>
-                      <br />
-                      <span>или нажмите для выбора</span>
-                    </div>
-                    <div className="dropzone-hint">PDF, JPG, PNG, WEBP</div>
-                  </div>
-                  {files.length > 0 && (
-                    <div className="file-list">
-                      {files.map((file, idx) => (
-                        <div key={`${file.name}_${idx}`} className="file-item">
-                          <span className="file-icon">{file.type === 'application/pdf' ? '📑' : '🖼️'}</span>
-                          <span className="file-name">{file.name}</span>
-                          <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
-                          <button className="file-remove" onClick={e => { e.stopPropagation(); removeFile(idx); }}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {inputTab === 'docx' && (
-                <>
-                  <div
-                    className={`dropzone ${isDragging ? 'dragging' : ''}`}
-                    onDrop={e => {
-                      e.preventDefault();
-                      setIsDragging(false);
-                      handleProjectDocxFiles(e.dataTransfer.files);
-                    }}
-                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onClick={() => projectDocxInputRef.current?.click()}
-                  >
-                    <input
-                      ref={projectDocxInputRef}
-                      type="file"
-                      multiple
-                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      className="visually-hidden"
-                      onChange={e => {
-                        handleProjectDocxFiles(e.target.files);
-                        e.target.value = '';
-                      }}
-                    />
-                    <div className="dropzone-icon">📝</div>
-                    <div className="dropzone-text">
-                      <strong>Перетащите DOCX-файлы сюда</strong>
-                      <br />
-                      <span>или нажмите для выбора</span>
-                    </div>
-                  </div>
-                  {docxFiles.length > 0 && (
-                    <div className="file-list">
-                      {docxFiles.map((file, idx) => (
-                        <div key={`${file.name}_${idx}`} className="file-item">
-                          <span className="file-icon">📝</span>
-                          <span className="file-name">{file.name}</span>
-                          <span className="file-size">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
-                          <button className="file-remove" onClick={e => { e.stopPropagation(); removeDocxFile(idx); }}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {inputTab === 'text' && (
-                <>
-                  <textarea
-                    className="paste-textarea"
-                    placeholder="Вставьте сюда текст документа для обезличивания"
-                    value={pastedText}
-                    onChange={e => setPastedText(e.target.value)}
-                  />
-                </>
-              )}
-            </section>
-
-            {currentBatchDisplayState && currentBatchDisplayState.status !== 'completed' && (
-              <div className={`project-batch-status ${currentBatchDisplayState.status === 'failed' ? 'failed' : ''}`}>
-                <div className="project-batch-status-title">
-                  {getBatchStatusTitle(currentBatchDisplayState.status, currentBatchDisplayState.sourceKind)}
-                </div>
-                <div className="project-batch-status-body">
-                  <strong>{currentBatchDisplayState.fileName}</strong>
-                  <span>{getBatchResumeText({
-                    nextPage: currentBatchDisplayState.nextPage,
-                    totalPages: currentBatchDisplayState.totalPages,
-                    chunkSize: currentBatchSession?.chunkSize || 1,
-                    sourceKind: currentBatchDisplayState.sourceKind,
-                  })}</span>
-                  {currentBatchDisplayState.status !== 'running' && (
-                    <span>{getBatchSourceSelectionHint(currentBatchDisplayState.sourceKind)}</span>
-                  )}
-                  {currentBatchDisplayState.error && <span>Последняя ошибка: {currentBatchDisplayState.error}</span>}
-                </div>
-                {Number.isFinite(currentBatchDisplayState.progressPercent) && (
-                  <div className="project-batch-progress">
-                    <div className="project-batch-progress-bar" style={{ width: `${Math.max(0, Math.min(100, Math.round(currentBatchDisplayState.progressPercent)))}%` }} />
-                  </div>
-                )}
-                <div className="project-batch-actions">
-                  {currentBatchDisplayState.status === 'running' && (
-                    <button className="btn-tool" onClick={() => requestPauseActiveBatch(VIEW_PROJECT)}>
-                      Пауза
-                    </button>
-                  )}
-                  {currentBatchDisplayState.status === 'pausing' && (
-                    <button className="btn-tool btn-tool-disabled" type="button" disabled>
-                      Пауза запрошена
-                    </button>
-                  )}
-                  <button className="btn-tool" onClick={handleResetProjectBatchSession}>Сбросить незавершённую обработку</button>
-                </div>
-                {currentBatchDisplayState.status === 'pausing' && (
-                  <div className="project-batch-pending-note">
-                    Пауза будет поставлена сразу после завершения обработки текущей страницы.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {warningMessage && <div className="warning-block">⚠️ {warningMessage}</div>}
-            {error && <div className="error-block">⚠️ {error}</div>}
-
-            <div className="home-btn-wrap">
-              <button
-                className="btn-primary"
-                onClick={handleProjectRecognize}
-                disabled={
-                  !apiKey.trim() || (
-                    currentBatchSession && currentBatchSession.status !== 'completed'
-                      ? files.length === 0
-                      : inputTab === 'documents'
-                        ? files.length === 0
-                        : inputTab === 'docx'
-                          ? docxFiles.length === 0
-                          : pastedText.trim().length === 0
-                  )
-                }
-              >
-                {currentBatchSession && currentBatchSession.status !== 'completed'
-                  ? '▶ Продолжить обработку'
-                  : inputTab === 'docx'
-                    ? '🔍 Обезличить DOCX'
-                    : inputTab === 'text'
-                      ? '🔍 Обезличить текст'
-                      : '🔍 Распознать и обезличить'}
-              </button>
-            </div>
-
-            {/* Project details card — name, extra actions, documents */}
-            <section className="card home-bottom-card project-details-card">
-              <div className="project-details-header">
-                <input
-                  className="project-title-input"
-                  value={currentProject.title}
-                  onChange={e => {
-                    const nextTitle = e.target.value;
-                    setProjects(prev => prev.map(item => (
-                      item.id === currentProject.id
-                        ? { ...item, title: nextTitle, updatedAt: new Date().toISOString() }
-                        : item
-                    )));
-                    void saveProjectRecord(user, { ...currentProject, title: nextTitle });
-                  }}
-                  placeholder="Название проекта"
-                  spellCheck={false}
-                />
-              </div>
-
-              <div className="project-details-actions">
-                <button className="btn-tool" onClick={() => projectImportRef.current?.click()}>📂 Загрузить .юрдок</button>
-                <input ref={projectImportRef} type="file" accept=".юрдок,.yurdok" className="visually-hidden" onChange={handleProjectImport} />
-              </div>
-
-              {getProjectDocs().length > 0 ? (
-                <div className="project-docs">
-                  <div className="card-label">Документы проекта ({getProjectDocs().length})</div>
-                  <div className="project-docs-list">
-                    {getProjectDocs().map((doc, idx) => (
-                      <div key={doc.id} className="project-doc-item" onClick={() => openDocFromProject(doc)}>
-                        <span className="project-doc-num">{idx + 1}</span>
-                        <div className="project-doc-body">
-                          <div className="project-doc-title">{doc.title}</div>
-                          <div className="project-doc-meta">
-                            {formatDate(new Date(doc.savedAt))}
-                            {doc.pageFrom && doc.pageTo && (
-                              <span className="project-doc-range">{formatDocumentPageProgress(doc)}</span>
-                            )}
-                            {(doc.personalData?.persons?.length || 0) > 0 && (
-                              <span className="badge badge-private" style={{ marginLeft: 8 }}>{doc.personalData.persons.filter(p => p.category === 'private').length} лиц</span>
-                            )}
-                            {(doc.personalData?.persons?.filter(p => p.category === 'professional').length || 0) > 0 && (
-                              <span className="badge badge-prof" style={{ marginLeft: 4 }}>{doc.personalData.persons.filter(p => p.category === 'professional').length} проф.</span>
-                            )}
-                            {(doc.personalData?.otherPD?.length || 0) > 0 && (
-                              <span className="badge badge-anon" style={{ marginLeft: 4 }}>{doc.personalData.otherPD.length} др. ПД</span>
-                            )}
-                          </div>
-                        </div>
-                        <button className="project-doc-export" onClick={e => { e.stopPropagation(); exportDocument(doc); }} title="Скачать .юрдок">⬇</button>
-                        <button className="project-doc-remove" onClick={e => { e.stopPropagation(); handleRemoveDocFromProject(doc.id); }} title="Убрать из проекта">✕</button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Build summary button */}
-                  {getProjectDocs().length >= 2 && (
-                    <div className="project-summary-actions">
-                      <button className="btn-primary btn-sm" onClick={handleBuildSummary}>📋 Собрать итоговый документ</button>
-                    </div>
-                  )}
-
-                  {/* Summary document */}
-                  {getProjectSummaryDoc() && (
-                    <div className="project-summary-section">
-                      <div className="card-label">Итоговый документ</div>
-                      <div className="project-doc-item project-summary-item" onClick={() => openDocFromProject(getProjectSummaryDoc())}>
-                        <span className="project-summary-icon">📋</span>
-                        <div className="project-doc-body">
-                          <div className="project-doc-title">{getProjectSummaryDoc().title}</div>
-                          <div className="project-doc-meta">
-                            {formatDate(new Date(getProjectSummaryDoc().savedAt))}
-                            <span className="badge badge-summary" style={{ marginLeft: 8 }}>итоговый</span>
-                          </div>
-                        </div>
-                        <button className="project-doc-export" onClick={e => { e.stopPropagation(); exportDocument(getProjectSummaryDoc()); }} title="Скачать .юрдок">⬇</button>
-                        <button className="project-doc-remove" onClick={e => handleDeleteSummary(e)} title="Удалить итоговый документ">✕</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="home-tab-empty">Загрузите файл, вставьте текст или импортируйте .юрдок внутри этого проекта.</div>
-              )}
-            </section>
-          </>
+          <ProjectWorkspaceView
+            currentProject={currentProject}
+            currentBatchSession={currentBatchSession}
+            currentBatchDisplayState={currentBatchDisplayState}
+            provider={provider}
+            setProvider={setProvider}
+            apiKey={apiKey}
+            setApiKey={setApiKey}
+            showApiKey={showApiKey}
+            setShowApiKey={setShowApiKey}
+            inputTab={inputTab}
+            setInputTab={setInputTab}
+            isDragging={isDragging}
+            setIsDragging={setIsDragging}
+            projectFileInputRef={projectFileInputRef}
+            projectDocxInputRef={projectDocxInputRef}
+            projectImportRef={projectImportRef}
+            handleProjectDocumentDrop={handleProjectDocumentDrop}
+            handleProjectDocumentFiles={handleProjectDocumentFiles}
+            handleProjectDocxFiles={handleProjectDocxFiles}
+            files={files}
+            docxFiles={docxFiles}
+            removeFile={removeFile}
+            removeDocxFile={removeDocxFile}
+            pastedText={pastedText}
+            setPastedText={setPastedText}
+            requestPauseActiveBatch={requestPauseActiveBatch}
+            handleResetProjectBatchSession={handleResetProjectBatchSession}
+            getBatchStatusTitle={getBatchStatusTitle}
+            getBatchResumeText={getBatchResumeText}
+            getBatchSourceSelectionHint={getBatchSourceSelectionHint}
+            warningMessage={warningMessage}
+            error={error}
+            handleProjectRecognize={handleProjectRecognize}
+            formatDate={formatDate}
+            projectDocs={projectDocs}
+            projectSummaryDoc={projectSummaryDoc}
+            openDocFromProject={openDocFromProject}
+            formatDocumentPageProgress={formatDocumentPageProgress}
+            handleRemoveDocFromProject={handleRemoveDocFromProject}
+            exportDocument={exportDocument}
+            handleBuildSummary={handleBuildSummary}
+            handleDeleteSummary={handleDeleteSummary}
+            handleProjectImport={handleProjectImport}
+            onImportClick={() => projectImportRef.current?.click()}
+            onProjectTitleChange={(nextTitle) => {
+              setProjects((prev) => prev.map((item) => (
+                item.id === currentProject.id
+                  ? { ...item, title: nextTitle, updatedAt: new Date().toISOString() }
+                  : item
+              )));
+              void saveProjectRecord(user, { ...currentProject, title: nextTitle });
+            }}
+          />
         )}
 
         {/* ════ PROCESSING ════ */}
         {view === VIEW_PROCESSING && progress && (
-          <div className="progress-card">
-            <div className="progress-msg">{progress.message}</div>
-            <div className="progress-bar-wrap">
-              <div className="progress-bar" style={{ width: `${Math.round(progress.percent || 0)}%` }} />
-            </div>
-            <div className="progress-pct">{Math.round(progress.percent || 0)}%</div>
-            <div className="project-batch-actions" style={{ marginTop: 12 }}>
-              {activeBatchUiState?.status === 'paused' ? (
-                <button className="btn-tool" onClick={handleProjectRecognize}>
-                  Продолжить распознавание
-                </button>
-              ) : activeBatchUiState?.status === 'pausing' ? (
-                <button className="btn-tool btn-tool-disabled" type="button" disabled>
-                  Пауза запрошена
-                </button>
-              ) : (
-                <button className="btn-tool" onClick={() => requestPauseActiveBatch(VIEW_PROJECT)}>
-                  Пауза
-                </button>
-              )}
-              <button className="btn-tool" onClick={() => setView(VIEW_PROJECT)}>
-                Вернуться в проект
-              </button>
-            </div>
-            {activeBatchUiState?.status === 'pausing' && (
-              <div className="project-batch-pending-note" style={{ marginTop: 10 }}>
-                Пауза будет поставлена сразу после завершения обработки текущей страницы.
-              </div>
-            )}
-          </div>
+          <ProcessingView
+            progress={progress}
+            activeBatchUiState={activeBatchUiState}
+            onPause={() => requestPauseActiveBatch(VIEW_PROJECT)}
+            onResume={handleProjectRecognize}
+            onReturnToProject={() => setView(VIEW_PROJECT)}
+          />
         )}
 
         {/* ════ RESULT ════ */}
         {view === VIEW_RESULT && (
-          <div className={"result-area" + (showOriginal && originalImages.length > 0 ? " viewer-open" : "")}>
-
-            {hasPD && (
-              <aside className="pd-panel" ref={setPdPanelRef} style={{ width: pdWidth, flexShrink: 0 }}>
-                <div className="pd-panel-title">Персональные данные</div>
-                <div className="pd-hint">Нажмите на метку в тексте или на строку ниже</div>
-
-                {privatePersons.length > 0 && (
-                  <div className="pd-group">
-                    <div className="pd-group-header">
-                      <span className="pd-dot private" /><span>Частные лица</span>
-                      <button className="pd-group-btn" onClick={() => anonymizeAllByCategory('private')}>
-                        {privatePersons.every(p => anonymized[p.id]) ? 'Показать всё' : 'Скрыть всё'}
-                      </button>
-                    </div>
-                    {privatePersons.map(p => (
-                      <div key={p.id} className={`pd-item ${anonymized[p.id] ? 'anon' : ''}${!pdInDoc(p.id) ? ' pd-absent' : ''}`} onClick={() => pdInDoc(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => pdInDoc(p.id) && initNavCounter(p.id)}>
-                        <span className="pd-item-letter">{p.letter}</span>
-                        <span className="pd-item-body">
-                          <span className="pd-item-row1">
-                            <span className="pd-item-name">{p.fullName}</span>
-                            {pdInDoc(p.id) && (
-                              <span className="pd-item-nav">
-                                <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
-                                <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? pdNavState[p.id].total : `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}`}` : ''}</span>
-                                <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
-                              </span>
-                            )}
-                            <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(p.id); }} title="Редактировать запись ПД">Изм.</button>
-                            <button className="pd-item-delete" onClick={e => { e.stopPropagation(); handleDeletePdEntry(p.id); }} title="Удалить запись ПД">✕</button>
-                            <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
-                          </span>
-                          {p.role && <span className="pd-item-role">{p.role}</span>}
-                          {!pdInDoc(p.id) && <span className="pd-absent-label">нет в документе</span>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {profPersons.length > 0 && (
-                  <div className="pd-group">
-                    <div className="pd-group-header">
-                      <span className="pd-dot professional" /><span>Проф. участники</span>
-                      <button className="pd-group-btn" onClick={() => anonymizeAllByCategory('professional')}>
-                        {profPersons.every(p => anonymized[p.id]) ? 'Показать всё' : 'Скрыть всё'}
-                      </button>
-                    </div>
-                    {profPersons.map(p => (
-                      <div key={p.id} className={`pd-item prof ${anonymized[p.id] ? 'anon' : ''}${!pdInDoc(p.id) ? ' pd-absent' : ''}`} onClick={() => pdInDoc(p.id) ? handlePdClick(p.id) : null} onMouseEnter={() => pdInDoc(p.id) && initNavCounter(p.id)}>
-                        <span className="pd-item-letter prof-letter">{p.letter}</span>
-                        <span className="pd-item-body">
-                          <span className="pd-item-row1">
-                            <span className="pd-item-name">{p.fullName}</span>
-                            {pdInDoc(p.id) && (
-                              <span className="pd-item-nav">
-                                <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(p.id, 'up', e)}>↑</button>
-                                <span className="pd-nav-counter">{pdNavState[p.id] ? `${pdNavState[p.id].cur === -1 ? pdNavState[p.id].total : `${pdNavState[p.id].cur + 1}/${pdNavState[p.id].total}`}` : ''}</span>
-                                <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(p.id, 'down', e)}>↓</button>
-                              </span>
-                            )}
-                            <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(p.id); }} title="Редактировать запись ПД">Изм.</button>
-                            <button className="pd-item-delete" onClick={e => { e.stopPropagation(); handleDeletePdEntry(p.id); }} title="Удалить запись ПД">✕</button>
-                            <span className="pd-item-status">{anonymized[p.id] ? '🔒' : '👁'}</span>
-                          </span>
-                          {p.role && <span className="pd-item-role">{p.role}</span>}
-                          {!pdInDoc(p.id) && <span className="pd-absent-label">нет в документе</span>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {Object.entries(pdTypeGroups).map(([type, items]) => (
-                  <div key={type} className="pd-group">
-                    <div className="pd-group-header">
-                      <span className="pd-dot other" /><span>{pdTypeLabels[type] || type}</span>
-                      <button className="pd-group-btn" onClick={() => anonymizeAllByCategory(type)}>
-                        {items.every(p => anonymized[p.id]) ? 'Показать всё' : 'Скрыть всё'}
-                      </button>
-                    </div>
-                    {items.map(item => (
-                      <div key={item.id} className={`pd-item oth ${anonymized[item.id] ? 'anon' : ''}${!pdInDoc(item.id) ? ' pd-absent' : ''}`} onClick={() => pdInDoc(item.id) ? handlePdClick(item.id) : null} onMouseEnter={() => pdInDoc(item.id) && initNavCounter(item.id)}>
-                        <span className="pd-item-body">
-                          <span className="pd-item-row1">
-                            <span className="pd-item-name">{item.value}</span>
-                            {pdInDoc(item.id) && (
-                              <span className="pd-item-nav">
-                                <button className="pd-nav-btn" title="Предыдущее упоминание" onClick={e => navigateToPd(item.id, 'up', e)}>↑</button>
-                                <span className="pd-nav-counter">{pdNavState[item.id] ? `${pdNavState[item.id].cur === -1 ? pdNavState[item.id].total : `${pdNavState[item.id].cur + 1}/${pdNavState[item.id].total}`}` : ''}</span>
-                                <button className="pd-nav-btn" title="Следующее упоминание" onClick={e => navigateToPd(item.id, 'down', e)}>↓</button>
-                              </span>
-                            )}
-                            <button className="pd-item-edit" onClick={e => { e.stopPropagation(); openPdEditor(item.id); }} title="Редактировать запись ПД">Изм.</button>
-                            <button className="pd-item-delete" onClick={e => { e.stopPropagation(); handleDeletePdEntry(item.id); }} title="Удалить запись ПД">✕</button>
-                            <span className="pd-item-status">{anonymized[item.id] ? '🔒' : '👁'}</span>
-                          </span>
-                          <span className="pd-item-role">→ {item.replacement}</span>
-                          {!pdInDoc(item.id) && <span className="pd-absent-label">нет в документе</span>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-
-                <div className="pd-legend">
-                  <div className="pd-legend-item"><mark className="pd-mark pd-cat-private" style={{ cursor: 'default' }}>А</mark> — частное лицо</div>
-                  <div className="pd-legend-item"><mark className="pd-mark pd-cat-professional" style={{ cursor: 'default', fontSize: '11px' }}>[ФИО 1]</mark> — проф. участник</div>
-                  <div className="pd-legend-item"><mark className="pd-mark pd-cat-other" style={{ cursor: 'default' }}>ПД</mark> — другие перс. данные</div>
-                  <div className="pd-legend-item"><span style={{ borderBottom: '2px dashed #2196f3', background: 'rgba(33, 150, 243, 0.10)', padding: '0 2px', fontSize: '12px', color: '#0d3b66' }}>имя</span> — неоднозначное упоминание лица</div>
-                  <div className="pd-legend-item"><span style={{ borderBottom: '3px double #f57c00', paddingBottom: '1px', fontSize: '12px', color: '#4a3000' }}>текст</span> — неточное распознавание</div>
-                </div>
-              </aside>
-            )}
-
-            {hasPD && (
-              <div className="panel-resizer" onMouseDown={startResize('pd')}><span className="panel-resizer-icon">‹<br/>›</span></div>
-            )}
-
-            <div className="doc-card">
-              <div className="doc-title-row" ref={titleRowRef}>
-                <input
-                  className="doc-title-input"
-                  value={docTitle}
-                  onChange={e => setDocTitle(e.target.value)}
-                  placeholder="Название документа"
-                  spellCheck={false}
-                />
-                <DocumentTitleActions
-                  hasOriginalImages={originalImages.length > 0}
-                  showOriginal={showOriginal}
-                  onToggleOriginal={handleToggleOriginalViewer}
-                  onOriginalImagesLoaded={handleLoadOriginalViewerImages}
-                  onSave={() => triggerExport('save')}
-                  onExportDocx={() => triggerExport('docx')}
-                  onExportPdf={() => triggerExport('pdf')}
-                />
-              </div>
-
-              {showLongDocWarning && (
-                <div className="long-doc-warning">
-                  ⚠️ Для анализа персональных данных сейчас используется только первые {PD_ANALYSIS_CHAR_LIMIT.toLocaleString('ru-RU')} символов документа. Если текст длиннее, часть персональных данных после этого лимита могла быть пропущена. Рекомендуем разбить документ на части и загружать отдельно.
-                  <button className="long-doc-close" onClick={() => setShowLongDocWarning(false)}>✕</button>
-                </div>
-              )}
-
-              <DocumentPatchList
-                activePatchEntries={activePatchEntries}
-                canOpenPage={canOpenOriginalPatchPage}
-                onOpenPage={handleOpenOriginalPageNumber}
-                onRemovePatch={handleRemovePatchEntry}
-                onClearAll={() => clearPatchedViewerPages({ clearPatchLayer: true })}
-                formatPatchText={formatPatchEntryText}
-              />
-
-              <RichEditor
-                html={editorHtml}
-                onHtmlChange={handleEditorHtmlChange}
-                onPdClick={handlePdClick}
-                onRemovePdMark={handleRemovePdMark}
-                onApplyPdCanonicalText={handleApplyPdCanonicalText}
-                onEditPdMark={openPdEditor}
-                onEditPdTextMark={openPdFragmentEditor}
-                onAttachPdMark={handleAttachPdMark}
-                onAddPdMark={handleAddPdMark}
-                onRemoveAmbiguousMark={handleRemoveAmbiguousMark}
-                onUncertainResolved={handleUncertainResolved}
-                existingPD={personalData}
-                editorRef={editorDomRef}
-                highlightUncertain={highlightUncertain}
-                pageNavigation={editorTotalPages > 1 ? {
-                  currentPage: editorCurrentPage || 1,
-                  totalPages: editorTotalPages,
-                  inputValue: editorPageInput,
-                  inputRef: editorPageInputRef,
-                  onInputChange: (value) => setEditorPageInput(String(value || '').replace(/[^\d]/g, '')),
-                  onSubmit: handleEditorPageSubmit,
-                  onStepBack: () => handleEditorPageStep(-1),
-                  onStepForward: () => handleEditorPageStep(1),
-                } : null}
-              />
-            </div>
-
-
-            {showOriginal && originalImages.length > 0 && (
-              <OriginalViewerPanel
-                images={viewerImages}
-                currentPage={originalPage}
-                setCurrentPage={setOriginalPage}
-                zoomActive={zoomActive}
-                setZoomActive={setZoomActive}
-                zoomScale={zoomScale}
-                setZoomScale={setZoomScale}
-                width={viewerWidth}
-                patchedViewerPageCount={patchedViewerPageCount}
-                onResizeStart={startResize('viewer')}
-                onClearPatches={() => clearPatchedViewerPages({ clearPatchLayer: true })}
-                onClose={() => setShowOriginal(false)}
-              />
-            )}
-
-          </div>
+          <ResultWorkspaceView
+            showOriginal={showOriginal}
+            originalImages={originalImages}
+            hasPD={hasPD}
+            pdWidth={pdWidth}
+            setPdPanelRef={setPdPanelRef}
+            startResize={startResize}
+            privatePersons={privatePersons}
+            profPersons={profPersons}
+            pdTypeGroups={pdTypeGroups}
+            pdTypeLabels={pdTypeLabels}
+            anonymized={anonymized}
+            pdInDoc={pdInDoc}
+            handlePdClick={handlePdClick}
+            initNavCounter={initNavCounter}
+            navigateToPd={navigateToPd}
+            openPdEditor={openPdEditor}
+            handleDeletePdEntry={handleDeletePdEntry}
+            anonymizeAllByCategory={anonymizeAllByCategory}
+            pdNavState={pdNavState}
+            docTitle={docTitle}
+            setDocTitle={setDocTitle}
+            titleRowRef={titleRowRef}
+            handleToggleOriginalViewer={handleToggleOriginalViewer}
+            handleLoadOriginalViewerImages={handleLoadOriginalViewerImages}
+            triggerExport={triggerExport}
+            showLongDocWarning={showLongDocWarning}
+            setShowLongDocWarning={setShowLongDocWarning}
+            editorHtml={editorHtml}
+            handleEditorHtmlChange={handleEditorHtmlChange}
+            personalData={personalData}
+            editorDomRef={editorDomRef}
+            highlightUncertain={highlightUncertain}
+            editorTotalPages={editorTotalPages}
+            editorCurrentPage={editorCurrentPage}
+            editorPageInput={editorPageInput}
+            editorPageInputRef={editorPageInputRef}
+            setEditorPageInput={setEditorPageInput}
+            handleEditorPageSubmit={handleEditorPageSubmit}
+            handleEditorPageStep={handleEditorPageStep}
+            handlePdClickFromEditor={handlePdClick}
+            handleRemovePdMark={handleRemovePdMark}
+            handleApplyPdCanonicalText={handleApplyPdCanonicalText}
+            openPdFragmentEditor={openPdFragmentEditor}
+            handleAttachPdMark={handleAttachPdMark}
+            handleAddPdMark={handleAddPdMark}
+            handleRemoveAmbiguousMark={handleRemoveAmbiguousMark}
+            handleUncertainResolved={handleUncertainResolved}
+            originalPage={originalPage}
+            setOriginalPage={setOriginalPage}
+            zoomActive={zoomActive}
+            setZoomActive={setZoomActive}
+            zoomScale={zoomScale}
+            setZoomScale={setZoomScale}
+            viewerWidth={viewerWidth}
+            onCloseOriginal={() => setShowOriginal(false)}
+          />
         )}
 
       </main>
@@ -3419,64 +2767,4 @@ ${paras}
 function formatDate(date) {
   if (!(date instanceof Date) || isNaN(date)) return '';
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function PdRecordEditorModal({ pdItem, onClose, onSave }) {
-  const isPerson = Object.prototype.hasOwnProperty.call(pdItem || {}, 'fullName');
-  const [fullName, setFullName] = useState(pdItem?.fullName || '');
-  const [role, setRole] = useState(pdItem?.role || '');
-  const [value, setValue] = useState(pdItem?.value || '');
-
-  const handleSave = () => {
-    if (isPerson) {
-      const nextFullName = normalizePdText(fullName);
-      if (!nextFullName) return;
-      onSave({
-        id: pdItem.id,
-        fullName: nextFullName,
-        role,
-      });
-      return;
-    }
-
-    const nextValue = normalizePdText(value);
-    if (!nextValue) return;
-    onSave({
-      id: pdItem.id,
-      value: nextValue,
-    });
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 560 }}>
-        <div className="modal-title">Редактирование ПД</div>
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {isPerson ? (
-            <>
-              <div>
-                <label className="modal-label">ФИО</label>
-                <input className="modal-input" value={fullName} onChange={e => setFullName(e.target.value)} />
-              </div>
-              <div>
-                <label className="modal-label">Роль</label>
-                <input className="modal-input" value={role} onChange={e => setRole(e.target.value)} />
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <label className="modal-label">Основное значение</label>
-                <input className="modal-input" value={value} onChange={e => setValue(e.target.value)} />
-              </div>
-            </>
-          )}
-        </div>
-        <div className="modal-actions">
-          <button className="btn-primary btn-sm" onClick={handleSave}>Сохранить</button>
-          <button className="btn-tool" onClick={onClose}>Отмена</button>
-        </div>
-      </div>
-    </div>
-  );
 }

@@ -13,8 +13,6 @@ import {
   STORAGE_BUCKET_SOURCE_FILES,
   supabase,
 } from './supabaseClient';
-import { normalizeDocumentCoordinateLayer } from './documentCoordinateLayer';
-import { normalizeDocumentPatchLayer } from './documentPatchLayer';
 import { normalizeDocumentPageMetadata } from './documentPageMetadata';
 
 function canUseCloud(user) {
@@ -76,14 +74,6 @@ function mapDocumentRow(row) {
     ...entry,
     pageMetadata: row.page_metadata || null,
   });
-  const coordinateLayer = normalizeDocumentCoordinateLayer({
-    ...entry,
-    coordinateLayer: row.coordinate_layer || null,
-  });
-  const patchLayer = normalizeDocumentPatchLayer({
-    ...entry,
-    patchLayer: row.patch_layer || null,
-  });
   const primarySource = pageMetadata?.sources?.[0] || null;
 
   return {
@@ -92,15 +82,11 @@ function mapDocumentRow(row) {
     pageTo: entry.pageTo || primarySource?.pageTo || null,
     totalPages: entry.totalPages || primarySource?.totalPages || null,
     pageMetadata,
-    coordinateLayer,
-    patchLayer,
   };
 }
 
 function documentToRow(userId, doc) {
   const pageMetadata = normalizeDocumentPageMetadata(doc);
-  const coordinateLayer = normalizeDocumentCoordinateLayer(doc);
-  const patchLayer = normalizeDocumentPatchLayer(doc);
   const primarySource = pageMetadata?.sources?.[0] || null;
 
   return {
@@ -123,8 +109,6 @@ function documentToRow(userId, doc) {
     batch_file_name: doc.batchFileName || '',
     source_files: doc.sourceFiles || [],
     page_metadata: pageMetadata,
-    coordinate_layer: coordinateLayer,
-    patch_layer: patchLayer,
     saved_at: doc.savedAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

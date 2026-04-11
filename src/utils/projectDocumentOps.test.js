@@ -1,4 +1,3 @@
-import { buildDocumentCoordinateLayer } from './documentCoordinateLayer';
 import { buildDocumentPageMetadata } from './documentPageMetadata';
 import { buildProjectBatchDocumentEntry } from './projectDocumentOps';
 
@@ -19,7 +18,6 @@ describe('projectDocumentOps', () => {
       batchFileName: 'case.pdf',
       sourceFiles: [{ name: 'case.pdf', storagePath: 'u/p/case.pdf' }],
       pageMetadata: buildDocumentPageMetadata({ batchFileName: 'case.pdf', projectId: 'proj_1', pageFrom: 1, pageTo: 1, totalPages: 3 }),
-      coordinateLayer: buildDocumentCoordinateLayer({ pages: [{ pageNum: 1, textItems: [{ str: 'Первая', transform: [12, 0, 0, 12, 10, 20], width: 20, height: 12 }] }] }),
     };
     const secondPage = {
       id: 'doc_2',
@@ -36,7 +34,6 @@ describe('projectDocumentOps', () => {
       batchFileName: 'case.pdf',
       sourceFiles: [{ name: 'case.pdf', storagePath: 'u/p/case.pdf' }],
       pageMetadata: buildDocumentPageMetadata({ batchFileName: 'case.pdf', projectId: 'proj_1', pageFrom: 2, pageTo: 2, totalPages: 3 }),
-      coordinateLayer: buildDocumentCoordinateLayer({ pages: [{ pageNum: 2, textItems: [{ str: 'Вторая', transform: [12, 0, 0, 12, 10, 20], width: 20, height: 12 }] }] }),
     };
 
     const merged = buildProjectBatchDocumentEntry({
@@ -55,6 +52,5 @@ describe('projectDocumentOps', () => {
     expect(merged.editedHtml).not.toContain('part-separator');
     expect(merged.pageMetadata.sources).toHaveLength(1);
     expect(merged.pageMetadata.sources[0].pages.map((page) => page.pageNumber)).toEqual([1, 2]);
-    expect(merged.coordinateLayer.pages.map((page) => page.pageNumber)).toEqual([1, 2]);
   });
 });

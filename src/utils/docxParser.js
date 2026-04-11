@@ -35,7 +35,7 @@ function isBold(pEl) {
     const r = m[0];
     if (!r.includes('<w:t')) continue;
     textRuns++;
-    if (/<w:b[\s\/>]/.test(r)) {
+    if (/<w:b[\s/>]/.test(r)) {
       const valM = r.match(/<w:b[^>]*w:val="([^"]+)"/);
       const val = valM ? valM[1] : '1';
       if (val !== '0' && val !== 'false') boldCount++;

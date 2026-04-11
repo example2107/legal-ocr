@@ -9,9 +9,7 @@ export default function OriginalViewerPanel({
   zoomScale = 1,
   setZoomScale,
   width,
-  patchedViewerPageCount = 0,
   onResizeStart,
-  onClearPatches,
   onClose,
 } = {}) {
   const viewerBodyRef = useRef(null);
@@ -122,10 +120,7 @@ export default function OriginalViewerPanel({
       </div>
       <div className={'viewer-panel' + (zoomActive ? ' viewer-zoom-mode' : '')} style={{ width, flexShrink: 0 }}>
         <div className="viewer-header">
-          <span className="viewer-title">
-            Оригинальный файл
-            {patchedViewerPageCount > 0 ? ' · есть локальные правки' : ''}
-          </span>
+          <span className="viewer-title">Оригинальный файл</span>
           <div className="viewer-nav">
             <button className="viewer-nav-btn" disabled={currentPage === 0} onClick={handlePrevPage}>←</button>
             <span className="viewer-page-info">{currentPage + 1} / {images.length}</span>
@@ -136,11 +131,6 @@ export default function OriginalViewerPanel({
             <span className="viewer-page-info" style={{ minWidth: 40 }}>{Math.round(zoomScale * 100)}%</span>
             <button className="viewer-nav-btn" onClick={() => setZoomScale((scale) => Math.min(4, +(scale + 0.25).toFixed(2)))} title="Приблизить">+</button>
             <button className="viewer-nav-btn" onClick={resetZoom} title="Сбросить">↺</button>
-            {patchedViewerPageCount > 0 && (
-              <button className="viewer-nav-btn" onClick={onClearPatches} title="Сбросить все локальные правки страницы">
-                Сбросить патчи
-              </button>
-            )}
           </div>
           <button className="viewer-close" onClick={handleClose}>✕ Скрыть</button>
         </div>

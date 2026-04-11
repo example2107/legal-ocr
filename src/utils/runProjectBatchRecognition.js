@@ -1,7 +1,6 @@
 import { getPdfPageCount, imageFileToBase64, pdfToImagesRange } from './pdfUtils';
 import { recognizeDocument } from './claudeApi';
 import { buildAnnotatedHtml } from '../components/RichEditor';
-import { buildDocumentCoordinateLayer } from './documentCoordinateLayer';
 import { buildDocumentPageMetadata } from './documentPageMetadata';
 import { generateId } from './history';
 import {
@@ -494,9 +493,6 @@ export async function runProjectBatchRecognition({
             pageFrom,
             pageTo,
             totalPages: session.totalPages,
-            pages: chunkImages,
-          }),
-          coordinateLayer: buildDocumentCoordinateLayer({
             pages: chunkImages,
           }),
         };

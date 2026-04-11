@@ -1,5 +1,3 @@
-import { normalizeDocumentCoordinateLayer } from './documentCoordinateLayer';
-import { normalizeDocumentPatchLayer } from './documentPatchLayer';
 import { normalizeDocumentPageMetadata } from './documentPageMetadata';
 
 export function buildLoadedDocumentState({
@@ -20,8 +18,6 @@ export function buildLoadedDocumentState({
     originalFileName: entry.originalFileName || '',
     sourceFiles: entry.sourceFiles || [],
     pageMetadata: normalizeDocumentPageMetadata(entry),
-    coordinateLayer: normalizeDocumentCoordinateLayer(entry),
-    patchLayer: normalizeDocumentPatchLayer(entry),
     rawText: entry.text || '',
     editorHtml: html,
     originalImages: images,
@@ -33,7 +29,6 @@ export function buildLoadedDocumentState({
     lastSavedState: JSON.stringify({
       anonymized: JSON.stringify(anon),
       html,
-      patchLayer: JSON.stringify(normalizeDocumentPatchLayer(entry)),
     }),
     initialUndoSnapshot: { html, pd, anon },
     showLongDocWarning: shouldShowLongDocWarningForEntry(entry),
@@ -53,8 +48,6 @@ export function getClearedWorkspaceState() {
     originalFileName: '',
     sourceFiles: [],
     pageMetadata: null,
-    coordinateLayer: null,
-    patchLayer: null,
     error: null,
     progress: null,
     showUnsaved: false,

@@ -105,7 +105,7 @@ export { buildAnnotatedHtml, buildPdMatchPattern, htmlToPlainText } from '../uti
 // ── Patch existing PD marks in DOM without rebuilding entire HTML ──────────────
 // This is the key fix: instead of replacing innerHTML, we surgically update
 // Знаки после которых НЕ ставим пробел перед маркером
-const NO_SPACE_BEFORE_MARK = /[\s(\[«"']/;
+const NO_SPACE_BEFORE_MARK = /[\s([«"']/;
 // Знаки перед которыми НЕ ставим пробел после маркера
 const NO_SPACE_AFTER_MARK  = /^[\s)\].,!?:;»"'\u2026\u2013\u2014]/;
 
@@ -124,25 +124,6 @@ function ensureSpaceAroundMark(mark) {
     const txt = next.textContent;
     if (txt && !NO_SPACE_AFTER_MARK.test(txt)) {
       next.textContent = ' ' + txt;
-    }
-  }
-}
-
-function removeSpaceAroundMark(mark) {
-  // Убираем пробел ДО маркера если мы его добавили
-  const prev = mark.previousSibling;
-  if (prev && prev.nodeType === 3) {
-    const txt = prev.textContent;
-    if (txt && txt.endsWith(' ') && txt.length > 1 && !NO_SPACE_BEFORE_MARK.test(txt.slice(-2, -1))) {
-      prev.textContent = txt.slice(0, -1);
-    }
-  }
-  // Убираем пробел ПОСЛЕ маркера если мы его добавили
-  const next = mark.nextSibling;
-  if (next && next.nodeType === 3) {
-    const txt = next.textContent;
-    if (txt && txt.startsWith(' ') && !NO_SPACE_AFTER_MARK.test(txt.slice(1, 2))) {
-      next.textContent = txt.slice(1);
     }
   }
 }

@@ -1,6 +1,5 @@
 import { buildAnnotatedHtml } from '../components/RichEditor';
 import { addDocumentToProjectRecord, deleteDocumentRecord, saveDocumentRecord, updateProjectSharedPDRecord } from './dataStore';
-import { mergeDocumentCoordinateLayer } from './documentCoordinateLayer';
 import { mergeDocumentPageMetadata } from './documentPageMetadata';
 import { generateId } from './history';
 
@@ -228,7 +227,6 @@ export async function saveProjectSummaryDocument({
     projectId: currentProjectId,
     isProjectSummary: true,
     pageMetadata: mergeDocumentPageMetadata(docs),
-    coordinateLayer: mergeDocumentCoordinateLayer(docs),
     savedAt: new Date().toISOString(),
   };
 
@@ -296,8 +294,6 @@ export function buildProjectBatchDocumentEntry({
     batchFileName: pageEntry.batchFileName || existingDoc?.batchFileName || '',
     sourceFiles: mergeSourceFiles(existingDoc?.sourceFiles, pageEntry.sourceFiles),
     pageMetadata,
-    coordinateLayer: mergeDocumentCoordinateLayer(documentsToMerge),
-    patchLayer: existingDoc?.patchLayer || null,
     isProjectSummary: false,
     savedAt: new Date().toISOString(),
   };

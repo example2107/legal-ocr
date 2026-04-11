@@ -1,5 +1,3 @@
-import { normalizeDocumentCoordinateLayer } from './documentCoordinateLayer';
-import { normalizeDocumentPatchLayer } from './documentPatchLayer';
 import { normalizeDocumentPageMetadata } from './documentPageMetadata';
 
 const STORAGE_KEY = 'legal_ocr_history';
@@ -47,9 +45,7 @@ export function generateId() {
 
 // ── Экспорт документа в .юрдок файл ────────────────────────────────────────
 export function exportDocument(entry) {
-  const coordinateLayer = normalizeDocumentCoordinateLayer(entry);
   const pageMetadata = normalizeDocumentPageMetadata(entry);
-  const patchLayer = normalizeDocumentPatchLayer(entry);
   const exportData = {
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -68,8 +64,6 @@ export function exportDocument(entry) {
     chunkSize: entry.chunkSize || null,
     batchFileName: entry.batchFileName || '',
     pageMetadata,
-    coordinateLayer,
-    patchLayer,
     savedAt: entry.savedAt || new Date().toISOString(),
   };
   const json = JSON.stringify(exportData, null, 2);
@@ -112,8 +106,6 @@ export function importDocument(file) {
           chunkSize: data.chunkSize || null,
           batchFileName: data.batchFileName || '',
           pageMetadata: normalizeDocumentPageMetadata(data),
-          coordinateLayer: normalizeDocumentCoordinateLayer(data),
-          patchLayer: normalizeDocumentPatchLayer(data),
           savedAt: new Date().toISOString(),
         };
         resolve(entry);
