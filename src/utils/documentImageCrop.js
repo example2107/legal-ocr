@@ -57,67 +57,109 @@ function buildBrightMask(brightness, width, height, threshold) {
   return smoothMask(smoothMask(mask, width, height), width, height);
 }
 
+function createComponentSeed(x, y) {
+  return {
+    minX: x,
+    maxX: x,
+    minY: y,
+    maxY: y,
+    area: 0,
+    brightnessSum: 0,
+  };
+}
+
+function updateComponentBounds(component, x, y, pixelBrightness) {
+  component.area += 1;
+  component.brightnessSum += pixelBrightness;
+  if (x < component.minX) component.minX = x;
+  if (x > component.maxX) component.maxX = x;
+  if (y < component.minY) component.minY = y;
+  if (y > component.maxY) component.maxY = y;
+}
+
+function getNeighborPoints(x, y) {
+  return [
+    [x - 1, y],
+    [x + 1, y],
+    [x, y - 1],
+    [x, y + 1],
+  ];
+}
+
+function isInsideBounds(x, y, width, height) {
+  return x >= 0 && y >= 0 && x < width && y < height;
+}
+
+function tryVisitNeighbor(nx, ny, traversal) {
+  const { width, height, mask, visited, queueX, queueY } = traversal;
+  if (!isInsideBounds(nx, ny, width, height)) return;
+
+  const neighborIndex = ny * width + nx;
+  if (!mask[neighborIndex] || visited[neighborIndex]) return;
+
+  visited[neighborIndex] = 1;
+  queueX.push(nx);
+  queueY.push(ny);
+}
+
+function finalizeComponent(component) {
+  return {
+    area: component.area,
+    avgBrightness: component.brightnessSum / Math.max(1, component.area),
+    left: component.minX,
+    top: component.minY,
+    right: component.maxX + 1,
+    bottom: component.maxY + 1,
+    width: component.maxX - component.minX + 1,
+    height: component.maxY - component.minY + 1,
+  };
+}
+
+function walkComponent(startX, startY, traversal) {
+  const { brightness, width, visited, queueX, queueY } = traversal;
+  const component = createComponentSeed(startX, startY);
+  const startIndex = startY * width + startX;
+
+  queueX.length = 0;
+  queueY.length = 0;
+  queueX.push(startX);
+  queueY.push(startY);
+  visited[startIndex] = 1;
+
+  for (let cursor = 0; cursor < queueX.length; cursor += 1) {
+    const cx = queueX[cursor];
+    const cy = queueY[cursor];
+    const index = cy * width + cx;
+    updateComponentBounds(component, cx, cy, brightness[index]);
+
+    getNeighborPoints(cx, cy).forEach(([nx, ny]) => {
+      tryVisitNeighbor(nx, ny, traversal);
+    });
+  }
+
+  return finalizeComponent(component);
+}
+
 function findComponents(mask, brightness, width, height) {
   const visited = new Uint8Array(mask.length);
   const components = [];
   const queueX = [];
   const queueY = [];
+  const traversal = {
+    mask,
+    brightness,
+    width,
+    height,
+    visited,
+    queueX,
+    queueY,
+  };
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const startIndex = y * width + x;
       if (!mask[startIndex] || visited[startIndex]) continue;
-
-      let minX = x;
-      let maxX = x;
-      let minY = y;
-      let maxY = y;
-      let area = 0;
-      let brightnessSum = 0;
-
-      queueX.length = 0;
-      queueY.length = 0;
-      queueX.push(x);
-      queueY.push(y);
-      visited[startIndex] = 1;
-
-      for (let cursor = 0; cursor < queueX.length; cursor += 1) {
-        const cx = queueX[cursor];
-        const cy = queueY[cursor];
-        const index = cy * width + cx;
-        area += 1;
-        brightnessSum += brightness[index];
-        if (cx < minX) minX = cx;
-        if (cx > maxX) maxX = cx;
-        if (cy < minY) minY = cy;
-        if (cy > maxY) maxY = cy;
-
-        const neighbors = [
-          [cx - 1, cy],
-          [cx + 1, cy],
-          [cx, cy - 1],
-          [cx, cy + 1],
-        ];
-        for (const [nx, ny] of neighbors) {
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-          const neighborIndex = ny * width + nx;
-          if (!mask[neighborIndex] || visited[neighborIndex]) continue;
-          visited[neighborIndex] = 1;
-          queueX.push(nx);
-          queueY.push(ny);
-        }
-      }
-
-      components.push({
-        area,
-        avgBrightness: brightnessSum / Math.max(1, area),
-        left: minX,
-        top: minY,
-        right: maxX + 1,
-        bottom: maxY + 1,
-        width: maxX - minX + 1,
-        height: maxY - minY + 1,
-      });
+      components.push(walkComponent(x, y, traversal));
     }
   }
 

@@ -2,6 +2,59 @@ import { normalizeDocumentPageMetadata } from './documentPageMetadata';
 
 const STORAGE_KEY = 'legal_ocr_history';
 const MAX_ITEMS = 50;
+const EMPTY_PD = { persons: [], otherPD: [], ambiguousPersons: [] };
+
+function buildExportData(entry) {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    id: entry.id,
+    title: entry.title,
+    originalFileName: entry.originalFileName || '',
+    text: entry.text || '',
+    editedHtml: entry.editedHtml || '',
+    personalData: entry.personalData || EMPTY_PD,
+    anonymized: entry.anonymized || {},
+    source: entry.source || 'ocr',
+    pageFrom: entry.pageFrom || null,
+    pageTo: entry.pageTo || null,
+    totalPages: entry.totalPages || null,
+    chunkIndex: entry.chunkIndex || null,
+    chunkSize: entry.chunkSize || null,
+    batchFileName: entry.batchFileName || '',
+    pageMetadata: normalizeDocumentPageMetadata(entry),
+    savedAt: entry.savedAt || new Date().toISOString(),
+  };
+}
+
+function buildImportedEntry(data) {
+  return {
+    id: generateId(),
+    title: data.title || 'Импортированный документ',
+    originalFileName: data.originalFileName || '',
+    text: data.text || '',
+    editedHtml: data.editedHtml || '',
+    personalData: data.personalData || EMPTY_PD,
+    anonymized: data.anonymized || {},
+    source: data.source || 'ocr',
+    pageFrom: data.pageFrom || null,
+    pageTo: data.pageTo || null,
+    totalPages: data.totalPages || null,
+    chunkIndex: data.chunkIndex || null,
+    chunkSize: data.chunkSize || null,
+    batchFileName: data.batchFileName || '',
+    pageMetadata: normalizeDocumentPageMetadata(data),
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function parseImportedDocument(rawText) {
+  const data = JSON.parse(rawText);
+  if (!data.title && !data.editedHtml && !data.text) {
+    throw new Error('Файл не содержит данных документа');
+  }
+  return buildImportedEntry(data);
+}
 
 export function loadHistory() {
   try {
@@ -45,27 +98,7 @@ export function generateId() {
 
 // ── Экспорт документа в .юрдок файл ────────────────────────────────────────
 export function exportDocument(entry) {
-  const pageMetadata = normalizeDocumentPageMetadata(entry);
-  const exportData = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    id: entry.id,
-    title: entry.title,
-    originalFileName: entry.originalFileName || '',
-    text: entry.text || '',
-    editedHtml: entry.editedHtml || '',
-    personalData: entry.personalData || { persons: [], otherPD: [], ambiguousPersons: [] },
-    anonymized: entry.anonymized || {},
-    source: entry.source || 'ocr',
-    pageFrom: entry.pageFrom || null,
-    pageTo: entry.pageTo || null,
-    totalPages: entry.totalPages || null,
-    chunkIndex: entry.chunkIndex || null,
-    chunkSize: entry.chunkSize || null,
-    batchFileName: entry.batchFileName || '',
-    pageMetadata,
-    savedAt: entry.savedAt || new Date().toISOString(),
-  };
+  const exportData = buildExportData(entry);
   const json = JSON.stringify(exportData, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -85,32 +118,9 @@ export function importDocument(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = JSON.parse(e.target.result);
-        if (!data.title && !data.editedHtml && !data.text) {
-          reject(new Error('Файл не содержит данных документа'));
-          return;
-        }
-        const entry = {
-          id: generateId(),
-          title: data.title || 'Импортированный документ',
-          originalFileName: data.originalFileName || '',
-          text: data.text || '',
-          editedHtml: data.editedHtml || '',
-          personalData: data.personalData || { persons: [], otherPD: [], ambiguousPersons: [] },
-          anonymized: data.anonymized || {},
-          source: data.source || 'ocr',
-          pageFrom: data.pageFrom || null,
-          pageTo: data.pageTo || null,
-          totalPages: data.totalPages || null,
-          chunkIndex: data.chunkIndex || null,
-          chunkSize: data.chunkSize || null,
-          batchFileName: data.batchFileName || '',
-          pageMetadata: normalizeDocumentPageMetadata(data),
-          savedAt: new Date().toISOString(),
-        };
-        resolve(entry);
+        resolve(parseImportedDocument(e.target.result));
       } catch (err) {
-        reject(new Error('Не удалось прочитать файл: ' + err.message));
+        reject(new Error(`Не удалось прочитать файл: ${err.message}`));
       }
     };
     reader.onerror = () => reject(new Error('Ошибка чтения файла'));

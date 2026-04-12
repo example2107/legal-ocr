@@ -82,7 +82,303 @@ function getOtherPdMentions(item) {
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
+      });
+}
+
+function sortAndFilterMatches(matches) {
+  const filtered = [];
+  let lastEnd = 0;
+
+  matches
+    .sort((a, b) => a.start - b.start)
+    .forEach((match) => {
+      if (match.start < lastEnd) return;
+      filtered.push(match);
+      lastEnd = match.end;
     });
+
+  return filtered;
+}
+
+function walkAnnotatableNodes(node, annotateNode) {
+  if (node.nodeType === 3) {
+    annotateNode(node);
+    return;
+  }
+
+  if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
+    Array.from(node.childNodes).forEach((child) => walkAnnotatableNodes(child, annotateNode));
+  }
+}
+
+function collectMatchesByPatterns(text, entries, buildPattern) {
+  const allMatches = [];
+
+  entries.forEach((entry) => {
+    try {
+      const re = new RegExp(buildPattern(entry), 'gi');
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        allMatches.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          mt: match[0],
+          entry,
+        });
+      }
+    } catch {}
+  });
+
+  return sortAndFilterMatches(allMatches);
+}
+
+function replaceTextNode(node, matches, renderMatch) {
+  if (matches.length === 0) return false;
+
+  const text = node.textContent;
+  const fragment = document.createDocumentFragment();
+  let lastIdx = 0;
+
+  matches.forEach((match) => {
+    if (match.start > lastIdx) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIdx, match.start)));
+    }
+    fragment.appendChild(renderMatch(match));
+    lastIdx = match.end;
+  });
+
+  if (lastIdx < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+  }
+
+  node.parentNode.replaceChild(fragment, node);
+  return true;
+}
+
+function createPdMarkElement(mark, text, anonymized) {
+  const el = document.createElement('mark');
+  const isAnon = !!anonymized[mark.id];
+  const display = isAnon ? (mark.type === 'person' ? mark.letter : mark.replacement) : text;
+  const cat = mark.type === 'person' ? (mark.cat === 'private' ? 'priv' : 'prof') : 'oth';
+  el.className = 'pd ' + cat + (isAnon ? ' anon' : '');
+  el.dataset.pdId = mark.id;
+  el.dataset.original = text;
+  el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+  el.textContent = display;
+  return el;
+}
+
+function buildMarkDefinitions(personalData) {
+  const { persons = [], otherPD = [] } = personalData;
+  const marks = [];
+
+  persons.forEach((person) => {
+    (person.mentions || [person.fullName]).forEach((mention) => {
+      if (mention && mention.length > 1) {
+        marks.push({
+          txt: mention,
+          type: 'person',
+          cat: person.category,
+          id: person.id,
+          letter: person.letter,
+        });
+      }
+    });
+  });
+
+  otherPD.forEach((item) => {
+    getOtherPdMentions(item).forEach((mention) => {
+      marks.push({
+        txt: mention,
+        type: 'other',
+        id: item.id,
+        replacement: item.replacement,
+        pdType: item.type,
+      });
+    });
+  });
+
+  return marks.sort((a, b) => b.txt.length - a.txt.length);
+}
+
+function buildLinePatternEntries(marks) {
+  return marks
+    .map((mark) => ({
+      pattern: mark.type === 'person' ? buildPersonPattern(mark.txt) : buildOtherPdPattern(mark.txt, mark.pdType),
+      mark,
+    }))
+    .sort((a, b) => b.mark.txt.length - a.mark.txt.length);
+}
+
+function createUncertainMarkHtml(matchText) {
+  const inner = matchText.slice(3, -1);
+  const isUnread = inner === 'НЕЧИТАЕМО';
+
+  if (isUnread) {
+    return '<mark class="uncertain unreadable" data-tooltip="Нечитаемый фрагмент · ПКМ — снять выделение">[НЕЧИТАЕМО]</mark>';
+  }
+
+  const content = inner.replace('НЕТОЧНО: ', '');
+  const parts = content.split('|').map((value) => value.trim());
+  const wrongWord = parts[0];
+  const suggestion = parts[1] || '';
+  const tooltip = suggestion
+    ? 'Возможно неточное распознавание · ПКМ — варианты'
+    : 'Возможно неточное распознавание · ПКМ — снять выделение';
+
+  return `<mark class="uncertain" data-tooltip="${tooltip}" data-suggestion="${esc(suggestion)}">${esc(wrongWord)}</mark>`;
+}
+
+function findPatternEntry(patternEntries, text) {
+  return patternEntries.find((entry) => {
+    try {
+      return new RegExp('^' + entry.pattern + '$', 'i').test(text);
+    } catch {
+      return false;
+    }
+  }) || null;
+}
+
+function createPdLineHtml(entry, text, anonymized) {
+  const hl = entry?.mark;
+  if (!hl) return applyBold(esc(text));
+
+  const isAnon = !!anonymized[hl.id];
+  const display = isAnon ? (hl.type === 'person' ? hl.letter : hl.replacement) : esc(text);
+  const cat = hl.type === 'person' ? (hl.cat === 'private' ? 'priv' : 'prof') : 'oth';
+
+  return `<mark class="pd ${cat}${isAnon ? ' anon' : ''}" data-pd-id="${hl.id}" contenteditable="false" title="${isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить'}">${display}</mark>`;
+}
+
+function normalizeMarkSpacing(html) {
+  return html
+    .replace(/([^\s(«"'[])(<mark\s)/g, '$1 $2')
+    .replace(/(<\/mark>)([^\s)\].,!?:;»"'\u2026\u2013\u2014<])/g, '$1 $2');
+}
+
+function preprocessRawText(rawText) {
+  let processText = rawText.replace(
+    /([А-яЁёa-zA-Z]{2,})\s+⚠️\[НЕТОЧНО:\s*([А-яЁёa-zA-Z| ]+)\]/gi,
+    (full, wordBefore, inner) => {
+      const markerWord = inner.split('|')[0].trim();
+      const rootLen = Math.min(5, Math.min(wordBefore.length, markerWord.length));
+      const sameRoot = wordBefore.slice(0, rootLen).toLowerCase() === markerWord.slice(0, rootLen).toLowerCase();
+      if (sameRoot) {
+        return '⚠️[НЕТОЧНО: ' + inner + ']';
+      }
+      return full;
+    }
+  );
+
+  processText = processText.replace(/\b([А-яЁёa-zA-Z]{4,})\s+\1\b/gi, '$1');
+  return processText;
+}
+
+function isSpecialMergedLine(text) {
+  return !text
+    || text.startsWith('## ')
+    || text.startsWith('### ')
+    || text === '---'
+    || /^\[PAGE:\d+\]$/.test(text)
+    || /^\[CENTER\]/.test(text)
+    || /^\[LEFTRIGHT:/.test(text)
+    || /^\[RIGHT-BLOCK\]/.test(text)
+    || /^\[INDENT\]/.test(text)
+    || /^\*\*(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ)[:\s*]/.test(text);
+}
+
+function mergeBrokenParagraphLines(rawText) {
+  const lines = rawText.split('\n');
+  const mergedLines = [];
+  let prevWasEmpty = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      prevWasEmpty = true;
+      mergedLines.push(line);
+      continue;
+    }
+
+    const startsWithIndent = /^[ \t]{2,}/.test(line);
+    const isNewParagraph = prevWasEmpty || startsWithIndent || isSpecialMergedLine(trimmed);
+
+    if (!isNewParagraph && mergedLines.length > 0) {
+      let lastIdx = mergedLines.length - 1;
+      while (lastIdx >= 0 && !mergedLines[lastIdx].trim()) lastIdx -= 1;
+
+      if (lastIdx >= 0 && !isSpecialMergedLine(mergedLines[lastIdx].trim())) {
+        mergedLines[lastIdx] = mergedLines[lastIdx].trimEnd() + ' ' + trimmed;
+        prevWasEmpty = false;
+        continue;
+      }
+    }
+
+    mergedLines.push(line);
+    prevWasEmpty = false;
+  }
+
+  return mergedLines.join('\n');
+}
+
+function renderAnnotatedLine(line, marks, anonymized, isLegalCenter) {
+  if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
+  if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
+  if (line === '---') return '<div><br/></div>';
+  if (!line.trim()) return '<div><br/></div>';
+
+  const pageMatch = line.match(/^\[PAGE:(\d+)\]$/);
+  if (pageMatch) {
+    return `<div class="page-separator" contenteditable="false" data-page="${pageMatch[1]}"><span class="page-separator-line"></span><span class="page-separator-label">Страница ${pageMatch[1]}</span><span class="page-separator-line"></span></div>`;
+  }
+
+  const indentMatch = line.match(/^\[INDENT\](.+)$/);
+  if (indentMatch) {
+    return `<div style="text-indent:2em">${annotLine(indentMatch[1], marks, anonymized)}</div>`;
+  }
+
+  const rightMatch = line.match(/^\[RIGHT-BLOCK\](.+)$/);
+  if (rightMatch) {
+    return `<div class="right-block">${annotLine(rightMatch[1], marks, anonymized)}</div>`;
+  }
+
+  const centerMatch = line.match(/^\[CENTER\](.+?)\[\/CENTER\]$/);
+  if (centerMatch) {
+    return `<div style="text-align:center">${annotLine(centerMatch[1], marks, anonymized)}</div>`;
+  }
+
+  const lrMatch = line.match(/^\[LEFTRIGHT:\s*(.+?)\s*\|\s*(.+?)\s*\]$/);
+  if (lrMatch) {
+    return `<div class="lr-row"><span>${annotLine(lrMatch[1], marks, anonymized)}</span><span>${annotLine(lrMatch[2], marks, anonymized)}</span></div>`;
+  }
+
+  if (isLegalCenter(line)) {
+    const clean = line.replace(/\*\*/g, '').trim();
+    return `<div style="text-align:center"><strong>${annotLine(clean, marks, anonymized)}</strong></div>`;
+  }
+
+  return `<div>${annotLine(line, marks, anonymized)}</div>`;
+}
+
+function annotateUnmarkedOtherPdHtml(html, otherMarks, anonymized) {
+  if (otherMarks.length === 0) return html;
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const markedIds = new Set();
+  tmp.querySelectorAll('mark[data-pd-id]').forEach((el) => markedIds.add(el.dataset.pdId));
+  const unmarked = otherMarks.filter((mark) => !markedIds.has(mark.id));
+
+  if (unmarked.length === 0) return html;
+
+  Array.from(tmp.childNodes).forEach((node) => walkAnnotatableNodes(node, (textNode) => {
+    const matches = collectMatchesByPatterns(textNode.textContent, unmarked, (mark) => buildOtherPdPattern(mark.txt, mark.pdType));
+    replaceTextNode(textNode, matches, ({ mt, entry }) => createPdMarkElement(entry, mt, anonymized));
+  }));
+
+  return tmp.innerHTML;
 }
 
 function annotateAmbiguousPersonsHtml(html, ambiguousPersons) {
@@ -101,49 +397,20 @@ function annotateAmbiguousPersonsHtml(html, ambiguousPersons) {
 
   if (ambiguousMarks.length === 0) return html;
 
-  function annotateAmbiguousInNode(node) {
-    if (node.nodeType === 3) {
-      const text = node.textContent;
-      const allMatches = [];
-      for (const item of ambiguousMarks) {
-        try {
-          const re = new RegExp(buildAmbiguousPersonPattern(item.value), 'gi');
-          let m;
-          while ((m = re.exec(text)) !== null) {
-            allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], item });
-          }
-        } catch {}
-      }
-      if (allMatches.length === 0) return;
-      allMatches.sort((a, b) => a.start - b.start);
-      const filtered = [];
-      let lastEnd = 0;
-      for (const m of allMatches) {
-        if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
-      }
-      const fragment = document.createDocumentFragment();
-      let lastIdx = 0;
-      for (const { start, end, mt, item } of filtered) {
-        if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
-        const el = document.createElement('mark');
-        el.className = 'ambiguous-person';
-        el.dataset.value = item.value;
-        el.dataset.context = item.context;
-        el.dataset.reason = item.reason;
-        el.dataset.tooltip = item.reason;
-        el.contentEditable = 'false';
-        el.textContent = mt;
-        fragment.appendChild(el);
-        lastIdx = end;
-      }
-      if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
-      node.parentNode.replaceChild(fragment, node);
-    } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
-      Array.from(node.childNodes).forEach(annotateAmbiguousInNode);
-    }
-  }
-
-  Array.from(tmp.childNodes).forEach(annotateAmbiguousInNode);
+  Array.from(tmp.childNodes).forEach((node) => walkAnnotatableNodes(node, (textNode) => {
+    const matches = collectMatchesByPatterns(textNode.textContent, ambiguousMarks, (item) => buildAmbiguousPersonPattern(item.value));
+    replaceTextNode(textNode, matches, ({ mt, entry }) => {
+      const el = document.createElement('mark');
+      el.className = 'ambiguous-person';
+      el.dataset.value = entry.value;
+      el.dataset.context = entry.context;
+      el.dataset.reason = entry.reason;
+      el.dataset.tooltip = entry.reason;
+      el.contentEditable = 'false';
+      el.textContent = mt;
+      return el;
+    });
+  }));
   return tmp.innerHTML;
 }
 
@@ -207,20 +474,10 @@ function applyBold(html) {
 }
 
 function annotLine(text, marks, anonymized) {
-  // Для persons — расширенный паттерн с падежами и инициалами
-  // Для otherPD — точный паттерн
-  const patternEntries = marks.map(m => ({
-    pattern: m.type === 'person' ? buildPersonPattern(m.txt) : buildOtherPdPattern(m.txt, m.pdType),
-    mark: m,
-  }));
-
-  // Сортируем по длине исходного mention — более специфичные (длинные) идут первыми
-  // Это важно: «Бокова В.Р.» должен быть в regex раньше чем «Бокова»
-  patternEntries.sort((a, b) => b.mark.txt.length - a.mark.txt.length);
-
+  const patternEntries = buildLinePatternEntries(marks);
   const patterns = [
     '⚠️\\[(НЕТОЧНО: [^\\]]*|НЕЧИТАЕМО)\\]',
-    ...patternEntries.map(e => e.pattern),
+    ...patternEntries.map((entry) => entry.pattern),
   ];
   let re;
   try { re = new RegExp(patterns.join('|'), 'gi'); } catch { return applyBold(esc(text)); }
@@ -228,128 +485,33 @@ function annotLine(text, marks, anonymized) {
   let out = '', last = 0, match;
   while ((match = re.exec(text)) !== null) {
     if (match.index > last) out += applyBold(esc(text.slice(last, match.index)));
-    const mt = match[0].replace(/\s+$/, ''); // trim trailing space that may be captured by initialsAfter
+    const mt = match[0].replace(/\s+$/, '');
     if (mt.startsWith('⚠️[')) {
-      const inner = mt.slice(3, -1);
-      const isUnread = inner === 'НЕЧИТАЕМО';
-      if (isUnread) {
-        out += `<mark class="uncertain unreadable" data-tooltip="Нечитаемый фрагмент · ПКМ — снять выделение">[НЕЧИТАЕМО]</mark>`;
-      } else {
-        // Парсим формат "НЕТОЧНО: слово" или "НЕТОЧНО: слово | вариант"
-        const content = inner.replace('НЕТОЧНО: ', '');
-        const parts = content.split('|').map(s => s.trim());
-        const wrongWord = parts[0];
-        const suggestion = parts[1] || '';
-        const tooltip = suggestion
-          ? 'Возможно неточное распознавание · ПКМ — варианты'
-          : 'Возможно неточное распознавание · ПКМ — снять выделение';
-        out += `<mark class="uncertain" data-tooltip="${tooltip}" data-suggestion="${esc(suggestion)}">${esc(wrongWord)}</mark>`;
-      }
+      out += createUncertainMarkHtml(mt);
     } else {
-      // Ищем mark по совпадению паттерна (не точная строка, т.к. падеж мог измениться)
-      const entry = patternEntries.find(e => {
-        try { return new RegExp('^' + e.pattern + '$', 'i').test(mt); } catch { return false; }
-      });
-      const hl = entry ? entry.mark : null;
-      if (hl) {
-        const isAnon = !!anonymized[hl.id];
-        const display = isAnon ? (hl.type === 'person' ? hl.letter : hl.replacement) : esc(mt);
-        const cat = hl.type === 'person' ? (hl.cat === 'private' ? 'priv' : 'prof') : 'oth';
-        out += `<mark class="pd ${cat}${isAnon ? ' anon' : ''}" data-pd-id="${hl.id}" contenteditable="false" title="${isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить'}">${display}</mark>`;
-      } else {
-        out += applyBold(esc(mt));
-      }
+      out += createPdLineHtml(findPatternEntry(patternEntries, mt), mt, anonymized);
     }
-    last = match.index + match[0].length; // advance by full match including any trailing space
+    last = match.index + match[0].length;
   }
   if (last < text.length) out += applyBold(esc(text.slice(last)));
-  // Гарантируем пробел до и после каждого <mark> чтобы при редактировании
-  // курсор не застревал внутри маркера
-  // Пробел перед <mark>: всегда, кроме открывающих знаков препинания ( « " ' [
-  // Пробел после </mark>: всегда, кроме закрывающих знаков препинания ) , . ! ? : ; » " …
-  out = out
-    .replace(/([^\s(«"'[])(<mark\s)/g, '$1 $2')
-    .replace(/(<\/mark>)([^\s)\].,!?:;»"'\u2026\u2013\u2014<])/g, '$1 $2');
-  return out;
+  return normalizeMarkSpacing(out);
 }
 
 // ── Build full annotated HTML from rawText (used only on first load) ───────────
 // Аннотирует HTML от mammoth — заменяет упоминания ПД на <mark> прямо в HTML
 function buildAnnotatedDocxHtml(docxHtml, personalData, anonymized) {
-  const { persons = [], otherPD = [] } = personalData;
-  const marks = [];
-  for (const p of persons) {
-    for (const mention of (p.mentions || [p.fullName])) {
-      if (mention && mention.length > 1)
-        marks.push({ txt: mention, type: 'person', cat: p.category, id: p.id, letter: p.letter });
-    }
-  }
-  for (const it of otherPD) {
-    for (const mention of getOtherPdMentions(it)) {
-      marks.push({ txt: mention, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
-    }
-  }
-  marks.sort((a, b) => b.txt.length - a.txt.length);
+  const marks = buildMarkDefinitions(personalData);
 
-  // Создаём временный DOM и аннотируем текстовые узлы
   const tmp = document.createElement('div');
   tmp.innerHTML = docxHtml;
 
-  // Рекурсивно обходим текстовые узлы и заменяем упоминания на marks
-  function annotateNode(node) {
-    if (node.nodeType === 3) { // текстовый узел
-      let text = node.textContent;
-      let changed = false;
-      const fragment = document.createDocumentFragment();
-      let lastIdx = 0;
+  Array.from(tmp.childNodes).forEach((node) => walkAnnotatableNodes(node, (textNode) => {
+    const matches = collectMatchesByPatterns(textNode.textContent, marks, (mark) => (
+      mark.type === 'person' ? buildPersonPattern(mark.txt) : buildOtherPdPattern(mark.txt, mark.pdType)
+    ));
+    replaceTextNode(textNode, matches, ({ mt, entry }) => createPdMarkElement(entry, mt, anonymized));
+  }));
 
-      // Ищем все совпадения по всем marks
-      const allMatches = [];
-      for (const mark of marks) {
-        try {
-          const finalPattern = mark.type === 'person' ? buildPersonPattern(mark.txt) : buildOtherPdPattern(mark.txt, mark.pdType);
-          const re = new RegExp(finalPattern, 'gi');
-          let m;
-          while ((m = re.exec(text)) !== null) {
-            allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], mark });
-          }
-        } catch {}
-      }
-
-      // Сортируем по позиции, убираем пересечения
-      allMatches.sort((a, b) => a.start - b.start);
-      const filtered = [];
-      let lastEnd = 0;
-      for (const m of allMatches) {
-        if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
-      }
-
-      for (const { start, end, mt, mark } of filtered) {
-        if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
-        const el = document.createElement('mark');
-        const isAnon = !!anonymized[mark.id];
-        const display = isAnon ? (mark.type === 'person' ? mark.letter : mark.replacement) : mt;
-        const cat = mark.type === 'person' ? (mark.cat === 'private' ? 'priv' : 'prof') : 'oth';
-        el.className = 'pd ' + cat + (isAnon ? ' anon' : '');
-        el.dataset.pdId = mark.id;
-        el.dataset.original = mt;
-        el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
-        el.textContent = display;
-        fragment.appendChild(el);
-        lastIdx = end;
-        changed = true;
-      }
-
-      if (changed) {
-        if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
-        node.parentNode.replaceChild(fragment, node);
-      }
-    } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
-      Array.from(node.childNodes).forEach(annotateNode);
-    }
-  }
-
-  Array.from(tmp.childNodes).forEach(annotateNode);
   return tmp.innerHTML;
 }
 
@@ -358,220 +520,26 @@ export function buildAnnotatedHtml(rawText, personalData, anonymized, docxHtml) 
 
   const { persons = [], otherPD = [], ambiguousPersons = [] } = personalData;
 
-  // Если передан HTML от mammoth (DOCX) — аннотируем его напрямую сохраняя форматирование
   if (docxHtml) {
     const docxResult = buildAnnotatedDocxHtml(docxHtml, personalData, anonymized);
     return annotateAmbiguousPersonsHtml(docxResult, ambiguousPersons);
   }
-  const marks = [];
-  for (const p of persons) {
-    for (const mention of (p.mentions || [p.fullName])) {
-      if (mention && mention.length > 1)
-        marks.push({ txt: mention, type: 'person', cat: p.category, id: p.id, letter: p.letter });
-    }
-  }
-  for (const it of otherPD) {
-    for (const mention of getOtherPdMentions(it)) {
-      marks.push({ txt: mention, type: 'other', id: it.id, replacement: it.replacement, pdType: it.type });
-    }
-  }
-  marks.sort((a, b) => b.txt.length - a.txt.length);
-
-  // Post-process 1: убираем дубль слова перед маркером ⚠️
-  // Claude иногда пишет: "слово ⚠️[НЕТОЧНО: слово]" — оставляем только маркер
-  // Ловим как точное совпадение, так и совпадение по корню (первые 5 букв)
-  let processText = rawText.replace(
-    /([А-яЁёa-zA-Z]{2,})\s+⚠️\[НЕТОЧНО:\s*([А-яЁёa-zA-Z| ]+)\]/gi,
-    (full, wordBefore, inner) => {
-      // Берём первое слово из маркера (до | если есть вариант)
-      const markerWord = inner.split('|')[0].trim();
-      // Сравниваем по корню — первые 5 букв (или меньше если слово короткое)
-      const rootLen = Math.min(5, Math.min(wordBefore.length, markerWord.length));
-      const sameRoot = wordBefore.slice(0, rootLen).toLowerCase() === markerWord.slice(0, rootLen).toLowerCase();
-      if (sameRoot) {
-        // Убираем слово перед маркером — оставляем только маркер
-        return '⚠️[НЕТОЧНО: ' + inner + ']';
-      }
-      return full;
-    }
-  );
-  // Post-process 2: убираем подряд идущие одинаковые слова (от 4 букв — избегаем ложных срабатываний)
-  // Например: "КоординарийСпектр КоординарийСпектр" → "КоординарийСпектр"
-  processText = processText.replace(
-    /\b([А-яЁёa-zA-Z]{4,})\s+\1\b/gi,
-    '$1'
-  );
-  // Инициалы после фамилий обрабатываются через buildPersonPattern в annotLine —
-  // паттерн захватывает «Фамилия И.О.» и «Фамилия И.» как единое совпадение.
-
-  // Post-process 3: склеиваем строки которые OCR разбил по переносам внутри абзаца.
-  //
-  // Главный признак НОВОГО АБЗАЦА (не склеиваем):
-  //   1. Между строками есть пустая строка
-  //   2. Текущая строка начинается с отступа (пробелы/таб) — красная строка
-  //   3. Текущая строка — специальная (заголовок, маркер страницы и т.д.)
-  //
-  // Во всех остальных случаях — это перенос строки внутри абзаца, склеиваем.
-  // Эта логика надёжнее чем угадывать по знакам препинания.
-
-  const isSpecialLine = (t) => !t ||
-    t.startsWith('## ') ||
-    t.startsWith('### ') ||
-    t === '---' ||
-    /^\[PAGE:\d+\]$/.test(t) ||
-    /^\[CENTER\]/.test(t) ||
-    /^\[LEFTRIGHT:/.test(t) ||
-    /^\[RIGHT-BLOCK\]/.test(t) ||
-    /^\[INDENT\]/.test(t) ||
-    /^\*\*(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ)[:\s*]/.test(t);
-
-  const lines = processText.split('\n');
-  const mergedLines = [];
-  let prevWasEmpty = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Пустая строка — запоминаем, не добавляем в результат (склейщик сам управляет переносами)
-    if (!trimmed) {
-      prevWasEmpty = true;
-      mergedLines.push(line); // сохраняем пустую строку как разделитель абзацев
-      continue;
-    }
-
-    const startsWithIndent = /^[ \t]{2,}/.test(line); // 2+ пробела или таб = красная строка
-    const isSpecial = isSpecialLine(trimmed);
-
-    // Признаки нового абзаца — не склеиваем с предыдущей строкой
-    const isNewParagraph = prevWasEmpty || startsWithIndent || isSpecial;
-
-    if (!isNewParagraph && mergedLines.length > 0) {
-      // Ищем последнюю непустую строку для склейки
-      let lastIdx = mergedLines.length - 1;
-      while (lastIdx >= 0 && !mergedLines[lastIdx].trim()) lastIdx--;
-
-      if (lastIdx >= 0 && !isSpecialLine(mergedLines[lastIdx].trim())) {
-        mergedLines[lastIdx] = mergedLines[lastIdx].trimEnd() + ' ' + trimmed;
-        prevWasEmpty = false;
-        continue;
-      }
-    }
-
-    mergedLines.push(line);
-    prevWasEmpty = false;
-  }
-  const mergedText = mergedLines.join('\n');
-
-  // Auto-center patterns for typical legal document sections
-  // Strip ** markdown wrapping before testing, since Claude often writes **УСТАНОВИЛ:**
+  const marks = buildMarkDefinitions({ persons, otherPD });
+  const mergedText = mergeBrokenParagraphLines(preprocessRawText(rawText));
   const LEGAL_CENTER_RE = /(УСТАНОВИЛ|ПОСТАНОВИЛ|РЕШИЛ|ОПРЕДЕЛИЛ|ПРИГОВОРИЛ|УСТАНОВИЛА|ПОСТАНОВИЛА|РЕШИЛА|ОПРЕДЕЛИЛА|ПРИГОВОРИЛА|УСТАНОВИЛО|ПОСТАНОВИЛО)[:\s]/i;
   const isLegalCenter = (line) => {
     const stripped = line.replace(/\*\*/g, '').trim();
     return LEGAL_CENTER_RE.test(stripped) && stripped.length < 60;
   };
 
-  const htmlResult = mergedText.split('\n').map(line => {
-    if (line.startsWith('## ')) return `<h2 style="text-align:center">${annotLine(line.slice(3), marks, anonymized)}</h2>`;
-    if (line.startsWith('### ')) return `<h3 style="text-align:center">${annotLine(line.slice(4), marks, anonymized)}</h3>`;
-    // Skip --- (page break artifact)
-    if (line === '---') return '<div><br/></div>';
-    if (!line.trim()) return '<div><br/></div>';
-    // Разделитель страниц [PAGE:N]
-    const pageMatch = line.match(/^\[PAGE:(\d+)\]$/);
-    if (pageMatch) {
-      return `<div class="page-separator" contenteditable="false" data-page="${pageMatch[1]}"><span class="page-separator-line"></span><span class="page-separator-label">Страница ${pageMatch[1]}</span><span class="page-separator-line"></span></div>`;
-    }
-    // Абзац с отступом первой строки [INDENT]text
-    const indentMatch = line.match(/^\[INDENT\](.+)$/);
-    if (indentMatch) {
-      return `<div style="text-indent:2em">${annotLine(indentMatch[1], marks, anonymized)}</div>`;
-    }
-    // Блок шапки справа [RIGHT-BLOCK]text — реквизиты в правой части документа
-    const rightMatch = line.match(/^\[RIGHT-BLOCK\](.+)$/);
-    if (rightMatch) {
-      return `<div class="right-block">${annotLine(rightMatch[1], marks, anonymized)}</div>`;
-    }
-    // [CENTER]text[/CENTER] tag from OCR prompt
-    const centerMatch = line.match(/^\[CENTER\](.+?)\[\/CENTER\]$/);
-    if (centerMatch) {
-      return `<div style="text-align:center">${annotLine(centerMatch[1], marks, anonymized)}</div>`;
-    }
-    // LEFTRIGHT: left text | right text
-    const lrMatch = line.match(/^\[LEFTRIGHT:\s*(.+?)\s*\|\s*(.+?)\s*\]$/);
-    if (lrMatch) {
-      return `<div class="lr-row"><span>${annotLine(lrMatch[1], marks, anonymized)}</span><span>${annotLine(lrMatch[2], marks, anonymized)}</span></div>`;
-    }
-    // Auto-center legal section headers (handles ** wrapping too)
-    if (isLegalCenter(line)) {
-      // Strip ** from display, keep bold via <strong>
-      const clean = line.replace(/\*\*/g, '').trim();
-      return `<div style="text-align:center"><strong>${annotLine(clean, marks, anonymized)}</strong></div>`;
-    }
-    return `<div>${annotLine(line, marks, anonymized)}</div>`;
-  }).join('');
+  const htmlResult = mergedText
+    .split('\n')
+    .map((line) => renderAnnotatedLine(line, marks, anonymized, isLegalCenter))
+    .join('');
 
-  // Post-pass: find otherPD values that were NOT marked by annotLine
-  // (e.g. value spans across line breaks, or minor text differences)
-  // Uses DOM-based search across text nodes — same approach as buildAnnotatedDocxHtml
   const otherOnlyMarks = marks.filter(m => m.type === 'other');
-  if (otherOnlyMarks.length > 0) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = htmlResult;
-    // Collect ids already marked
-    const markedIds = new Set();
-    tmp.querySelectorAll('mark[data-pd-id]').forEach(el => markedIds.add(el.dataset.pdId));
-    // Only process otherPD that have no marks yet
-    const unmarked = otherOnlyMarks.filter(m => !markedIds.has(m.id));
-    if (unmarked.length > 0) {
-      function annotateOtherInNode(node) {
-        if (node.nodeType === 3) {
-          const text = node.textContent;
-          const allMatches = [];
-          for (const mark of unmarked) {
-            try {
-              const pattern = buildOtherPdPattern(mark.txt, mark.pdType);
-              const re = new RegExp(pattern, 'gi');
-              let m;
-              while ((m = re.exec(text)) !== null) {
-                allMatches.push({ start: m.index, end: m.index + m[0].length, mt: m[0], mark });
-              }
-            } catch {}
-          }
-          if (allMatches.length === 0) return;
-          allMatches.sort((a, b) => a.start - b.start);
-          const filtered = [];
-          let lastEnd = 0;
-          for (const m of allMatches) {
-            if (m.start >= lastEnd) { filtered.push(m); lastEnd = m.end; }
-          }
-          const fragment = document.createDocumentFragment();
-          let lastIdx = 0;
-          for (const { start, end, mt, mark } of filtered) {
-            if (start > lastIdx) fragment.appendChild(document.createTextNode(text.slice(lastIdx, start)));
-            const el = document.createElement('mark');
-            const isAnon = !!anonymized[mark.id];
-            el.className = 'pd oth' + (isAnon ? ' anon' : '');
-            el.dataset.pdId = mark.id;
-            el.dataset.original = mt;
-            el.contentEditable = 'false';
-            el.title = isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
-            el.textContent = isAnon ? mark.replacement : mt;
-            fragment.appendChild(el);
-            lastIdx = end;
-          }
-          if (lastIdx < text.length) fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
-          node.parentNode.replaceChild(fragment, node);
-        } else if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
-          Array.from(node.childNodes).forEach(annotateOtherInNode);
-        }
-      }
-      Array.from(tmp.childNodes).forEach(annotateOtherInNode);
-      return tmp.innerHTML;
-    }
-  }
-
-  return annotateAmbiguousPersonsHtml(htmlResult, ambiguousPersons);
+  const finalHtml = annotateUnmarkedOtherPdHtml(htmlResult, otherOnlyMarks, anonymized);
+  return annotateAmbiguousPersonsHtml(finalHtml, ambiguousPersons);
 }
 
 export function htmlToPlainText(html) {

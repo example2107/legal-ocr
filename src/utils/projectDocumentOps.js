@@ -14,6 +14,124 @@ function mergeSourceFiles(existingFiles = [], nextFiles = []) {
   });
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildFlexibleMentionPattern(value) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return escapeRegExp(value);
+  return parts.map((part) => escapeRegExp(part)).join('[\\s\\n]+');
+}
+
+function collectPatternMatches({ text, pattern, buildMatch }) {
+  const matches = [];
+
+  try {
+    const re = new RegExp(pattern, 'gi');
+    let match;
+    while ((match = re.exec(text)) !== null) {
+      matches.push(buildMatch(match));
+    }
+  } catch {}
+
+  return matches;
+}
+
+function collectPersonMatches(text, persons, initialAnon) {
+  return persons.flatMap((person) => {
+    const cat = person.category === 'professional' ? 'prof' : 'priv';
+    return (person.mentions || [person.fullName]).flatMap((mention) => {
+      if (!mention || mention.length < 2) return [];
+      return collectPatternMatches({
+        text,
+        pattern: escapeRegExp(mention),
+        buildMatch: (match) => ({
+          start: match.index,
+          end: match.index + match[0].length,
+          mt: match[0],
+          id: person.id,
+          cat,
+          letter: person.letter,
+          isAnon: !!initialAnon[person.id],
+          type: 'person',
+        }),
+      });
+    });
+  });
+}
+
+function collectOtherPdMatches(text, otherPd, initialAnon, getOtherPdMentions) {
+  return otherPd.flatMap((item) => (
+    getOtherPdMentions(item).flatMap((mention) => collectPatternMatches({
+      text,
+      pattern: buildFlexibleMentionPattern(mention),
+      buildMatch: (match) => ({
+        start: match.index,
+        end: match.index + match[0].length,
+        mt: match[0],
+        id: item.id,
+        cat: 'oth',
+        replacement: item.replacement,
+        isAnon: !!initialAnon[item.id],
+        type: 'other',
+      }),
+    }))
+  ));
+}
+
+function filterNonOverlappingMatches(matches) {
+  const filtered = [];
+  let lastEnd = 0;
+
+  matches
+    .sort((a, b) => a.start - b.start)
+    .forEach((match) => {
+      if (match.start < lastEnd) return;
+      filtered.push(match);
+      lastEnd = match.end;
+    });
+
+  return filtered;
+}
+
+function buildAnnotatedMark(match) {
+  const el = document.createElement('mark');
+  el.className = 'pd ' + match.cat + (match.isAnon ? ' anon' : '');
+  el.dataset.pdId = match.id;
+  el.dataset.original = match.mt;
+  el.contentEditable = 'false';
+  el.title = match.isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
+  el.textContent = match.isAnon
+    ? (match.type === 'person' ? match.letter : match.replacement)
+    : match.mt;
+  return el;
+}
+
+function annotateTextNodeWithMatches(node, matches) {
+  const text = node.textContent;
+  const fragment = document.createDocumentFragment();
+  let lastIdx = 0;
+
+  matches.forEach((match) => {
+    if (match.start > lastIdx) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIdx, match.start)));
+    }
+    fragment.appendChild(buildAnnotatedMark(match));
+    lastIdx = match.end;
+  });
+
+  if (lastIdx < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+  }
+
+  node.parentNode.replaceChild(fragment, node);
+}
+
+function annotateNodeChildren(node, annotateNode) {
+  Array.from(node.childNodes).forEach(annotateNode);
+}
+
 function annotateMergedDocumentHtml({ html, pd, initialAnon, getOtherPdMentions }) {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
@@ -27,105 +145,71 @@ function annotateMergedDocumentHtml({ html, pd, initialAnon, getOtherPdMentions 
     return html;
   }
 
-  const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const buildPattern = (value) => {
-    const parts = value.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return escapeRegExp(value);
-    return parts.map((part) => escapeRegExp(part)).join('[\\s\\n]+');
-  };
+  function annotateTextNode(node) {
+    const text = node.textContent;
+    const matches = filterNonOverlappingMatches([
+      ...collectPersonMatches(text, newPersons, initialAnon),
+      ...collectOtherPdMatches(text, newOtherPD, initialAnon, getOtherPdMentions),
+    ]);
+
+    if (matches.length === 0) return;
+    annotateTextNodeWithMatches(node, matches);
+  }
 
   function annotateNewInNode(node) {
     if (node.nodeType === 3) {
-      const text = node.textContent;
-      const matches = [];
-
-      for (const person of newPersons) {
-        for (const mention of (person.mentions || [person.fullName])) {
-          if (!mention || mention.length < 2) continue;
-          try {
-            const re = new RegExp(escapeRegExp(mention), 'gi');
-            let match;
-            while ((match = re.exec(text)) !== null) {
-              const cat = person.category === 'professional' ? 'prof' : 'priv';
-              matches.push({
-                start: match.index,
-                end: match.index + match[0].length,
-                mt: match[0],
-                id: person.id,
-                cat,
-                letter: person.letter,
-                isAnon: !!initialAnon[person.id],
-                type: 'person',
-              });
-            }
-          } catch {}
-        }
-      }
-
-      for (const item of newOtherPD) {
-        for (const mention of getOtherPdMentions(item)) {
-          try {
-            const re = new RegExp(buildPattern(mention), 'gi');
-            let match;
-            while ((match = re.exec(text)) !== null) {
-              matches.push({
-                start: match.index,
-                end: match.index + match[0].length,
-                mt: match[0],
-                id: item.id,
-                cat: 'oth',
-                replacement: item.replacement,
-                isAnon: !!initialAnon[item.id],
-                type: 'other',
-              });
-            }
-          } catch {}
-        }
-      }
-
-      if (matches.length === 0) return;
-      matches.sort((a, b) => a.start - b.start);
-      const filtered = [];
-      let lastEnd = 0;
-      for (const match of matches) {
-        if (match.start >= lastEnd) {
-          filtered.push(match);
-          lastEnd = match.end;
-        }
-      }
-
-      const fragment = document.createDocumentFragment();
-      let lastIdx = 0;
-      for (const match of filtered) {
-        if (match.start > lastIdx) {
-          fragment.appendChild(document.createTextNode(text.slice(lastIdx, match.start)));
-        }
-        const el = document.createElement('mark');
-        el.className = 'pd ' + match.cat + (match.isAnon ? ' anon' : '');
-        el.dataset.pdId = match.id;
-        el.dataset.original = match.mt;
-        el.contentEditable = 'false';
-        el.title = match.isAnon ? 'Нажмите, чтобы показать' : 'Нажмите, чтобы обезличить';
-        el.textContent = match.isAnon
-          ? (match.type === 'person' ? match.letter : match.replacement)
-          : match.mt;
-        fragment.appendChild(el);
-        lastIdx = match.end;
-      }
-      if (lastIdx < text.length) {
-        fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
-      }
-      node.parentNode.replaceChild(fragment, node);
+      annotateTextNode(node);
       return;
     }
 
     if (node.nodeType === 1 && !['mark', 'script', 'style'].includes(node.tagName.toLowerCase())) {
-      Array.from(node.childNodes).forEach(annotateNewInNode);
+      annotateNodeChildren(node, annotateNewInNode);
     }
   }
 
-  Array.from(tmp.childNodes).forEach(annotateNewInNode);
+  annotateNodeChildren(tmp, annotateNewInNode);
   return tmp.innerHTML;
+}
+
+function buildMergedAnonymizedState(existingDoc, pageEntry) {
+  return {
+    ...(existingDoc?.anonymized || {}),
+    ...(pageEntry?.anonymized || {}),
+  };
+}
+
+function buildBatchEntryHtml(entry, pd, initialAnon, getOtherPdMentions) {
+  if (!entry) return '';
+  if (!entry.editedHtml) {
+    return buildAnnotatedHtml(entry.text || '', pd, initialAnon);
+  }
+
+  return annotateMergedDocumentHtml({
+    html: entry.editedHtml,
+    pd,
+    initialAnon,
+    getOtherPdMentions,
+  });
+}
+
+function buildMergedBatchText(existingDoc, pageEntry) {
+  return [existingDoc?.text || '', pageEntry.text || ''].filter(Boolean).join('\n');
+}
+
+function resolveBatchDocumentTitle(existingDoc, pageEntry) {
+  return existingDoc?.title
+    || pageEntry.originalFileName
+    || pageEntry.batchFileName
+    || pageEntry.title
+    || 'PDF-документ';
+}
+
+function resolveBatchPageDetails(existingDoc, pageEntry, primarySource) {
+  return {
+    pageFrom: existingDoc?.pageFrom || pageEntry.pageFrom || primarySource?.pageFrom || null,
+    pageTo: pageEntry.pageTo || existingDoc?.pageTo || primarySource?.pageTo || null,
+    totalPages: pageEntry.totalPages || existingDoc?.totalPages || primarySource?.totalPages || null,
+  };
 }
 
 export async function mergeProjectDocument({
@@ -250,45 +334,27 @@ export function buildProjectBatchDocumentEntry({
 } = {}) {
   if (!pageEntry) return null;
 
-  const mergedAnon = {
-    ...(existingDoc?.anonymized || {}),
-    ...(pageEntry?.anonymized || {}),
-  };
-  const existingHtml = existingDoc?.editedHtml
-    ? annotateMergedDocumentHtml({
-        html: existingDoc.editedHtml,
-        pd,
-        initialAnon: mergedAnon,
-        getOtherPdMentions,
-      })
-    : '';
-  const nextPageHtml = pageEntry.editedHtml
-    ? annotateMergedDocumentHtml({
-        html: pageEntry.editedHtml,
-        pd,
-        initialAnon: mergedAnon,
-        getOtherPdMentions,
-      })
-    : buildAnnotatedHtml(pageEntry.text || '', pd, mergedAnon);
+  const mergedAnon = buildMergedAnonymizedState(existingDoc, pageEntry);
+  const existingHtml = buildBatchEntryHtml(existingDoc, pd, mergedAnon, getOtherPdMentions);
+  const nextPageHtml = buildBatchEntryHtml(pageEntry, pd, mergedAnon, getOtherPdMentions);
   const documentsToMerge = [existingDoc, pageEntry].filter(Boolean);
   const pageMetadata = mergeDocumentPageMetadata(documentsToMerge);
   const primarySource = pageMetadata?.sources?.[0] || null;
+  const pageDetails = resolveBatchPageDetails(existingDoc, pageEntry, primarySource);
 
   return {
     ...(existingDoc || {}),
     ...pageEntry,
     id: existingDoc?.id || pageEntry.id || generateId(),
-    title: existingDoc?.title || pageEntry.originalFileName || pageEntry.batchFileName || pageEntry.title || 'PDF-документ',
+    title: resolveBatchDocumentTitle(existingDoc, pageEntry),
     originalFileName: pageEntry.originalFileName || existingDoc?.originalFileName || '',
-    text: [existingDoc?.text || '', pageEntry.text || ''].filter(Boolean).join('\n'),
+    text: buildMergedBatchText(existingDoc, pageEntry),
     editedHtml: [existingHtml, nextPageHtml].filter(Boolean).join(''),
     personalData: pd,
     anonymized: mergedAnon,
     source: 'project-batch',
     projectId: currentProjectId || pageEntry.projectId || existingDoc?.projectId || null,
-    pageFrom: existingDoc?.pageFrom || pageEntry.pageFrom || primarySource?.pageFrom || null,
-    pageTo: pageEntry.pageTo || existingDoc?.pageTo || primarySource?.pageTo || null,
-    totalPages: pageEntry.totalPages || existingDoc?.totalPages || primarySource?.totalPages || null,
+    ...pageDetails,
     chunkIndex: null,
     chunkSize: 1,
     batchFileName: pageEntry.batchFileName || existingDoc?.batchFileName || '',

@@ -15,47 +15,28 @@ import {
 } from './supabaseClient';
 import { normalizeDocumentPageMetadata } from './documentPageMetadata';
 
-function canUseCloud(user) {
-  return Boolean(user?.id && isSupabaseConfigured && supabase);
-}
+const EMPTY_PD = { persons: [], otherPD: [], ambiguousPersons: [] };
+const EMPTY_SHARED_PD = { persons: [], otherPD: [] };
 
-function generateProjectId() {
-  return `proj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function mapProjectRow(row) {
+function withPrimarySourcePageRange(entry, pageMetadata) {
+  const primarySource = pageMetadata?.sources?.[0] || null;
   return {
-    id: row.id,
-    title: row.title,
-    documentIds: row.document_ids || [],
-    sharedPD: row.shared_pd || { persons: [], otherPD: [] },
-    batchSession: row.batch_session || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    ...entry,
+    pageFrom: entry.pageFrom || primarySource?.pageFrom || null,
+    pageTo: entry.pageTo || primarySource?.pageTo || null,
+    totalPages: entry.totalPages || primarySource?.totalPages || null,
+    pageMetadata,
   };
 }
 
-function projectToRow(userId, project) {
+function buildDocumentEntryFromRow(row) {
   return {
-    id: project.id,
-    user_id: userId,
-    title: project.title,
-    document_ids: project.documentIds || [],
-    shared_pd: project.sharedPD || { persons: [], otherPD: [] },
-    batch_session: project.batchSession || null,
-    created_at: project.createdAt || new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-}
-
-function mapDocumentRow(row) {
-  const entry = {
     id: row.id,
     title: row.title,
     originalFileName: row.original_file_name || '',
     text: row.text || '',
     editedHtml: row.edited_html || '',
-    personalData: row.personal_data || { persons: [], otherPD: [], ambiguousPersons: [] },
+    personalData: row.personal_data || EMPTY_PD,
     anonymized: row.anonymized || {},
     source: row.source || 'ocr',
     projectId: row.project_id || null,
@@ -69,26 +50,9 @@ function mapDocumentRow(row) {
     sourceFiles: row.source_files || [],
     savedAt: row.saved_at || row.updated_at,
   };
-
-  const pageMetadata = normalizeDocumentPageMetadata({
-    ...entry,
-    pageMetadata: row.page_metadata || null,
-  });
-  const primarySource = pageMetadata?.sources?.[0] || null;
-
-  return {
-    ...entry,
-    pageFrom: entry.pageFrom || primarySource?.pageFrom || null,
-    pageTo: entry.pageTo || primarySource?.pageTo || null,
-    totalPages: entry.totalPages || primarySource?.totalPages || null,
-    pageMetadata,
-  };
 }
 
-function documentToRow(userId, doc) {
-  const pageMetadata = normalizeDocumentPageMetadata(doc);
-  const primarySource = pageMetadata?.sources?.[0] || null;
-
+function buildDocumentRowBase(userId, doc) {
   return {
     id: doc.id,
     user_id: userId,
@@ -96,21 +60,72 @@ function documentToRow(userId, doc) {
     original_file_name: doc.originalFileName || '',
     text: doc.text || '',
     edited_html: doc.editedHtml || '',
-    personal_data: doc.personalData || { persons: [], otherPD: [], ambiguousPersons: [] },
+    personal_data: doc.personalData || EMPTY_PD,
     anonymized: doc.anonymized || {},
     source: doc.source || 'ocr',
     project_id: doc.projectId || null,
     is_project_summary: !!doc.isProjectSummary,
-    page_from: doc.pageFrom || primarySource?.pageFrom || null,
-    page_to: doc.pageTo || primarySource?.pageTo || null,
-    total_pages: doc.totalPages || primarySource?.totalPages || null,
     chunk_index: doc.chunkIndex || null,
     chunk_size: doc.chunkSize || null,
     batch_file_name: doc.batchFileName || '',
     source_files: doc.sourceFiles || [],
-    page_metadata: pageMetadata,
     saved_at: doc.savedAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
+  };
+}
+
+function canUseCloud(user) {
+  return Boolean(user?.id && isSupabaseConfigured && supabase);
+}
+
+function generateProjectId() {
+  return `proj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function mapProjectRow(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    documentIds: row.document_ids || [],
+    sharedPD: row.shared_pd || EMPTY_SHARED_PD,
+    batchSession: row.batch_session || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function projectToRow(userId, project) {
+  return {
+    id: project.id,
+    user_id: userId,
+    title: project.title,
+    document_ids: project.documentIds || [],
+    shared_pd: project.sharedPD || EMPTY_SHARED_PD,
+    batch_session: project.batchSession || null,
+    created_at: project.createdAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function mapDocumentRow(row) {
+  const entry = buildDocumentEntryFromRow(row);
+  const pageMetadata = normalizeDocumentPageMetadata({
+    ...entry,
+    pageMetadata: row.page_metadata || null,
+  });
+  return withPrimarySourcePageRange(entry, pageMetadata);
+}
+
+function documentToRow(userId, doc) {
+  const pageMetadata = normalizeDocumentPageMetadata(doc);
+  const primarySource = pageMetadata?.sources?.[0] || null;
+
+  return {
+    ...buildDocumentRowBase(userId, doc),
+    page_from: doc.pageFrom || primarySource?.pageFrom || null,
+    page_to: doc.pageTo || primarySource?.pageTo || null,
+    total_pages: doc.totalPages || primarySource?.totalPages || null,
+    page_metadata: pageMetadata,
   };
 }
 
@@ -170,7 +185,7 @@ export async function createProjectRecord(user, title) {
     id: generateProjectId(),
     title: title || 'Новый проект',
     documentIds: [],
-    sharedPD: { persons: [], otherPD: [] },
+    sharedPD: EMPTY_SHARED_PD,
     batchSession: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

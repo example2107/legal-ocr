@@ -61,16 +61,33 @@ function normalizePage(page, index, fallbackPageNumber = null) {
   };
 }
 
-function normalizeSourceEntry(source, fallback = {}) {
-  const pageFrom = toPositiveNumberOrNull(source?.pageFrom || fallback.pageFrom);
-  const pageTo = toPositiveNumberOrNull(source?.pageTo || fallback.pageTo);
-  const totalPages = toPositiveNumberOrNull(source?.totalPages || fallback.totalPages);
+function getNormalizedSourceRange(source, fallback) {
+  return {
+    pageFrom: toPositiveNumberOrNull(source?.pageFrom || fallback.pageFrom),
+    pageTo: toPositiveNumberOrNull(source?.pageTo || fallback.pageTo),
+    totalPages: toPositiveNumberOrNull(source?.totalPages || fallback.totalPages),
+  };
+}
+
+function buildNormalizedPages(source, pageFrom) {
   const rawPages = Array.isArray(source?.pages) && source.pages.length > 0
     ? source.pages
-    : buildPagesFromRange(pageFrom, pageTo);
-  const pages = rawPages
+    : buildPagesFromRange(pageFrom, toPositiveNumberOrNull(source?.pageTo));
+
+  return rawPages
     .map((page, index) => normalizePage(page, index, pageFrom ? pageFrom + index : null))
     .filter(Boolean);
+}
+
+function normalizeSourceEntry(source, fallback = {}) {
+  const { pageFrom, pageTo, totalPages } = getNormalizedSourceRange(source, fallback);
+  const pages = buildNormalizedPages(
+    {
+      ...source,
+      pageTo,
+    },
+    pageFrom,
+  );
 
   if (!pageFrom && !pageTo && pages.length === 0) return null;
 
@@ -86,6 +103,55 @@ function normalizeSourceEntry(source, fallback = {}) {
     totalPages,
     pages,
   };
+}
+
+function buildSourceKey(source) {
+  return [
+    source?.sourceFile?.storagePath || '',
+    source?.sourceFile?.name || '',
+    source?.batchFileName || '',
+    source?.projectId || '',
+  ].join('::');
+}
+
+function mergePageRange(currentValue, nextValue, compareFn) {
+  if (currentValue && nextValue) {
+    return compareFn(currentValue, nextValue);
+  }
+  return currentValue || nextValue || null;
+}
+
+function appendSourceToMap(sourceMap, source) {
+  const key = buildSourceKey(source);
+  const existing = sourceMap.get(key);
+  if (!existing) {
+    sourceMap.set(key, {
+      ...source,
+      pages: [...(source.pages || [])],
+    });
+    return;
+  }
+
+  existing.pages = [...(existing.pages || []), ...(source.pages || [])];
+  existing.pageFrom = mergePageRange(existing.pageFrom, source.pageFrom, Math.min);
+  existing.pageTo = mergePageRange(existing.pageTo, source.pageTo, Math.max);
+  existing.totalPages = existing.totalPages || source.totalPages || null;
+}
+
+function dedupeAndNormalizePages(pages = []) {
+  const sortedPages = [...pages].sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0));
+  const uniquePages = [];
+
+  sortedPages.forEach((page) => {
+    if (!page?.pageNumber) return;
+    if (uniquePages.some((item) => item.pageNumber === page.pageNumber)) return;
+    uniquePages.push({
+      ...page,
+      chunkPageIndex: uniquePages.length + 1,
+    });
+  });
+
+  return uniquePages;
 }
 
 export function buildDocumentPageMetadata({
@@ -146,46 +212,13 @@ export function mergeDocumentPageMetadata(entries = []) {
   const sourceMap = new Map();
   entries.forEach((entry) => {
     const metadata = normalizeDocumentPageMetadata(entry);
-    (metadata?.sources || []).forEach((source) => {
-      const key = [
-        source?.sourceFile?.storagePath || '',
-        source?.sourceFile?.name || '',
-        source?.batchFileName || '',
-        source?.projectId || '',
-      ].join('::');
-      const existing = sourceMap.get(key);
-      if (!existing) {
-        sourceMap.set(key, {
-          ...source,
-          pages: [...(source.pages || [])],
-        });
-        return;
-      }
-      existing.pages = [...(existing.pages || []), ...(source.pages || [])];
-      existing.pageFrom = existing.pageFrom && source.pageFrom
-        ? Math.min(existing.pageFrom, source.pageFrom)
-        : existing.pageFrom || source.pageFrom || null;
-      existing.pageTo = existing.pageTo && source.pageTo
-        ? Math.max(existing.pageTo, source.pageTo)
-        : existing.pageTo || source.pageTo || null;
-      existing.totalPages = existing.totalPages || source.totalPages || null;
-    });
+    (metadata?.sources || []).forEach((source) => appendSourceToMap(sourceMap, source));
   });
 
   const sources = Array.from(sourceMap.values())
     .map((source) => ({
       ...source,
-      pages: (source.pages || [])
-        .sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0))
-        .reduce((acc, page) => {
-          if (!page?.pageNumber) return acc;
-          if (acc.some((item) => item.pageNumber === page.pageNumber)) return acc;
-          acc.push({
-            ...page,
-            chunkPageIndex: acc.length + 1,
-          });
-          return acc;
-        }, []),
+      pages: dedupeAndNormalizePages(source.pages || []),
     }))
     .sort((a, b) => (a.pageFrom || 0) - (b.pageFrom || 0));
 

@@ -1,4 +1,4 @@
-import { analyzePD, PROVIDERS } from './claudeApi';
+import { analyzePD } from './claudeApi';
 
 describe('analyzePD ambiguous mentions normalization', () => {
   const originalFetch = global.fetch;
