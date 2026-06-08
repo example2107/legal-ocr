@@ -1,18 +1,13 @@
 export const PROVIDERS = {
   claude: {
     label: 'Claude (Anthropic)',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-8',
     placeholder: 'sk-ant-...',
   },
   openai: {
     label: 'ChatGPT (OpenAI)',
-    model: 'gpt-5.4',
+    model: 'gpt-5.5',
     placeholder: 'sk-...',
-  },
-  gemini: {
-    label: 'Gemini (Google)',
-    model: 'gemini-3.1-pro-preview',
-    placeholder: 'AIza...',
   },
 };
 

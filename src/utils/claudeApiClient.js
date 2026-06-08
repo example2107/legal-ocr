@@ -108,49 +108,7 @@ async function callOpenAI(messages, apiKey, system) {
   return data.choices[0].message.content;
 }
 
-function toGeminiParts(messages, system) {
-  const parts = [];
-  if (system) {
-    parts.push({ text: `${system}\n\n` });
-  }
-
-  for (const message of messages) {
-    if (!Array.isArray(message.content)) {
-      parts.push({ text: message.content });
-      continue;
-    }
-
-    for (const part of message.content) {
-      if (part.type === 'image') {
-        parts.push({ inlineData: { mimeType: part.source.media_type, data: part.source.data } });
-      } else if (part.type === 'text') {
-        parts.push({ text: part.text });
-      }
-    }
-  }
-
-  return parts;
-}
-
-async function callGemini(messages, apiKey, system) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${PROVIDERS.gemini.model}:generateContent?key=${apiKey}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: toGeminiParts(messages, system) }] }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error?.message || `Ошибка Gemini API: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
-}
-
 export async function callApi(messages, apiKey, system, provider) {
   if (provider === 'openai') return callOpenAI(messages, apiKey, system);
-  if (provider === 'gemini') return callGemini(messages, apiKey, system);
   return callClaude(messages, apiKey, system);
 }
