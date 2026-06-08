@@ -5,6 +5,7 @@ import { buildAnnotatedHtml, buildPdMatchPattern, patchPdMarks, initPdMarkOrigin
 import { useAuth } from './context/AuthContext';
 import { useAppBatchProgressState } from './hooks/useAppBatchProgressState';
 import { useAppNavigationFlow } from './hooks/useAppNavigationFlow';
+import { useBackgroundProcessingFeedback } from './hooks/useBackgroundProcessingFeedback';
 import { useAppViewProps } from './hooks/useAppViewProps';
 import { useAppWorkspaceState } from './hooks/useAppWorkspaceState';
 import { useEditorPageNavigation } from './hooks/useEditorPageNavigation';
@@ -75,6 +76,9 @@ export default function App() {
   });
 
   const { progress, setProgress, activeBatchUiState, setActiveBatchUiState, persistedBatchUiState, setPersistedBatchUiState, setNonDecreasingProgress, animateTo, stopProgressCreep } = useAppBatchProgressState({ projects });
+
+  // Прогресс в заголовке вкладки + Screen Wake Lock на время распознавания
+  useBackgroundProcessingFeedback({ progress });
 
   const { pdWidth, viewerWidth, startResize } = useResizablePanels();
 
